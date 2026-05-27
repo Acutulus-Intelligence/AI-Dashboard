@@ -361,15 +361,6 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
-/EventExtension/appsettings.json
-/EventExtension/Data/eventsVBG.json
-/EventExtension/Data/eventsHSTD.json
-/EventExtension/Data/eventsFBG.json
-/EventExtension/Data/SeedEvents.cs
-/EventExtension/EventExtension.http
-/EventExtension/Properties/launchSettings.json
-/EventExtension/appsettings.Development.json
-/EventExtension/Dockerfile
 
 
 # Logs
