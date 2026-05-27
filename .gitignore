@@ -395,3 +395,4 @@ dist.pem
 /Backend/Presentation/appsettings.json
 /Backend/Presentation/appsettings.Development.json
 /Backend/Presentation/Properties/launchSettings.json
+/Backend/launchSettings.json
