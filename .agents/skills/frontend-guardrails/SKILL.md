@@ -16,39 +16,35 @@ Follow these rules for all work under the `Frontend/` directory.
 
 ```
 Frontend/src/
-├── assets/images/         Static images
-├── assets/css/            (optional) Additional CSS files
-├── config/env.ts          API URL, constants, feature flags
-├── data/                  Mock data & static content
-│   ├── homePage.js
-│   └── customerDashboard.js
-├── styles/index.css       Tailwind directives + @layer custom utilities
-├── components/
-│   ├── ui/                Primitives (Button, Reveal — zero business logic)
-│   ├── layout/            Header, Footer (visible across pages)
-│   ├── sections/          Marketing sections (HeroSection, FeaturesSection, …)
-│   ├── customer/          Post-login dashboard (DashboardsPage + parts/)
-│   └── dashboard/         Cross-context preview (DashboardPreview)
-├── router.ts              (future) Route definitions
-├── main.jsx               React entry point
-└── index.html             HTML shell, lang="sv"
+├── assets/
+│   ├── images/          Static images (tim.png, etc.)
+│   └── css/             Global stylesheets (App.css)
+├── config/
+│   └── env.ts           API URL, constants, feature flags
+├── features/
+│   ├── components/      Small reusable components used across features
+│   ├── sections/        Larger feature sections & previews
+│   │   ├── Hero.jsx
+│   ├── layouts/         Shells visible across multiple pages
+│   │   ├── Footer.jsx
+│   │   └── Header.jsx
+│   ├── pages/           Page-level components (one per route)
+│   │   ├── DashboardPage.jsx
+│   │   └── LandingPage.jsx
+│   └── routes.ts        Route path constants
+├── router.ts            Application-wide routing
+├── main.jsx             React entry point
+└── index.html           HTML shell (lang="sv")
 ```
 
-## Component Organization
+## Component Responsibilities
 
-| Folder | Purpose | Example |
-|--------|---------|---------|
-| `ui/` | Generic reusable primitives | `Button`, `Reveal`, `Modal` |
-| `layout/` | Structural wrappers across pages | `Header`, `Footer`, `Sidebar` |
-| `sections/` | Marketing/content sections | `HeroSection`, `FeaturesSection` |
-| `customer/` | Authenticated app experience | `DashboardsPage`, `parts/*` |
-| `dashboard/` | Cross-context previews | `DashboardPreview` |
-
-When adding a new feature:
-1. Create a folder under `components/` named after the feature
-   (e.g. `components/connections/`)
-2. For complex features, group sub-components in a `parts/` folder
-3. Keep page-level orchestration in a `*Page.jsx` file
+| Folder | Purpose | Examples |
+|--------|---------|----------|
+| `features/components/` | Small, reusable, no business logic | `Button`, `Reveal`, `Card`, `Sidebar` |
+| `features/sections/` | Larger compositions that make up a page | `Hero`, `Pricing`, `DashboardGrid` |
+| `features/layouts/` | Structural wrappers across pages | `Header`, `Footer`, `Navbar` |
+| `features/pages/` | Top-level page for a route | `LandingPage`, `DashboardPage` |
 
 ## Component Structure
 
@@ -75,51 +71,51 @@ export default function MyComponent({ prop1, prop2 }) {
 1. React / framework
 2. lucide-react icons
 3. Child components
-4. Assets / data
+4. Assets / config / data
 
 ## Naming
 
-- Files & components: PascalCase (`HeroSection.jsx`)
+- Files & components: PascalCase (`Hero.jsx`, `Pricing.jsx`)
 - Icons: destructure from lucide-react
 - CSS: Tailwind utility classes exclusively
-- Data files: camelCase (`homePage.js`)
-- Folders: lowercase, kebab-case for multi-word (`dashboard-preview/`)
+- Config files: camelCase
+- Data files: camelCase
+- Folders: lowercase, kebab-case for multi-word
 
 ## Styling
 
 - Tailwind utility classes only
-- Custom utilities in `index.css` via `@layer components { ... }`
+- Custom utilities in `assets/css/App.css` via `@layer components { ... }`
 - Dark mode: `class` strategy — toggle via `<html class="dark">`
-- Use semantic color tokens from `tailwind.config.js` (`bg-surface`,
-  `text-on-primary`)
+- Use semantic color tokens from `tailwind.config.js` (`bg-surface`, `text-on-primary`)
 - Design tokens: `px-gutter` (24px), `max-w-container-max` (1440px)
 
 ## Routing
 
-- Current: `window.location.pathname` check in `App.jsx`
-- `/app` → `DashboardsPage` (customer view)
-- Other → Marketing landing page
+- `router.ts` at src root defines the routing logic
+- `features/routes.ts` exports route path constants
+- `/app` → `DashboardPage` (customer view)
+- `/` → `LandingPage` (marketing)
 - Future: React Router or TanStack Router
 
 ## Data Flow
 
-- Static data in `src/data/` as JS objects/arrays
+- Static data lives in `src/data/` as JS objects/arrays
 - API calls through `src/config/env.ts`
 - DTOs match backend `Application/DTos/Request/` and `Application/DTos/Response/`
 
 ## Chart & Layout Libraries (future)
 
-- Charts: ECharts / Recharts / ApexCharts via `components/chart/ChartAdapter.jsx`
+- Charts: ECharts / Recharts / ApexCharts via a `Chart` wrapper component
 - Grid: react-grid-layout for drag & drop widget positioning
 - Each widget stores: position (`x`, `y`, `w`, `h`), chart type, saved SQL
 
 ## Language
 
-- UI text in Swedish (matches existing sections)
+- UI text in English (matches existing sections)
 - Code, variable names, comments in English
 - `index.html` has `lang="sv"`
 
 ## Preserve Existing Patterns
 
-Check existing code before adding new files. Match the established export
-style, import conventions, and Tailwind usage.
+Check existing code before adding new files. Match the established export style, import conventions, and Tailwind usage.
