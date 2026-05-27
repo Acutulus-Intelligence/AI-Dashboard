@@ -390,3 +390,8 @@ dist-ssr
 dist.crx
 dist.pem
 .env
+/Backend/Presentation/Presentation/appsettings.Development.json
+/Backend/Presentation/Presentation/appsettings.json
+/Backend/Presentation/appsettings.json
+/Backend/Presentation/appsettings.Development.json
+/Backend/Presentation/Properties/launchSettings.json
