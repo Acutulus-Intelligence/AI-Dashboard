@@ -1,0 +1,68 @@
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: ['./index.html', './src/**/*.{js,jsx}'],
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        background: '#f7f9fb',
+        surface: '#f7f9fb',
+        'surface-bright': '#f7f9fb',
+        'surface-container-lowest': '#ffffff',
+        'surface-container-low': '#f2f4f6',
+        'surface-container': '#eceef0',
+        'surface-container-high': '#e6e8ea',
+        'surface-container-highest': '#e0e3e5',
+        'surface-dim': '#d8dadc',
+        'surface-variant': '#e0e3e5',
+        primary: '#000000',
+        'on-primary': '#ffffff',
+        'primary-container': '#131b2e',
+        'on-primary-container': '#bec6e0',
+        secondary: '#00687a',
+        'on-secondary': '#ffffff',
+        'secondary-container': '#57dffe',
+        'on-secondary-container': '#003640',
+        cyan: {
+          action: '#06b6d4',
+        },
+        tertiary: '#3980f4',
+        error: '#ba1a1a',
+        outline: '#76777d',
+        'outline-variant': '#c6c6cd',
+        'on-background': '#191c1e',
+        'on-surface': '#191c1e',
+        'on-surface-variant': '#45464d',
+      },
+      borderRadius: {
+        DEFAULT: '0.125rem',
+        lg: '0.25rem',
+        xl: '0.5rem',
+        full: '9999px',
+      },
+      spacing: {
+        'container-max': '1440px',
+        gutter: '24px',
+      },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+        mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+      },
+      fontSize: {
+        'body-sm': ['14px', { lineHeight: '20px', fontWeight: '400' }],
+        'body-md': ['16px', { lineHeight: '24px', fontWeight: '400' }],
+        'body-lg': ['18px', { lineHeight: '28px', fontWeight: '400' }],
+        'label-caps': ['12px', { lineHeight: '16px', letterSpacing: '0.05em', fontWeight: '500' }],
+        'data-point': ['14px', { lineHeight: '14px', fontWeight: '600' }],
+        'headline-md': ['24px', { lineHeight: '32px', fontWeight: '600' }],
+        'headline-lg': ['32px', { lineHeight: '40px', fontWeight: '600' }],
+        'display-lg': ['48px', { lineHeight: '56px', fontWeight: '700' }],
+      },
+      boxShadow: {
+        ambient: '0 10px 40px -10px rgba(15, 23, 42, 0.1)',
+        action: '0 18px 35px -18px rgba(6, 182, 212, 0.7)',
+      },
+    },
+  },
+  plugins: [],
+};
