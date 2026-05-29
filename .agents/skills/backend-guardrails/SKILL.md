@@ -17,27 +17,29 @@ Follow these rules for all work under the `Backend/` directory.
 
 ```
 Backend/
+├── docker-compose.yml
+├── docker-compose.override.yml
+├── Presentation.slnx
 ├── Domain/
-│   ├── Entities/          SavedDashboard, Widget, ConnectionInfo
-│   ├── Enums/             DatabaseType, GraphType
-│   └── Interfaces/        Repository contracts (IWidgetRepository, etc.)
+│   ├── Enums/
+│   └── Models/
 ├── Application/
-│   ├── DTos/Request/      Input DTOs
-│   ├── DTos/Response/     Output DTOs
-│   ├── Interfaces/        Service contracts (IConnectionService, etc.)
-│   ├── Services/          Business logic implementations
-│   └── Validator/         FluentValidation validators
+│   ├── DTos/Request/
+│   ├── DTos/Response/
+│   ├── Interfaces/          Service contracts (IConnectionService, etc.)
+│   ├── Services/            Business logic implementations
+│   └── Validators/          FluentValidation validators
 ├── Infrastructure/
-│   ├── Data/              AppDbContext, EF Core configs, migrations
-│   ├── Repositories/      Domain.Interfaces implementations
-│   ├── Encryption/        (future) Encryption utilities
-│   ├── Tunneling/         (future) SSH via Renci.SshNet
-│   ├── ExternalDb/        (future) User DB connections
-│   └── Ai/                (future) AI client & prompt builder
+│   ├── Data/                AppDbContext, EF Core configs, migrations
+│   ├── Encryption/          (future) Encryption utilities
+│   ├── Tunneling/           (future) SSH via Renci.SshNet
+│   ├── ExternalDb/          (future) User DB connections
+│   └── Ai/                  (future) AI client & prompt builder
 └── Presentation/
-    ├── Controllers/       API endpoints
-    ├── Middleware/         ExceptionHandling, SecurityHeaders, RequestLogging
-    └── Program.cs         DI registration, middleware pipeline, OpenAPI
+    ├── Dockerfile
+    ├── Controllers/         API endpoints
+    ├── Middleware/          ExceptionHandling, SecurityHeaders, RequestLogging
+    └── Program.cs           DI registration, middleware pipeline, OpenAPI
 ```
 
 ## Architecture Rules
@@ -53,20 +55,47 @@ Domain ← Application ← Infrastructure ← Presentation
 - **Infrastructure** — Depends on `Application` and `Domain`.
 - **Presentation** — Depends on `Application` and `Infrastructure`.
 
-### Interface Ownership
+### Interface Contracts
 
-- `Domain/Interfaces/` — Repository contracts for data access. Implemented by
-  `Infrastructure/Repositories/`.
 - `Application/Interfaces/` — Service contracts for business operations.
   Implemented by `Application/Services/`.
 
+### Project Reference Rules
+
+```
+Domain.csproj          → (none)
+Application.csproj     → Domain
+Infrastructure.csproj  → Application, Domain
+Presentation.csproj    → Application, Domain, Infrastructure
+```
+
 ### Naming Conventions
 
-- Classes & interfaces: PascalCase (`ConnectionService`, `IWidgetRepository`)
+- Classes & interfaces: PascalCase (`ConnectionService`, `IConnectionService`)
 - Parameters & variables: camelCase (`connectionString`, `schemaResult`)
 - Files: match the class name exactly (`ConnectionService.cs`)
-- Namespaces: match folder path (`Domain.Entities`, `Application.Services`)
-- Folders: PascalCase (`Domain/Entities/`, not `Domain/entities/`)
+- Namespaces: match folder path (`Domain.Models`, `Application.Services`)
+- Folders: PascalCase (`Application/Services/`, not `Application/services/`)
+
+## NuGet Packages by Layer
+
+| Layer            | Package                                                  | Version |
+|------------------|----------------------------------------------------------|---------|
+| **Domain**       | `Microsoft.EntityFrameworkCore`                          | 10.0.8  |
+| **Domain**       | `Microsoft.Extensions.Identity.Stores`                   | 10.0.8  |
+| **Application**  | `FluentValidation`                                       | 12.1.1  |
+| **Application**  | `FluentValidation.DependencyInjectionExtensions`         | 12.1.1  |
+| **Infrastructure**| `Microsoft.AspNetCore.Identity.EntityFrameworkCore`    | 10.0.8  |
+| **Infrastructure**| `Microsoft.EntityFrameworkCore.Design`                 | 10.0.8  |
+| **Infrastructure**| `Microsoft.EntityFrameworkCore.Tools`                  | 10.0.8  |
+| **Infrastructure**| `Npgsql.EntityFrameworkCore.PostgreSQL`                 | 10.0.2  |
+| **Presentation** | `Microsoft.AspNetCore.Authentication.JwtBearer`          | 10.0.8  |
+| **Presentation** | `Microsoft.AspNetCore.OpenApi`                           | 10.0.8  |
+
+- Never add EF Core packages to the **Presentation** layer.
+- Only FluentValidation packages belong in **Application**.
+- Npgsql is the only supported PostgreSQL provider — do not add other database
+  providers.
 
 ## Code Conventions
 
@@ -77,8 +106,8 @@ Domain ← Application ← Infrastructure ← Presentation
   sequential
 - Map via Mapster or manual DTO mapping (no AutoMapper)
 - Configuration via `IOptions<T>` pattern
-- Keep controllers thin: validation in Validator, logic in Services, data in
-  Repositories
+- Keep controllers thin: validation in Validators, logic in Services, data in
+  Infrastructure
 
 ## Security Rules
 
