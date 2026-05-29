@@ -1,12 +1,14 @@
-import DashboardPage from './features/pages/DashboardPage.tsx';
-import LandingPage from './features/pages/LandingPage.tsx';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import LandingPage from './features/pages/LandingPage';
+import DashboardPage from './features/pages/DashboardPage';
 
 export default function Router() {
-  const isCustomerApp = window.location.pathname.startsWith('/dashboard');
-
-  if (isCustomerApp) {
-    return <DashboardPage />;
-  }
-
-  return <LandingPage />;
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="*" element={<LandingPage />} />
+      </Routes>
+    </BrowserRouter>
+  );
 }
