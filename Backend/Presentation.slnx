@@ -4,6 +4,6 @@
     <Build />
   </Project>
   <Project Path="Domain/Domain.csproj" Id="be6558ff-061a-4601-81ad-7e8ada62b1df" />
-  <Project Path="Infrastucture/Infrastructure.csproj" Id="04a6eabc-fd03-4ee6-b986-b7fa6b0985e7" />
+  <Project Path="Infrastructure/Infrastructure.csproj" Id="04a6eabc-fd03-4ee6-b986-b7fa6b0985e7" />
   <Project Path="Presentation/Presentation.csproj" />
 </Solution>
