@@ -22,11 +22,29 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.Cookie.HttpOnly = true;
     options.ExpireTimeSpan = TimeSpan.FromDays(14);
     options.LoginPath = "/api/auth/login";
-    options.LogoutPath = "/api/auth/logout";
+    options.LogoutPath = "/api/auth/logout";//Move to config
 });
 
 // Register the exception mapper as a singleton
 builder.Services.AddSingleton<IExceptionMapper, ExceptionMapper>();
+
+// CORS policy for frontend applications
+var corsOrigins = builder.Configuration
+    .GetSection("Cors:AllowedOrigins")
+    .Get<string[]>() ?? [];
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("Frontend", policy =>
+    {
+        policy
+            .WithOrigins(corsOrigins)
+            .WithMethods("GET", "POST", "PUT", "DELETE")
+            .WithHeaders("Content-Type", "Authorization")
+            .AllowCredentials();
+    });
+});
+
 
 var app = builder.Build();
 
@@ -37,17 +55,20 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    await db.Database.MigrateAsync();
+}
+
 app.UseHttpsRedirection();
+
+app.UseCors("Frontend");
 
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
 
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    await db.Database.MigrateAsync();
-}
 
 await app.RunAsync();
