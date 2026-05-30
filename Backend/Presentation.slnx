@@ -1,6 +1,7 @@
 <Solution>
   <Project Path="Application/Application.csproj" Id="43903692-52bb-4995-95ce-fc1cbaaa947a" />
   <Project Path="docker-compose.dcproj">
+    <BuildDependency Project="Presentation/Presentation.csproj" />
     <Build />
   </Project>
   <Project Path="Domain/Domain.csproj" Id="be6558ff-061a-4601-81ad-7e8ada62b1df" />

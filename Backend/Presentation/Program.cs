@@ -64,7 +64,10 @@ using (var scope = app.Services.CreateScope())
     await db.Database.MigrateAsync();
 }
 
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
 app.UseCors("Frontend");
 
