@@ -1,7 +1,9 @@
+using Application.Common.Mapping;
 using Domain.Models;
 using Infrastructure.Data;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Presentation.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,7 +25,12 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.LogoutPath = "/api/auth/logout";
 });
 
+// Register the exception mapper as a singleton
+builder.Services.AddSingleton<IExceptionMapper, ExceptionMapper>();
+
 var app = builder.Build();
+
+app.UseMiddleware<GlobalExceptionMiddleware>();
 
 if (app.Environment.IsDevelopment())
 {
