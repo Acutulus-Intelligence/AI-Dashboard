@@ -22,7 +22,7 @@ builder.Services.AddOpenApi(options =>
     {
         var scheme = new Microsoft.OpenApi.OpenApiSecurityScheme
         {
-            Type = Microsoft.OpenApi.SecuritySchemeType.Http,
+            Type = Microsoft.OpenApi.SecuritySchemeType.Http,   
             Scheme = "bearer",
             BearerFormat = "JWT",
             Description = "Enter your JWT access token",
