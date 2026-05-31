@@ -1,0 +1,29 @@
+name: Backend CI
+
+on:
+  push:
+    paths: ["Backend/**"]
+  pull_request:
+    branches: [main]
+    paths: ["Backend/**"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore Backend/Presentation.slnx
+
+      - name: Build
+        run: dotnet build Backend/Presentation.slnx --no-restore -c Release
+
+      - name: Test
+        run: dotnet test Backend/Presentation.slnx --no-build -c Release --verbosity normal
