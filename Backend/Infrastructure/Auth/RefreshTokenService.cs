@@ -45,7 +45,7 @@ public class RefreshTokenService : IRefreshTokenService
         var hashed = HashToken(refreshToken);
 
         return await _db.Set<RefreshToken>()
-            .FirstOrDefaultAsync(rt => rt.Token == hashed && rt.IsActive);
+            .FirstOrDefaultAsync(rt => rt.Token == hashed && !rt.IsUsed && !rt.IsRevoked && rt.ExpiresAt > DateTime.UtcNow);
     }
 
     public async Task<string> RotateRefreshTokenAsync(string oldRefreshToken, string newJwtId)
