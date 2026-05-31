@@ -16,32 +16,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddOpenApi(options =>
-{
-    options.AddDocumentTransformer((document, context, cancellationToken) =>
-    {
-        var scheme = new Microsoft.OpenApi.OpenApiSecurityScheme
-        {
-            Type = Microsoft.OpenApi.SecuritySchemeType.Http,   
-            Scheme = "bearer",
-            BearerFormat = "JWT",
-            Description = "Enter your JWT access token",
-        };
-
-        document.Components ??= new Microsoft.OpenApi.OpenApiComponents();
-        document.Components.SecuritySchemes ??= new Dictionary<string, Microsoft.OpenApi.IOpenApiSecurityScheme>();
-        document.Components.SecuritySchemes["Bearer"] = scheme;
-
-        var securityRequirement = new Microsoft.OpenApi.OpenApiSecurityRequirement
-        {
-            [new Microsoft.OpenApi.OpenApiSecuritySchemeReference("Bearer")] = new List<string>()
-        };
-
-        document.Security = new List<Microsoft.OpenApi.OpenApiSecurityRequirement> { securityRequirement };
-
-        return Task.CompletedTask;
-    });
-});
+builder.Services.AddOpenApi("v1", options => { options.AddDocumentTransformer<BearerSecuritySchemeTransformer>(); });
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
@@ -113,9 +88,17 @@ var app = builder.Build();
 app.UseMiddleware<GlobalExceptionMiddleware>();
 
 if (app.Environment.IsDevelopment())
-{
+{ 
+
     app.MapOpenApi();
-    app.MapScalarApiReference();
+    app.MapScalarApiReference(options =>
+    {
+        options.AddPreferredSecuritySchemes("Bearer")
+            .AddHttpAuthentication("Bearer", auth =>
+            {
+                auth.Token = "";
+            });
+    });
 }
 
 using (var scope = app.Services.CreateScope())

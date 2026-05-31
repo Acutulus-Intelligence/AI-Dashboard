@@ -7,7 +7,7 @@ public sealed class BearerSecuritySchemeTransformer : IOpenApiDocumentTransforme
 {
     public Task TransformAsync(OpenApiDocument document, OpenApiDocumentTransformerContext context, CancellationToken cancellationToken)
     {
-        var scheme = new OpenApiSecurityScheme
+        var securityScheme = new OpenApiSecurityScheme
         {
             Type = SecuritySchemeType.Http,
             Scheme = "bearer",
@@ -17,15 +17,18 @@ public sealed class BearerSecuritySchemeTransformer : IOpenApiDocumentTransforme
 
         document.Components ??= new OpenApiComponents();
         document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
-        document.Components.SecuritySchemes["Bearer"] = scheme;
+        document.Components.SecuritySchemes["Bearer"] = securityScheme;
 
-        document.Security = new List<OpenApiSecurityRequirement>
+        var securityRequirement = new OpenApiSecurityRequirement
         {
-            new()
-            {
-                [new OpenApiSecuritySchemeReference("Bearer")] = new List<string>()
-            }
+            [new OpenApiSecuritySchemeReference("Bearer")] = []
         };
+
+        foreach (var operation in document.Paths.Values.SelectMany(path => path.Operations))
+        {
+            operation.Value.Security ??= [];
+            operation.Value.Security.Add(securityRequirement);
+        }
 
         return Task.CompletedTask;
     }

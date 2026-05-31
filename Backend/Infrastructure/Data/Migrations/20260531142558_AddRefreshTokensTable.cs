@@ -11,13 +11,8 @@ namespace Infrastructure.Data.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropColumn(
-                name: "RefreshToken",
-                table: "AspNetUsers");
-
-            migrationBuilder.DropColumn(
-                name: "RefreshTokenExpiresAt",
-                table: "AspNetUsers");
+            migrationBuilder.Sql("ALTER TABLE \"AspNetUsers\" DROP COLUMN IF EXISTS \"RefreshToken\";");
+            migrationBuilder.Sql("ALTER TABLE \"AspNetUsers\" DROP COLUMN IF EXISTS \"RefreshTokenExpiresAt\";");
 
             migrationBuilder.CreateTable(
                 name: "RefreshToken",
