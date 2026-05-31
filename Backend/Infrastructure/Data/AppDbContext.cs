@@ -1,4 +1,6 @@
-﻿using Domain.Models;
+﻿using System.Reflection;
+using Domain.Models;
+using Infrastructure.Data.Configurations;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -11,10 +13,13 @@ namespace Infrastructure.Data
 
         public DbSet<Company> Companies => Set<Company>();
         public DbSet<Dashboard> Dashboards => Set<Dashboard>();
+        public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder);
+
+            builder.ApplyConfiguration(new RefreshTokenConfiguration());
 
             builder.Entity<Company>(entity =>
             {
