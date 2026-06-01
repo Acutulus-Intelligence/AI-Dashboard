@@ -1,8 +1,14 @@
+using System.Text;
 using Application.Common.Mapping;
+using Application.Interfaces;
+using Application.Services;
 using Domain.Models;
+using Infrastructure.Auth;
 using Infrastructure.Data;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using Presentation.Middleware;
 using Scalar.AspNetCore;
 
@@ -10,7 +16,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi("v1", options => { options.AddDocumentTransformer<BearerSecuritySchemeTransformer>(); });
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
@@ -19,16 +25,46 @@ builder.Services.AddIdentity<User, IdentityRole<Guid>>()
     .AddEntityFrameworkStores<AppDbContext>()
     .AddDefaultTokenProviders();
 
-builder.Services.ConfigureApplicationCookie(options =>
+var jwtSettings = builder.Configuration.GetSection("Jwt");
+builder.Services.Configure<JwtSettings>(jwtSettings);
+
+var jwtSecret = jwtSettings["Secret"]
+    ?? throw new InvalidOperationException("JWT Secret is not configured.");
+
+builder.Services.AddAuthentication(options =>
 {
-    options.Cookie.HttpOnly = true;
-    options.ExpireTimeSpan = TimeSpan.FromDays(14);
-    options.LoginPath = "/api/auth/login";
-    options.LogoutPath = "/api/auth/logout";//Move to config
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = jwtSettings["Issuer"],
+        ValidAudience = jwtSettings["Audience"],
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
+        ClockSkew = TimeSpan.Zero,
+    };
+});
+
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
 });
 
 // Register the exception mapper as a singleton
 builder.Services.AddSingleton<IExceptionMapper, ExceptionMapper>();
+
+// Application layer
+builder.Services.AddScoped<IAuthService, AuthService>();
+
+// Infrastructure layer
+builder.Services.AddScoped<ITokenService, JwtService>();
+builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 
 // CORS policy for frontend applications
 var corsOrigins = builder.Configuration
@@ -47,21 +83,30 @@ builder.Services.AddCors(options =>
     });
 });
 
-
 var app = builder.Build();
 
 app.UseMiddleware<GlobalExceptionMiddleware>();
 
 if (app.Environment.IsDevelopment())
-{
+{ 
+
     app.MapOpenApi();
-    app.MapScalarApiReference();
+    app.MapScalarApiReference(options =>
+    {
+        options.AddPreferredSecuritySchemes("Bearer")
+            .AddHttpAuthentication("Bearer", auth =>
+            {
+                auth.Token = "";
+            });
+    });
 }
 
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await db.Database.MigrateAsync();
+
+    await SeedData.InitializeAsync(scope.ServiceProvider);
 }
 
 if (!app.Environment.IsDevelopment())
@@ -75,6 +120,5 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
-
 
 await app.RunAsync();
