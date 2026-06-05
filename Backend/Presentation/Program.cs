@@ -21,6 +21,8 @@ builder.Services.AddOpenApi("v1", options => { options.AddDocumentTransformer<Be
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
 
+builder.Services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<AppDbContext>());
+
 builder.Services.AddIdentity<User, IdentityRole<Guid>>()
     .AddEntityFrameworkStores<AppDbContext>()
     .AddDefaultTokenProviders();
@@ -56,17 +58,15 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
 });
 
-// Register the exception mapper as a singleton
 builder.Services.AddSingleton<IExceptionMapper, ExceptionMapper>();
 
-// Application layer
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<ICompanyService, CompanyService>();
+builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
 
-// Infrastructure layer
 builder.Services.AddScoped<ITokenService, JwtService>();
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 
-// CORS policy for frontend applications
 var corsOrigins = builder.Configuration
     .GetSection("Cors:AllowedOrigins")
     .Get<string[]>() ?? [];
@@ -88,8 +88,7 @@ var app = builder.Build();
 app.UseMiddleware<GlobalExceptionMiddleware>();
 
 if (app.Environment.IsDevelopment())
-{ 
-
+{
     app.MapOpenApi();
     app.MapScalarApiReference(options =>
     {

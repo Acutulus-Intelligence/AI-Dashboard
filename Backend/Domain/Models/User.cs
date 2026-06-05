@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Identity;
+﻿using Domain.Enums;
+using Microsoft.AspNetCore.Identity;
 
 namespace Domain.Models
 {
@@ -8,7 +9,9 @@ namespace Domain.Models
         public string? LastName { get; set; }
         public Guid? CompanyId { get; set; }
         public Company? Company { get; set; }
-        public string? CompanyRole { get; set; }
+        public Guid? CompanyRoleId { get; set; }
+        public CompanyRole? CompanyRole { get; set; }
+        public UserType UserType { get; set; } = UserType.Individual;
 
         public ICollection<Dashboard> Dashboards { get; set; } = [];
         public ICollection<RefreshToken> RefreshTokens { get; set; } = [];

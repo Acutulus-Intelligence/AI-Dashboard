@@ -1,8 +1,13 @@
+using Domain.Enums;
+
 namespace Application.DTos.Request;
 
 public sealed record RegisterRequest(
     string Email,
     string Password,
     string FirstName,
-    string LastName
+    string LastName,
+    UserType UserType,
+    string? CompanyName = null,
+    string? InviteToken = null
 );

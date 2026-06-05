@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Infrastructure.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260605194105_AddCompanyRolesAndSubscriptions")]
+    partial class AddCompanyRolesAndSubscriptions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -161,7 +164,7 @@ namespace Infrastructure.Data.Migrations
                     b.Property<DateTime?>("EndDate")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<int?>("MaxUsers")
+                    b.Property<int>("MaxUsers")
                         .HasColumnType("integer");
 
                     b.Property<Guid>("PlanId")
@@ -265,13 +268,13 @@ namespace Infrastructure.Data.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
-                    b.Property<int?>("MaxAiQueriesPerMonth")
+                    b.Property<int>("MaxAiQueriesPerMonth")
                         .HasColumnType("integer");
 
-                    b.Property<int?>("MaxDashboards")
+                    b.Property<int>("MaxDashboards")
                         .HasColumnType("integer");
 
-                    b.Property<int?>("MaxUsers")
+                    b.Property<int>("MaxUsers")
                         .HasColumnType("integer");
 
                     b.Property<decimal>("MonthlyPrice")
