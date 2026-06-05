@@ -260,7 +260,7 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
               </div>
               <div className="relative min-h-0 flex-1">
                 <div className="absolute inset-0 p-3">
-                  <ChartRenderer chartId={widget.chartId} title={widget.title} />
+                  <ChartRenderer chartId={widget.chartId} />
                 </div>
               </div>
             </div>

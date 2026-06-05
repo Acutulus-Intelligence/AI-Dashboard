@@ -2,11 +2,10 @@ import { get } from './registry';
 
 interface ChartRendererProps {
   chartId: string;
-  title: string;
   data?: unknown;
 }
 
-export default function ChartRenderer({ chartId, title, data }: ChartRendererProps) {
+export default function ChartRenderer({ chartId, data }: ChartRendererProps) {
   const chart = get(chartId);
   if (!chart) {
     return (
