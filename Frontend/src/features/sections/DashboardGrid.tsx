@@ -224,7 +224,6 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
               key={item.i}
               className="flex h-full flex-col rounded-xl border border-outline-variant bg-surface-container-lowest shadow-sm"
               onContextMenu={(e) => e.preventDefault()}
-              onSelectStart={(e) => e.preventDefault()}
             >
               <div className={handleClass}>
                 {editMode && editingTitleId === widget.id ? (
