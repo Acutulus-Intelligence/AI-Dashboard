@@ -8,7 +8,8 @@ export class ExampleChart extends Chart {
   readonly icon = BarChart3;
   readonly defaultSize = { w: 6, h: 4 };
 
-  render(_data?: unknown): ReactNode {
+  render(data?: unknown): ReactNode {
+    void data;
     return (
       <div className="flex h-full items-center justify-center text-on-surface-variant">
         <div className="text-center">
