@@ -1,3 +1,16 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Ensure dragged widget stays above everything */
+.react-draggable-dragging {
+  z-index: 100 !important;
+}
+/* Resize handle styling */
+.react-resizable-handle {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.react-resizable:hover .react-resizable-handle {
+  opacity: 1;
+}
