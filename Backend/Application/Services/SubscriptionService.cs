@@ -72,8 +72,11 @@ public class SubscriptionService : ISubscriptionService
             .FirstOrDefaultAsync(p => p.Id == planId && p.IsActive, ct)
             ?? throw new KeyNotFoundException("Subscription plan not found.");
 
-        if (plan.UserType != UserType.Individual)
-            throw new InvalidOperationException("This plan is for companies only.");
+        if (plan.UserType != user.UserType)
+            throw new InvalidOperationException("This plan does not match your account type.");
+
+        if (user.UserType != UserType.Individual)
+            throw new InvalidOperationException("Individual subscription endpoint is for individual users only. Company users should subscribe via the company endpoint.");
 
         var existingSubscription = await _db.UserSubscriptions
             .FirstOrDefaultAsync(s => s.UserId == userId && s.Status == SubscriptionStatus.Active, ct);

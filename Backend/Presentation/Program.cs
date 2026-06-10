@@ -62,6 +62,7 @@ builder.Services.AddSingleton<IExceptionMapper, ExceptionMapper>();
 
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ICompanyService, CompanyService>();
+builder.Services.AddScoped<IAdminService, AdminService>();
 builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
 
 builder.Services.AddScoped<ITokenService, JwtService>();
