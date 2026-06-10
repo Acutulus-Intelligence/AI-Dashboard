@@ -17,4 +17,6 @@ public interface ICompanyService
     Task<CompanyRoleResponse> CreateRoleAsync(Guid companyId, CreateRoleRequest request, Guid actorId, CancellationToken ct = default);
     Task<CompanyRoleResponse> UpdateRoleAsync(Guid roleId, UpdateRoleRequest request, Guid actorId, CancellationToken ct = default);
     Task DeleteRoleAsync(Guid roleId, Guid actorId, CancellationToken ct = default);
+    Task<List<CompanyInviteResponse>> GetInvitesAsync(Guid companyId, Guid userId, CancellationToken ct = default);
+    Task<List<CompanyInviteResponse>> GetPendingInvitesAsync(string email, CancellationToken ct = default);
 }

@@ -199,8 +199,11 @@ public class CompanyService : ICompanyService
         var user = await _db.Users.FindAsync([userId], ct)
             ?? throw new KeyNotFoundException("User not found.");
 
-        if (user.CompanyId is not null)
-            throw new ConflictException("User is already a member of a company.", "already_in_company");
+        if (user.CompanyId is not null && user.CompanyId != invite.CompanyId)
+            throw new ConflictException("User is already a member of a different company.", "already_in_company");
+
+        if (user.CompanyId == invite.CompanyId)
+            throw new ConflictException("User is already a member of this company.", "already_member");
 
         user.CompanyId = invite.CompanyId;
         user.CompanyRoleId = invite.RoleId;
@@ -209,6 +212,52 @@ public class CompanyService : ICompanyService
         invite.IsAccepted = true;
 
         await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task<List<CompanyInviteResponse>> GetInvitesAsync(Guid companyId, Guid userId, CancellationToken ct = default)
+    {
+        await EnsureMemberAsync(companyId, userId, ct);
+
+        var invites = await _db.CompanyInvites
+            .AsNoTracking()
+            .Include(i => i.Role)
+            .Where(i => i.CompanyId == companyId)
+            .OrderByDescending(i => i.CreatedAt)
+            .Select(i => new CompanyInviteResponse(
+                i.Id,
+                i.Email,
+                i.Role.Name,
+                i.RoleId,
+                i.CreatedAt,
+                i.ExpiresAt,
+                i.ExpiresAt <= DateTime.UtcNow,
+                i.IsAccepted
+            ))
+            .ToListAsync(ct);
+
+        return invites;
+    }
+
+    public async Task<List<CompanyInviteResponse>> GetPendingInvitesAsync(string email, CancellationToken ct = default)
+    {
+        var invites = await _db.CompanyInvites
+            .AsNoTracking()
+            .Include(i => i.Role)
+            .Where(i => i.Email == email && !i.IsAccepted && i.ExpiresAt > DateTime.UtcNow)
+            .OrderByDescending(i => i.CreatedAt)
+            .Select(i => new CompanyInviteResponse(
+                i.Id,
+                i.Email,
+                i.Role.Name,
+                i.RoleId,
+                i.CreatedAt,
+                i.ExpiresAt,
+                false,
+                false
+            ))
+            .ToListAsync(ct);
+
+        return invites;
     }
 
     public async Task RemoveUserAsync(Guid companyId, Guid userIdToRemove, Guid actorId, CancellationToken ct = default)

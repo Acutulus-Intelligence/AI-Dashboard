@@ -113,6 +113,25 @@ public class CompanyController : ControllerBase
         return NoContent();
     }
 
+    [HttpGet("{id:guid}/invites")]
+    public async Task<IActionResult> GetInvites(Guid id, CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var invites = await _companyService.GetInvitesAsync(id, userId, ct);
+        return Ok(invites);
+    }
+
+    [HttpGet("~/api/invites/pending")]
+    public async Task<IActionResult> GetPendingInvites(CancellationToken ct)
+    {
+        var email = User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value;
+        if (email is null)
+            throw new UnauthorizedAccessException("Email not found in token.");
+
+        var invites = await _companyService.GetPendingInvitesAsync(email, ct);
+        return Ok(invites);
+    }
+
     private Guid GetUserId()
     {
         var userId = User.FindFirst("userId")?.Value;
