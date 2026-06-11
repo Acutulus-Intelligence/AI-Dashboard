@@ -71,7 +71,7 @@ public class CompanyService : ICompanyService
 
     public async Task<CompanyResponse> GetByIdAsync(Guid companyId, Guid userId, CancellationToken ct = default)
     {
-        await EnsureMemberAsync(companyId, userId, ct);
+        await EnsureCanViewCompanyAsync(companyId, userId, ct);
         return await BuildCompanyResponseAsync(companyId, ct);
     }
 
@@ -260,6 +260,63 @@ public class CompanyService : ICompanyService
         return invites;
     }
 
+    public async Task<CompanyResponse> GetMyCompanyAsync(Guid userId, CancellationToken ct = default)
+    {
+        var user = await _db.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == userId, ct)
+            ?? throw new KeyNotFoundException("User not found.");
+
+        if (user.CompanyId is null)
+            throw new InvalidOperationException("You are not a member of any company.");
+
+        return await GetByIdAsync(user.CompanyId.Value, userId, ct);
+    }
+
+    public async Task DeleteAsync(Guid companyId, Guid actorId, CancellationToken ct = default)
+    {
+        var company = await _db.Companies
+            .Include(c => c.CompanyRoles)
+            .FirstOrDefaultAsync(c => c.Id == companyId, ct)
+            ?? throw new KeyNotFoundException("Company not found.");
+
+        if (company.OwnerId != actorId)
+            throw new UnauthorizedAccessException("Only the company owner can delete the company.");
+
+        var users = await _db.Users
+            .Where(u => u.CompanyId == companyId)
+            .ToListAsync(ct);
+
+        foreach (var user in users)
+        {
+            user.CompanyId = null;
+            user.CompanyRoleId = null;
+            user.UserType = UserType.Individual;
+        }
+
+        var invites = await _db.CompanyInvites
+            .Where(i => i.CompanyId == companyId)
+            .ToListAsync(ct);
+
+        _db.CompanyInvites.RemoveRange(invites);
+        _db.CompanyRoles.RemoveRange(company.CompanyRoles);
+        _db.Companies.Remove(company);
+
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task RevokeInviteAsync(Guid companyId, Guid inviteId, Guid actorId, CancellationToken ct = default)
+    {
+        var (_, _) = await EnsureCanManageUsersAsync(companyId, actorId, ct);
+
+        var invite = await _db.CompanyInvites
+            .FirstOrDefaultAsync(i => i.Id == inviteId && i.CompanyId == companyId && !i.IsAccepted, ct)
+            ?? throw new KeyNotFoundException("Pending invite not found.");
+
+        _db.CompanyInvites.Remove(invite);
+        await _db.SaveChangesAsync(ct);
+    }
+
     public async Task RemoveUserAsync(Guid companyId, Guid userIdToRemove, Guid actorId, CancellationToken ct = default)
     {
         var (company, _) = await EnsureCanManageUsersAsync(companyId, actorId, ct);
@@ -440,6 +497,28 @@ public class CompanyService : ICompanyService
                 )
                 : null
         );
+    }
+
+    private async Task EnsureCanViewCompanyAsync(Guid companyId, Guid userId, CancellationToken ct)
+    {
+        var company = await _db.Companies
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Id == companyId, ct)
+            ?? throw new KeyNotFoundException("Company not found.");
+
+        var user = await _db.Users
+            .Include(u => u.CompanyRole)
+            .FirstOrDefaultAsync(u => u.Id == userId && u.CompanyId == companyId, ct);
+
+        if (user is null)
+            throw new UnauthorizedAccessException("You are not a member of this company.");
+
+        var isOwner = user.Id == company.OwnerId;
+        var isAdmin = user.CompanyRole is { IsSystemRole: true }
+            && (user.CompanyRole.Name == "Owner" || user.CompanyRole.Name == "Admin");
+
+        if (!isOwner && !isAdmin)
+            throw new UnauthorizedAccessException("Only the company owner and admins can view company information.");
     }
 
     private async Task EnsureMemberAsync(Guid companyId, Guid userId, CancellationToken ct)

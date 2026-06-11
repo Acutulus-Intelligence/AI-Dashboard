@@ -25,6 +25,14 @@ public class CompanyController : ControllerBase
         return Ok(response);
     }
 
+    [HttpGet("me")]
+    public async Task<IActionResult> GetMyCompany(CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var response = await _companyService.GetMyCompanyAsync(userId, ct);
+        return Ok(response);
+    }
+
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> GetById(Guid id, CancellationToken ct)
     {
@@ -113,12 +121,28 @@ public class CompanyController : ControllerBase
         return NoContent();
     }
 
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+    {
+        var actorId = GetUserId();
+        await _companyService.DeleteAsync(id, actorId, ct);
+        return NoContent();
+    }
+
     [HttpGet("{id:guid}/invites")]
     public async Task<IActionResult> GetInvites(Guid id, CancellationToken ct)
     {
         var userId = GetUserId();
         var invites = await _companyService.GetInvitesAsync(id, userId, ct);
         return Ok(invites);
+    }
+
+    [HttpDelete("{id:guid}/invites/{inviteId:guid}")]
+    public async Task<IActionResult> RevokeInvite(Guid id, Guid inviteId, CancellationToken ct)
+    {
+        var actorId = GetUserId();
+        await _companyService.RevokeInviteAsync(id, inviteId, actorId, ct);
+        return NoContent();
     }
 
     [HttpGet("~/api/invites/pending")]
