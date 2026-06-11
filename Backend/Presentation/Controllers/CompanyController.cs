@@ -77,7 +77,7 @@ public class CompanyController : ControllerBase
     public async Task<IActionResult> AcceptInvite([FromBody] AcceptInviteRequest request, CancellationToken ct)
     {
         var userId = GetUserId();
-        await _companyService.AcceptInviteAsync(request.Token, userId, ct);
+        await _companyService.AcceptInviteByIdAsync(request.InviteId, userId, ct);
         return NoContent();
     }
 
@@ -154,6 +154,14 @@ public class CompanyController : ControllerBase
 
         var invites = await _companyService.GetPendingInvitesAsync(email, ct);
         return Ok(invites);
+    }
+
+    [HttpDelete("~/api/invites/{inviteId:guid}")]
+    public async Task<IActionResult> RejectInvite(Guid inviteId, CancellationToken ct)
+    {
+        var userId = GetUserId();
+        await _companyService.RejectInviteAsync(inviteId, userId, ct);
+        return NoContent();
     }
 
     private Guid GetUserId()

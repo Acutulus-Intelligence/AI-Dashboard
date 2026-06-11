@@ -167,7 +167,7 @@ public class CompanyService : ICompanyService
         if (role.IsSystemRole && role.Name == "Owner")
             throw new InvalidOperationException("Cannot invite users as Owner.");
 
-        var existingUser = await _db.Users.FirstOrDefaultAsync(u => u.Email == email, ct);
+        var existingUser = await _db.Users.FirstOrDefaultAsync(u => u.Email!.ToLower() == email.ToLower(), ct);
         if (existingUser?.CompanyId == companyId)
             throw new ConflictException("User is already a member of this company.", "already_member");
 
@@ -214,6 +214,33 @@ public class CompanyService : ICompanyService
         await _db.SaveChangesAsync(ct);
     }
 
+    public async Task AcceptInviteByIdAsync(Guid inviteId, Guid userId, CancellationToken ct = default)
+    {
+        var user = await _db.Users.FindAsync([userId], ct)
+            ?? throw new KeyNotFoundException("User not found.");
+
+        var invite = await _db.CompanyInvites
+            .FirstOrDefaultAsync(i => i.Id == inviteId && !i.IsAccepted && i.ExpiresAt > DateTime.UtcNow, ct)
+            ?? throw new InvalidOperationException("Invalid or expired invite.");
+
+        if (!string.Equals(invite.Email, user.Email, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("This invite is not for you.");
+
+        if (user.CompanyId is not null && user.CompanyId != invite.CompanyId)
+            throw new ConflictException("User is already a member of a different company.", "already_in_company");
+
+        if (user.CompanyId == invite.CompanyId)
+            throw new ConflictException("User is already a member of this company.", "already_member");
+
+        user.CompanyId = invite.CompanyId;
+        user.CompanyRoleId = invite.RoleId;
+        user.UserType = UserType.Company;
+
+        invite.IsAccepted = true;
+
+        await _db.SaveChangesAsync(ct);
+    }
+
     public async Task<List<CompanyInviteResponse>> GetInvitesAsync(Guid companyId, Guid userId, CancellationToken ct = default)
     {
         await EnsureMemberAsync(companyId, userId, ct);
@@ -243,7 +270,7 @@ public class CompanyService : ICompanyService
         var invites = await _db.CompanyInvites
             .AsNoTracking()
             .Include(i => i.Role)
-            .Where(i => i.Email == email && !i.IsAccepted && i.ExpiresAt > DateTime.UtcNow)
+            .Where(i => i.Email.ToLower() == email.ToLower() && !i.IsAccepted && i.ExpiresAt > DateTime.UtcNow)
             .OrderByDescending(i => i.CreatedAt)
             .Select(i => new CompanyInviteResponse(
                 i.Id,
@@ -312,6 +339,22 @@ public class CompanyService : ICompanyService
         var invite = await _db.CompanyInvites
             .FirstOrDefaultAsync(i => i.Id == inviteId && i.CompanyId == companyId && !i.IsAccepted, ct)
             ?? throw new KeyNotFoundException("Pending invite not found.");
+
+        _db.CompanyInvites.Remove(invite);
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task RejectInviteAsync(Guid inviteId, Guid userId, CancellationToken ct = default)
+    {
+        var user = await _db.Users.FindAsync([userId], ct)
+            ?? throw new KeyNotFoundException("User not found.");
+
+        var invite = await _db.CompanyInvites
+            .FirstOrDefaultAsync(i => i.Id == inviteId && !i.IsAccepted && i.ExpiresAt > DateTime.UtcNow, ct)
+            ?? throw new InvalidOperationException("Pending invite not found.");
+
+        if (!string.Equals(invite.Email, user.Email, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("This invite is not for you.");
 
         _db.CompanyInvites.Remove(invite);
         await _db.SaveChangesAsync(ct);

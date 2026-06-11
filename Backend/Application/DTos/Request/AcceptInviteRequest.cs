@@ -1,5 +1,5 @@
 namespace Application.DTos.Request;
 
 public sealed record AcceptInviteRequest(
-    string Token
+    Guid InviteId
 );

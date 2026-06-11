@@ -13,6 +13,7 @@ public interface ICompanyService
     Task TransferOwnershipAsync(Guid companyId, Guid newOwnerId, Guid currentOwnerId, CancellationToken ct = default);
     Task<string> InviteUserAsync(Guid companyId, string email, Guid roleId, Guid actorId, CancellationToken ct = default);
     Task AcceptInviteAsync(string token, Guid userId, CancellationToken ct = default);
+    Task AcceptInviteByIdAsync(Guid inviteId, Guid userId, CancellationToken ct = default);
     Task RemoveUserAsync(Guid companyId, Guid userIdToRemove, Guid actorId, CancellationToken ct = default);
     Task<List<CompanyRoleResponse>> GetRolesAsync(Guid companyId, Guid userId, CancellationToken ct = default);
     Task<CompanyRoleResponse> CreateRoleAsync(Guid companyId, CreateRoleRequest request, Guid actorId, CancellationToken ct = default);
@@ -21,5 +22,6 @@ public interface ICompanyService
     Task<List<CompanyInviteResponse>> GetInvitesAsync(Guid companyId, Guid userId, CancellationToken ct = default);
     Task<List<CompanyInviteResponse>> GetPendingInvitesAsync(string email, CancellationToken ct = default);
     Task RevokeInviteAsync(Guid companyId, Guid inviteId, Guid actorId, CancellationToken ct = default);
+    Task RejectInviteAsync(Guid inviteId, Guid userId, CancellationToken ct = default);
     Task DeleteAsync(Guid companyId, Guid actorId, CancellationToken ct = default);
 }
