@@ -14,12 +14,14 @@ namespace Infrastructure.Data
         public DbSet<Company> Companies => Set<Company>();
         public DbSet<Dashboard> Dashboards => Set<Dashboard>();
         public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+        public DbSet<ExternalConnection> ExternalConnections => Set<ExternalConnection>();
 
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder);
 
             builder.ApplyConfiguration(new RefreshTokenConfiguration());
+            builder.ApplyConfiguration(new ExternalConnectionConfiguration());
 
             builder.Entity<Company>(entity =>
             {

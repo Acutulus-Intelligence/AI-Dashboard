@@ -1,4 +1,4 @@
-import { AlignJustify, Pencil, Lock } from 'lucide-react';
+import { AlignJustify, Pencil, Lock, Database } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import CreateDropdown from '../components/CreateDropdown';
 import logoSrc from '../../assets/images/IconTransNoText.png';
@@ -32,6 +32,13 @@ export default function DashboardHeader({
           >
             <AlignJustify size={20} />
           </button>
+          <Link
+            to="/dashboard/connections"
+            className="ml-2 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-body-sm text-on-surface-variant hover:bg-surface-container"
+          >
+            <Database size={16} />
+            Connections
+          </Link>
         </div>
 
         <div className="flex items-center gap-3">

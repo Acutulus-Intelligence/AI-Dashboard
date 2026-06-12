@@ -1,5 +1,9 @@
 import { Chart } from './Chart';
-import { ExampleChart } from './ExampleChart';
+import { BarChartType } from './BarChart';
+import { LineChartType } from './LineChart';
+import { PieChartType } from './PieChart';
+import { AreaChartType } from './AreaChart';
+import { ScatterChartType } from './ScatterChart';
 
 const _registry = new Map<string, Chart>();
 
@@ -15,5 +19,8 @@ export function getAll(): Chart[] {
   return Array.from(_registry.values());
 }
 
-// Register built-in chart types
-register(new ExampleChart());
+register(new BarChartType());
+register(new LineChartType());
+register(new PieChartType());
+register(new AreaChartType());
+register(new ScatterChartType());

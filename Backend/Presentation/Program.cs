@@ -5,6 +5,10 @@ using Application.Services;
 using Domain.Models;
 using Infrastructure.Auth;
 using Infrastructure.Data;
+using Infrastructure.Ai;
+using Infrastructure.Ai.Services;
+using Infrastructure.Encryption;
+using Infrastructure.ExternalDb.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -58,6 +62,26 @@ builder.Services.AddAuthorization(options =>
 
 // Register the exception mapper as a singleton
 builder.Services.AddSingleton<IExceptionMapper, ExceptionMapper>();
+
+// HTTP client for AI provider calls
+builder.Services.AddHttpClient();
+
+// Encryption
+builder.Services.Configure<EncryptionSettings>(builder.Configuration.GetSection("Encryption"));
+builder.Services.AddScoped<IEncryptionService, AesEncryptionService>();
+
+// External database connections
+builder.Services.AddScoped<IExternalConnectionService, ExternalConnectionService>();
+builder.Services.AddScoped<ISchemaInspector, SchemaInspector>();
+builder.Services.AddSingleton<ISqlValidator, SqlValidator>();
+builder.Services.AddScoped<IQueryExecutor, QueryExecutor>();
+
+// AI service
+builder.Services.Configure<AiSettings>(builder.Configuration.GetSection("Ai"));
+builder.Services.AddHttpClient<IAiService, OpenRouterService>();
+
+// Graph generation
+builder.Services.AddScoped<IGraphGenerationService, GraphGenerationService>();
 
 // Application layer
 builder.Services.AddScoped<IAuthService, AuthService>();
