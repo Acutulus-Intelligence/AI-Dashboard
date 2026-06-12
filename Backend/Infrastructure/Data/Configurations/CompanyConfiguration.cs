@@ -8,7 +8,7 @@ public class CompanyConfiguration : IEntityTypeConfiguration<Company>
 {
     public void Configure(EntityTypeBuilder<Company> builder)
     {
-        builder.ToTable("companies");
+        builder.ToTable("Companies");
 
         builder.HasKey(c => c.Id);
 
@@ -18,6 +18,9 @@ public class CompanyConfiguration : IEntityTypeConfiguration<Company>
 
         builder.Property(c => c.Roles)
             .HasColumnType("text[]");
+
+        builder.Property(c => c.RowVersion)
+            .IsRowVersion();
 
         builder.HasOne(c => c.Owner)
             .WithMany()

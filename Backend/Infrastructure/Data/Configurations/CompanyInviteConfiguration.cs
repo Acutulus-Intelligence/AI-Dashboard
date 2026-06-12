@@ -8,7 +8,7 @@ public class CompanyInviteConfiguration : IEntityTypeConfiguration<CompanyInvite
 {
     public void Configure(EntityTypeBuilder<CompanyInvite> builder)
     {
-        builder.ToTable("company_invites");
+        builder.ToTable("CompanyInvites");
 
         builder.HasKey(ci => ci.Id);
 
@@ -22,6 +22,9 @@ public class CompanyInviteConfiguration : IEntityTypeConfiguration<CompanyInvite
 
         builder.HasIndex(ci => ci.Token)
             .IsUnique();
+
+        builder.Property(ci => ci.RowVersion)
+            .IsRowVersion();
 
         builder.HasOne(ci => ci.Company)
             .WithMany()

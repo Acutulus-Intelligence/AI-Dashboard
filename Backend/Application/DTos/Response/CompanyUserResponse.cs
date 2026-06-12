@@ -1,4 +1,4 @@
-namespace Application.DTos.Response;
+namespace Application.Dtos.Response;
 
 public sealed record CompanyUserResponse(
     Guid Id,
@@ -7,5 +7,4 @@ public sealed record CompanyUserResponse(
     string? LastName,
     string? RoleName,
     Guid? RoleId,
-    bool IsOwner
-);
+    bool IsOwner);

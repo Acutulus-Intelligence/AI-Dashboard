@@ -8,7 +8,7 @@ public class DashboardConfiguration : IEntityTypeConfiguration<Dashboard>
 {
     public void Configure(EntityTypeBuilder<Dashboard> builder)
     {
-        builder.ToTable("dashboards");
+        builder.ToTable("Dashboards");
 
         builder.HasKey(d => d.Id);
 

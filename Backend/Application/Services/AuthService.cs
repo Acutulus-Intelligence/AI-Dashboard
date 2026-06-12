@@ -1,11 +1,10 @@
 using Application.Common.Exceptions;
-using Application.DTos.Request;
-using Application.DTos.Response;
+using Application.Dtos.Request;
+using Application.Dtos.Response;
 using Application.Interfaces;
 using Domain.Enums;
 using Domain.Models;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.EntityFrameworkCore;
 
 namespace Application.Services;
 

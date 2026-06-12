@@ -2,7 +2,9 @@ using System.Text;
 using Application.Common.Mapping;
 using Application.Interfaces;
 using Application.Services;
+using Application.Validators;
 using Domain.Models;
+using FluentValidation;
 using Infrastructure.Auth;
 using Infrastructure.Data;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -13,28 +15,6 @@ using Presentation.Middleware;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
-
-if (builder.Environment.IsDevelopment())
-{
-    var envPath = Path.Combine(builder.Environment.ContentRootPath, "..", ".env");
-    if (File.Exists(envPath))
-    {
-        foreach (var line in File.ReadAllLines(envPath))
-        {
-            var trimmed = line.Trim();
-            if (trimmed.Length == 0 || trimmed.StartsWith('#'))
-                continue;
-
-            var sep = trimmed.IndexOf('=');
-            if (sep > 0)
-            {
-                var key = trimmed[..sep].Trim();
-                var value = trimmed[(sep + 1)..].Trim();
-                builder.Configuration[key] = value;
-            }
-        }
-    }
-}
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -84,6 +64,8 @@ builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
 
 builder.Services.AddScoped<ITokenService, JwtService>();
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
+
+builder.Services.AddValidatorsFromAssemblyContaining<RegisterRequestValidator>();
 
 var corsOrigins = builder.Configuration
     .GetSection("Cors:AllowedOrigins")

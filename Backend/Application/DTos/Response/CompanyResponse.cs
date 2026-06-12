@@ -1,4 +1,4 @@
-namespace Application.DTos.Response;
+namespace Application.Dtos.Response;
 
 public sealed record CompanyResponse(
     Guid Id,
@@ -7,5 +7,4 @@ public sealed record CompanyResponse(
     string OwnerName,
     int UserCount,
     List<CompanyRoleResponse> Roles,
-    CompanySubscriptionResponse? CurrentSubscription
-);
+    CompanySubscriptionResponse? CurrentSubscription);

@@ -1,5 +1,5 @@
-namespace Application.DTos.Request;
+namespace Application.Dtos.Request;
 
 public sealed record RefreshTokenRequest(
-    string RefreshToken
-);
+    string AccessToken,
+    string RefreshToken);

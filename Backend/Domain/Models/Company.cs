@@ -12,4 +12,5 @@ public class Company
     public ICollection<User> Users { get; set; } = [];
     public ICollection<CompanyRole> CompanyRoles { get; set; } = [];
     public ICollection<Dashboard> Dashboards { get; set; } = [];
+    public byte[] RowVersion { get; set; } = [];
 }

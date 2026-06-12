@@ -1,4 +1,4 @@
-using Application.DTos.Request;
+using Application.Dtos.Request;
 using Application.Interfaces;
 using Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
@@ -55,6 +55,16 @@ public class SubscriptionController : ControllerBase
     {
         var userId = GetUserId();
         var subscription = await _subscriptionService.GetCurrentUserSubscriptionAsync(userId, ct);
+        if (subscription is null)
+            return NotFound();
+        return Ok(subscription);
+    }
+
+    [HttpGet("company/{companyId:guid}/current")]
+    [Authorize]
+    public async Task<IActionResult> GetCurrentCompanySubscription(Guid companyId, CancellationToken ct)
+    {
+        var subscription = await _subscriptionService.GetCurrentCompanySubscriptionAsync(companyId, ct);
         if (subscription is null)
             return NotFound();
         return Ok(subscription);

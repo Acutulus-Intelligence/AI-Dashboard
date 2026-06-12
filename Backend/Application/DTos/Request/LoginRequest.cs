@@ -1,6 +1,5 @@
-namespace Application.DTos.Request;
+namespace Application.Dtos.Request;
 
 public sealed record LoginRequest(
     string Email,
-    string Password
-);
+    string Password);

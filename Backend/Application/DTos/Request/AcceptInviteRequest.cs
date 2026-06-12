@@ -1,5 +1,3 @@
-namespace Application.DTos.Request;
+namespace Application.Dtos.Request;
 
-public sealed record AcceptInviteRequest(
-    Guid InviteId
-);
+public sealed record AcceptInviteRequest(Guid InviteId);

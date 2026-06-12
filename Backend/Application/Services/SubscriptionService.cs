@@ -1,4 +1,4 @@
-using Application.DTos.Response;
+using Application.Dtos.Response;
 using Application.Interfaces;
 using Domain.Enums;
 using Domain.Models;

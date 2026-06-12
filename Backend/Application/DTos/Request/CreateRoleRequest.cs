@@ -1,4 +1,4 @@
-namespace Application.DTos.Request;
+namespace Application.Dtos.Request;
 
 public sealed record CreateRoleRequest(
     string Name,
@@ -6,5 +6,4 @@ public sealed record CreateRoleRequest(
     bool CanManageUsers,
     bool CanManageRoles,
     bool CanManageDashboards,
-    List<string>? AllowedTables = null
-);
+    List<string>? AllowedTables = null);

@@ -8,7 +8,7 @@ public class CompanyRoleConfiguration : IEntityTypeConfiguration<CompanyRole>
 {
     public void Configure(EntityTypeBuilder<CompanyRole> builder)
     {
-        builder.ToTable("company_roles");
+        builder.ToTable("CompanyRoles");
 
         builder.HasKey(cr => cr.Id);
 

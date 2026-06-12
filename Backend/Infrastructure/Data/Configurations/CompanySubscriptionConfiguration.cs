@@ -8,7 +8,7 @@ public class CompanySubscriptionConfiguration : IEntityTypeConfiguration<Company
 {
     public void Configure(EntityTypeBuilder<CompanySubscription> builder)
     {
-        builder.ToTable("company_subscriptions");
+        builder.ToTable("CompanySubscriptions");
 
         builder.HasKey(cs => cs.Id);
 
@@ -16,8 +16,8 @@ public class CompanySubscriptionConfiguration : IEntityTypeConfiguration<Company
             .HasPrecision(18, 2);
 
         builder.HasOne(cs => cs.Company)
-            .WithOne()
-            .HasForeignKey<CompanySubscription>(cs => cs.CompanyId)
+            .WithMany()
+            .HasForeignKey(cs => cs.CompanyId)
             .OnDelete(DeleteBehavior.Cascade);
 
         builder.HasOne(cs => cs.Plan)

@@ -8,7 +8,7 @@ public class UserSubscriptionConfiguration : IEntityTypeConfiguration<UserSubscr
 {
     public void Configure(EntityTypeBuilder<UserSubscription> builder)
     {
-        builder.ToTable("user_subscriptions");
+        builder.ToTable("UserSubscriptions");
 
         builder.HasKey(us => us.Id);
 
@@ -16,8 +16,8 @@ public class UserSubscriptionConfiguration : IEntityTypeConfiguration<UserSubscr
             .HasPrecision(18, 2);
 
         builder.HasOne(us => us.User)
-            .WithOne()
-            .HasForeignKey<UserSubscription>(us => us.UserId)
+            .WithMany()
+            .HasForeignKey(us => us.UserId)
             .OnDelete(DeleteBehavior.Cascade);
 
         builder.HasOne(us => us.Plan)

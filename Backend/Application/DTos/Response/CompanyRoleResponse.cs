@@ -1,4 +1,4 @@
-namespace Application.DTos.Response;
+namespace Application.Dtos.Response;
 
 public sealed record CompanyRoleResponse(
     Guid Id,
@@ -9,5 +9,4 @@ public sealed record CompanyRoleResponse(
     bool CanManageRoles,
     bool CanManageDashboards,
     List<string> AllowedTables,
-    int UserCount
-);
+    int UserCount);

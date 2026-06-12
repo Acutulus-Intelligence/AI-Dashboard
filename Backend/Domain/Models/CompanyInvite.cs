@@ -12,4 +12,5 @@ public class CompanyInvite
     public DateTime ExpiresAt { get; set; }
     public bool IsAccepted { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public byte[] RowVersion { get; set; } = [];
 }

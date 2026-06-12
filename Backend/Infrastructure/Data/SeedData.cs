@@ -29,7 +29,7 @@ public static class SeedData
         if (!db.SubscriptionPlans.Any())
         {
             var plans = new[]
-            {      
+            {
                 new SubscriptionPlan
                 {
                     Id = Guid.NewGuid(),
@@ -75,9 +75,9 @@ public static class SeedData
             await db.SaveChangesAsync();
         }
 
-        var adminEmail = configuration["Seed__AdminEmail"];
-        var adminPassword = configuration["Seed__AdminPassword"];
-        var adminUserName = configuration["Seed__AdminUserName"];
+        var adminEmail = "AdminEmail@gmail.com";
+        var adminPassword = "Admin123!!";
+        var adminUserName = "Admin";
 
         if (string.IsNullOrEmpty(adminEmail) || string.IsNullOrEmpty(adminPassword))
             return;

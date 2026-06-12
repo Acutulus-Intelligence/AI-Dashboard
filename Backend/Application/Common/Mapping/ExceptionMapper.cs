@@ -65,7 +65,7 @@ namespace Application.Common.Mapping
             }},
 
             { typeof(FluentValidation.ValidationException), new ExceptionMapResult{
-              
+
                 StatusCode = (int)HttpStatusCode.BadRequest,
                 Title = "Validation Failed",
                 ErrorCode = "validation_failed"

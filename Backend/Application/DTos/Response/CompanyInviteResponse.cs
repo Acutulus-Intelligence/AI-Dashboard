@@ -1,4 +1,4 @@
-namespace Application.DTos.Response;
+namespace Application.Dtos.Response;
 
 public sealed record CompanyInviteResponse(
     Guid Id,
@@ -8,5 +8,4 @@ public sealed record CompanyInviteResponse(
     DateTime CreatedAt,
     DateTime ExpiresAt,
     bool IsExpired,
-    bool IsAccepted
-);
+    bool IsAccepted);

@@ -1,6 +1,4 @@
-namespace Application.DTos.Request;
+namespace Application.Dtos.Request;
 
 public sealed record UpdateUserRoleRequest(
-    Guid UserId,
-    Guid RoleId
-);
+    Guid RoleId);

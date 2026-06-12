@@ -1,6 +1,5 @@
-namespace Application.DTos.Request;
+namespace Application.Dtos.Request;
 
 public sealed record InviteUserRequest(
     string Email,
-    Guid RoleId
-);
+    Guid RoleId);

@@ -1,8 +1,5 @@
 using Domain.Enums;
-
-namespace Application.DTos.Request;
-
+namespace Application.Dtos.Request; 
 public sealed record SubscribeRequest(
-    Guid PlanId,
-    BillingPeriod BillingPeriod
-);
+    Guid PlanId, 
+    BillingPeriod BillingPeriod);
