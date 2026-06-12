@@ -124,7 +124,7 @@ Presentation.csproj    → Application, Domain, Infrastructure
 - Internal PostgreSQL only (via Npgsql)
 - Entity configurations in `Infrastructure/Data/Configurations/` using
   `IEntityTypeConfiguration<T>`
-- Table names: plural snake_case (`saved_dashboards`, `widgets`)
+- Table names: plural PascalCase (`Companies`, `Dashboards`)
 - Migrations in `Infrastructure/Data/Migrations/`
 - No business logic in DbContext or entity configurations
 

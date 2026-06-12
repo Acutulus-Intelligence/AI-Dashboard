@@ -1,10 +1,10 @@
 using Application.Common.Exceptions;
-using Application.DTos.Request;
-using Application.DTos.Response;
+using Application.Dtos.Request;
+using Application.Dtos.Response;
 using Application.Interfaces;
+using Domain.Enums;
 using Domain.Models;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.EntityFrameworkCore;
 
 namespace Application.Services;
 
@@ -13,15 +13,18 @@ public class AuthService : IAuthService
     private readonly UserManager<User> _userManager;
     private readonly ITokenService _tokenService;
     private readonly IRefreshTokenService _refreshTokenService;
+    private readonly ICompanyService _companyService;
 
     public AuthService(
         UserManager<User> userManager,
         ITokenService tokenService,
-        IRefreshTokenService refreshTokenService)
+        IRefreshTokenService refreshTokenService,
+        ICompanyService companyService)
     {
         _userManager = userManager;
         _tokenService = tokenService;
         _refreshTokenService = refreshTokenService;
+        _companyService = companyService;
     }
 
     public async Task<AuthResponse> RegisterAsync(RegisterRequest request, CancellationToken ct = default)
@@ -35,7 +38,8 @@ public class AuthService : IAuthService
             UserName = request.Email,
             Email = request.Email,
             FirstName = request.FirstName,
-            LastName = request.LastName
+            LastName = request.LastName,
+            UserType = request.UserType
         };
 
         var createResult = await _userManager.CreateAsync(user, request.Password);
@@ -44,6 +48,18 @@ public class AuthService : IAuthService
                 $"User creation failed: {string.Join(", ", createResult.Errors.Select(e => e.Description))}");
 
         await _userManager.AddToRoleAsync(user, "User");
+
+        if (request.UserType == UserType.Company)
+        {
+            if (!string.IsNullOrEmpty(request.CompanyName))
+            {
+                await _companyService.CreateAsync(user.Id, request.CompanyName, ct);
+            }
+            else if (!string.IsNullOrEmpty(request.InviteToken))
+            {
+                await _companyService.AcceptInviteAsync(request.InviteToken, user.Id, ct);
+            }
+        }
 
         var roles = await _userManager.GetRolesAsync(user);
         return await GenerateAuthResponseAsync(user, roles);
