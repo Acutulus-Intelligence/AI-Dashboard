@@ -15,8 +15,10 @@ public class UpdateProfileRequestValidator : AbstractValidator<UpdateProfileRequ
             .NotEmpty()
             .MaximumLength(100);
 
-        RuleFor(x => x.Email)
-            .NotEmpty()
-            .EmailAddress();
+        When(x => x.Email is not null, () =>
+        {
+            RuleFor(x => x.Email!)
+                .EmailAddress();
+        });
     }
 }

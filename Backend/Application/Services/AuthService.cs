@@ -127,7 +127,7 @@ public class AuthService : IAuthService
         user.FirstName = request.FirstName;
         user.LastName = request.LastName;
 
-        if (!string.Equals(user.Email, request.Email, StringComparison.OrdinalIgnoreCase))
+        if (request.Email is not null && !string.Equals(user.Email, request.Email, StringComparison.OrdinalIgnoreCase))
         {
             var emailOwner = await _userManager.FindByEmailAsync(request.Email);
             if (emailOwner is not null && emailOwner.Id != userId)
