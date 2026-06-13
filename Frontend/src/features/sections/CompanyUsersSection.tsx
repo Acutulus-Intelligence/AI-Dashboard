@@ -45,9 +45,7 @@ export default function CompanyUsersSection() {
     }
   }
 
-  useEffect(() => {
-    queueMicrotask(() => loadData());
-  }, []);
+  useEffect(() => { loadData(); }, []);
 
   async function handleInvite(e: FormEvent) {
     e.preventDefault();

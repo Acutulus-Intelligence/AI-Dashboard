@@ -1,4 +1,4 @@
-import { useState, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as authApi from '../../lib/api/auth';
 import { getAccessToken, getRefreshToken, setTokens, clearTokens } from '../../lib/api/client';
@@ -37,7 +37,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     return decoded;
   });
-  const [isLoading] = useState(() => !getAccessToken());
+  const [isLoading, setIsLoading] = useState(true);
+  useEffect(() => { setIsLoading(false); }, []);
   const navigate = useNavigate();
 
   const handleAuthResponse = useCallback((data: authApi.AuthResponse) => {
