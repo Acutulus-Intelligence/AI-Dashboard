@@ -7,6 +7,7 @@ using Domain.Models;
 using FluentValidation;
 using Infrastructure.Auth;
 using Infrastructure.Data;
+
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -53,6 +54,22 @@ builder.Services.AddAuthentication(options =>
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
         ClockSkew = TimeSpan.Zero,
     };
+
+    options.Events = new JwtBearerEvents
+    {
+        OnMessageReceived = context =>
+        {
+            var header = context.Request.Headers.Authorization.FirstOrDefault();
+            if (!string.IsNullOrEmpty(header) && header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                context.Token = header["Bearer ".Length..].Trim();
+                return Task.CompletedTask;
+            }
+
+            context.Token = context.Request.Cookies["access_token"];
+            return Task.CompletedTask;
+        }
+    };
 });
 
 builder.Services.AddSingleton<IExceptionMapper, ExceptionMapper>();
@@ -64,6 +81,7 @@ builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
 
 builder.Services.AddScoped<ITokenService, JwtService>();
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
+
 
 builder.Services.AddValidatorsFromAssemblyContaining<RegisterRequestValidator>();
 
