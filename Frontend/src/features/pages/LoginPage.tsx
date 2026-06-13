@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { LogIn, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import Button from '../components/Button';
 import Header from '../layouts/Header';
-import { useAuth } from '../store/AuthContext';
+import { useAuth } from '../store/useAuth';
 import { ROUTES } from '../routes';
 
 export default function LoginPage() {

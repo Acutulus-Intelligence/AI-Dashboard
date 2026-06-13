@@ -1,24 +1,14 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useState, useCallback, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as authApi from '../../lib/api/auth';
 import { getAccessToken, getRefreshToken, setTokens, clearTokens } from '../../lib/api/client';
+import { AuthContext } from './AuthContext';
 
 interface AuthUser {
   userId: string;
   email: string;
   roles: string[];
 }
-
-interface AuthContextType {
-  user: AuthUser | null;
-  isAuthenticated: boolean;
-  isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  register: (data: authApi.RegisterRequest) => Promise<void>;
-  logout: () => Promise<void>;
-}
-
-const AuthContext = createContext<AuthContextType | null>(null);
 
 function decodeJwtPayload(token: string): AuthUser | null {
   try {
@@ -37,26 +27,18 @@ function decodeJwtPayload(token: string): AuthUser | null {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const navigate = useNavigate();
-
-  const restoreSession = useCallback(() => {
+  const [user, setUser] = useState<AuthUser | null>(() => {
     const token = getAccessToken();
-    if (token) {
-      const decoded = decodeJwtPayload(token);
-      if (decoded) {
-        setUser(decoded);
-      } else {
-        clearTokens();
-      }
+    if (!token) return null;
+    const decoded = decodeJwtPayload(token);
+    if (!decoded) {
+      clearTokens();
+      return null;
     }
-    setIsLoading(false);
-  }, []);
-
-  useEffect(() => {
-    restoreSession();
-  }, [restoreSession]);
+    return decoded;
+  });
+  const [isLoading] = useState(() => !getAccessToken());
+  const navigate = useNavigate();
 
   const handleAuthResponse = useCallback((data: authApi.AuthResponse) => {
     setTokens(data.accessToken, data.refreshToken);
@@ -105,10 +87,4 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useAuth(): AuthContextType {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within an AuthProvider');
-  return ctx;
 }

@@ -3,7 +3,7 @@ import { AlignJustify, Settings, LogOut, Shield } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ROUTES } from '../routes';
 import CreateDropdown from '../components/CreateDropdown';
-import { useAuth } from '../store/AuthContext';
+import { useAuth } from '../store/useAuth';
 import * as companyApi from '../../lib/api/company';
 import logoSrc from '../../assets/images/IconTransNoText.png';
 

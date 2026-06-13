@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { User, Building2, Eye, EyeOff, AlertCircle, UserPlus, ArrowLeft, Asterisk } from 'lucide-react';
 import Button from '../components/Button';
-import { useAuth } from '../store/AuthContext';
+import { useAuth } from '../store/useAuth';
 import { ROUTES } from '../routes';
 
 export default function RegisterPage() {
