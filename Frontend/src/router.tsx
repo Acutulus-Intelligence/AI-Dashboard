@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { AuthProvider } from './features/store/AuthContext';
+import { AuthProvider } from './features/store/AuthContext.tsx';
 import ProtectedRoute from './features/components/ProtectedRoute';
 import ScrollToTop from './features/components/ScrollToTop';
 import LandingPage from './features/pages/LandingPage';
