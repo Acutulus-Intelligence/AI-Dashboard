@@ -1,6 +1,6 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Menu } from 'lucide-react';
-import { useEffect, useState } from 'react';
 import Button from '../components/Button';
 import HashLink from '../components/HashLink';
 
@@ -51,12 +51,16 @@ export default function Header() {
         </nav>
 
         <div className="hidden items-center gap-4 sm:flex">
-          <Button variant="ghost" className="px-4 py-2">
-            Login
-          </Button>
-          <Button variant="dark" className="px-6 py-3">
-            Sign Up
-          </Button>
+          <Link to="/login">
+            <Button variant="ghost" className="px-4 py-2">
+              Login
+            </Button>
+          </Link>
+          <Link to="/pricing">
+            <Button variant="dark" className="px-6 py-3">
+              Get Started
+            </Button>
+          </Link>
         </div>
 
         <button
