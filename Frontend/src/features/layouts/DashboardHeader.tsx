@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { AlignJustify, Settings, LogOut, Shield } from 'lucide-react';
+import { AlignJustify, Settings, LogOut, Shield, CreditCard } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ROUTES } from '../routes';
 import CreateDropdown from '../components/CreateDropdown';
@@ -88,6 +88,14 @@ export default function DashboardHeader({
                 >
                   <Shield size={16} />
                   Admin Settings
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setMenuOpen(false); navigate(ROUTES.SUBSCRIPTION); }}
+                  className="flex w-full items-center gap-2 px-4 py-3 text-left text-body-md text-on-surface-variant transition-colors hover:bg-surface-container-low"
+                >
+                  <CreditCard size={16} />
+                  Subscription
                 </button>
                 <div className="border-t border-outline-variant" />
                 <button

@@ -8,7 +8,7 @@ import {
   BILLING_PERIOD,
   FREE_TRIAL_DAYS,
   USER_TYPE,
-  createCheckout,
+  createCompanyCheckout,
   getPlans,
   type BillingPeriod,
   type SubscriptionPlan,
@@ -70,13 +70,13 @@ export default function CompanyCreatePage() {
     setError('');
     setLoadingPlanId(plan.id);
     try {
-      const checkout = await createCheckout({
-        planId: plan.id,
-        billingPeriod: billing,
-        companyId: company.id,
-        successUrl: `${window.location.origin}${ROUTES.PAYMENT_SUCCESS}`,
-        cancelUrl: `${window.location.origin}${ROUTES.PAYMENT_CANCEL}`,
-      });
+      const checkout = await createCompanyCheckout(
+        company.id,
+        plan.id,
+        billing,
+        `${window.location.origin}${ROUTES.PAYMENT_SUCCESS}`,
+        `${window.location.origin}${ROUTES.PAYMENT_CANCEL}`,
+      );
       window.location.href = checkout.checkoutUrl;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not start checkout.');

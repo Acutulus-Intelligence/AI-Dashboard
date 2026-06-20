@@ -37,6 +37,7 @@ export interface UserSubscription {
   startDate: string;
   endDate: string | null;
   status: number | 'Trial' | 'Active' | 'Expired' | 'Canceled';
+  trialEndDate: string | null;
 }
 
 export interface CreateCheckoutRequest {
@@ -44,8 +45,27 @@ export interface CreateCheckoutRequest {
   billingPeriod: BillingPeriod;
   successUrl: string;
   cancelUrl: string;
-  trialDays?: number;
-  companyId?: string;
+}
+
+export interface UpgradeToCompanyRequest {
+  companyName: string;
+  planId: string;
+  billingPeriod: BillingPeriod;
+  successUrl: string;
+  cancelUrl: string;
+}
+
+export interface CompanySubscription {
+  id: string;
+  planId: string;
+  planName: string;
+  price: number;
+  billingPeriod: number;
+  maxUsers: number | null;
+  startDate: string;
+  endDate: string | null;
+  status: number;
+  trialEndDate: string | null;
 }
 
 export interface CreateCheckoutResponse {
@@ -86,15 +106,42 @@ export async function hasActiveSubscription(): Promise<boolean> {
 export function createCheckout(data: CreateCheckoutRequest): Promise<CreateCheckoutResponse> {
   return apiFetch<CreateCheckoutResponse>('/api/subscriptions/create-checkout', {
     method: 'POST',
-    body: JSON.stringify({
-      trialDays: FREE_TRIAL_DAYS,
-      ...data,
-    }),
+    body: JSON.stringify(data),
+  });
+}
+
+export function createCompanyCheckout(
+  companyId: string,
+  planId: string,
+  billingPeriod: BillingPeriod,
+  successUrl: string,
+  cancelUrl: string,
+): Promise<CreateCheckoutResponse> {
+  return apiFetch<CreateCheckoutResponse>(`/api/subscriptions/company/${companyId}/create-checkout`, {
+    method: 'POST',
+    body: JSON.stringify({ planId, billingPeriod, successUrl, cancelUrl }),
+  });
+}
+
+export function upgradeToCompany(data: UpgradeToCompanyRequest): Promise<CreateCheckoutResponse> {
+  return apiFetch<CreateCheckoutResponse>('/api/subscriptions/upgrade-to-company', {
+    method: 'POST',
+    body: JSON.stringify(data),
   });
 }
 
 export function cancel(): Promise<void> {
   return apiFetch<void>('/api/subscriptions/cancel', {
+    method: 'POST',
+  });
+}
+
+export function getCompanySubscription(companyId: string): Promise<CompanySubscription> {
+  return apiFetch<CompanySubscription>(`/api/subscriptions/company/${companyId}/current`);
+}
+
+export function cancelCompanySubscription(companyId: string): Promise<void> {
+  return apiFetch<void>(`/api/subscriptions/company/${companyId}/cancel`, {
     method: 'POST',
   });
 }

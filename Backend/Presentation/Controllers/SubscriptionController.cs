@@ -37,9 +37,8 @@ public class SubscriptionController : ControllerBase
     public async Task<IActionResult> CreateCheckout([FromBody] SubscribeRequest request, CancellationToken ct)
     {
         var userId = GetUserId();
-        var (successUrl, cancelUrl) = GetReturnUrls();
         var response = await _subscriptionService.CreateUserCheckoutSessionAsync(
-            userId, request.PlanId, request.BillingPeriod, successUrl, cancelUrl, ct);
+            userId, request.PlanId, request.BillingPeriod, request.SuccessUrl, request.CancelUrl, ct);
         return Ok(response);
     }
 
@@ -48,9 +47,8 @@ public class SubscriptionController : ControllerBase
     public async Task<IActionResult> CreateCompanyCheckout(Guid companyId, [FromBody] SubscribeRequest request, CancellationToken ct)
     {
         var actorId = GetUserId();
-        var (successUrl, cancelUrl) = GetReturnUrls();
         var response = await _subscriptionService.CreateCompanyCheckoutSessionAsync(
-            companyId, request.PlanId, request.BillingPeriod, actorId, successUrl, cancelUrl, ct);
+            companyId, request.PlanId, request.BillingPeriod, actorId, request.SuccessUrl, request.CancelUrl, ct);
         return Ok(response);
     }
 
@@ -59,9 +57,8 @@ public class SubscriptionController : ControllerBase
     public async Task<IActionResult> UpgradeToCompany([FromBody] UpgradeToCompanyRequest request, CancellationToken ct)
     {
         var userId = GetUserId();
-        var (successUrl, cancelUrl) = GetReturnUrls();
         var response = await _subscriptionService.UpgradeToCompanyAsync(
-            userId, request.CompanyName, request.PlanId, request.BillingPeriod, successUrl, cancelUrl, ct);
+            userId, request.CompanyName, request.PlanId, request.BillingPeriod, request.SuccessUrl, request.CancelUrl, ct);
         return Ok(response);
     }
 
@@ -140,9 +137,4 @@ public class SubscriptionController : ControllerBase
         return parsed;
     }
 
-    private (string successUrl, string cancelUrl) GetReturnUrls()
-    {
-        var baseUrl = $"{Request.Scheme}://{Request.Host}";
-        return ($"{baseUrl}/api/subscriptions/checkout/success", $"{baseUrl}/api/subscriptions/checkout/cancel");
-    }
 }

@@ -14,6 +14,7 @@ import PaymentSuccessPage from './features/pages/PaymentSuccessPage';
 import PaymentCancelPage from './features/pages/PaymentCancelPage';
 import SubscribePage from './features/pages/SubscribePage';
 import CompanyCreatePage from './features/pages/CompanyCreatePage';
+import SubscriptionPage from './features/pages/SubscriptionPage';
 import { ROUTES } from './features/routes';
 
 export default function Router() {
@@ -48,6 +49,14 @@ export default function Router() {
             element={
               <ProtectedRoute requireSubscription={false}>
                 <CompanyCreatePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path={ROUTES.SUBSCRIPTION}
+            element={
+              <ProtectedRoute>
+                <SubscriptionPage />
               </ProtectedRoute>
             }
           />
