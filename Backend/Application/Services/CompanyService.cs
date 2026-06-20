@@ -536,7 +536,8 @@ public class CompanyService : ICompanyService
                     subscription.MaxUsers,
                     subscription.StartDate,
                     subscription.EndDate,
-                    subscription.Status
+                    subscription.Status,
+                    subscription.TrialEndDate
                 )
                 : null
         );

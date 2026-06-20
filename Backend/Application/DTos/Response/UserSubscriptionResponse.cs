@@ -8,4 +8,5 @@ public sealed record UserSubscriptionResponse(
     Domain.Enums.BillingPeriod BillingPeriod,
     DateTime StartDate,
     DateTime? EndDate,
-    Domain.Enums.SubscriptionStatus Status);
+    Domain.Enums.SubscriptionStatus Status,
+    DateTime? TrialEndDate);
