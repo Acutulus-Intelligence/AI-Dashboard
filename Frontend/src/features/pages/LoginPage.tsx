@@ -7,7 +7,7 @@ import { useAuth } from '../store/useAuth';
 import { ROUTES } from '../routes';
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, refreshSubscriptionStatus } = useAuth();
   const navigate = useNavigate();
 
   const [email, setEmail] = useState('');
@@ -28,7 +28,8 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(email, password);
-      navigate(ROUTES.DASHBOARD);
+      const isActive = await refreshSubscriptionStatus();
+      navigate(isActive ? ROUTES.DASHBOARD : ROUTES.SUBSCRIBE);
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message);

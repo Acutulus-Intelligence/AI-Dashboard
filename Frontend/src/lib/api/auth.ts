@@ -1,4 +1,5 @@
-import { apiFetch } from './client';
+import { apiFetch, getAccessToken, getRefreshToken } from './client';
+import { hasActiveSubscription as getHasActiveSubscription } from './subscription';
 
 export interface RegisterRequest {
   email: string;
@@ -60,6 +61,25 @@ export function revoke(data: RefreshTokenRequest): Promise<void> {
   });
 }
 
+export function logout(): Promise<void> {
+  const accessToken = getAccessToken();
+  const refreshToken = getRefreshToken();
+
+  if (!accessToken || !refreshToken) {
+    return Promise.resolve();
+  }
+
+  return revoke({ accessToken, refreshToken });
+}
+
 export function getMe(): Promise<UserInfo> {
   return apiFetch<UserInfo>('/api/auth/me');
+}
+
+export function me(): Promise<UserInfo> {
+  return getMe();
+}
+
+export function hasActiveSubscription(): Promise<boolean> {
+  return getHasActiveSubscription();
 }

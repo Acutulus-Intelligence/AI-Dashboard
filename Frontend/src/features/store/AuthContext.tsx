@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as authApi from '../../lib/api/auth';
-import { getAccessToken, getRefreshToken, setTokens, clearTokens } from '../../lib/api/client';
+import { getAccessToken, setTokens, clearTokens } from '../../lib/api/client';
 import { AuthContext } from './AuthContext';
 
 interface AuthUser {
@@ -38,8 +38,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return decoded;
   });
   const [isLoading, setIsLoading] = useState(true);
-  useEffect(() => { setIsLoading(false); }, []);
+  const [hasActiveSubscription, setHasActiveSubscription] = useState(false);
+  const [isSubscriptionLoading, setIsSubscriptionLoading] = useState(false);
   const navigate = useNavigate();
+
+  const refreshSubscriptionStatus = useCallback(async () => {
+    if (!getAccessToken()) {
+      setHasActiveSubscription(false);
+      return false;
+    }
+
+    setIsSubscriptionLoading(true);
+    try {
+      const isActive = await authApi.hasActiveSubscription();
+      setHasActiveSubscription(isActive);
+      return isActive;
+    } finally {
+      setIsSubscriptionLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    async function loadSession() {
+      await refreshSubscriptionStatus();
+      setIsLoading(false);
+    }
+
+    void loadSession();
+  }, [refreshSubscriptionStatus]);
 
   const handleAuthResponse = useCallback((data: authApi.AuthResponse) => {
     setTokens(data.accessToken, data.refreshToken);
@@ -52,25 +78,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     const data = await authApi.login({ email, password });
     handleAuthResponse(data);
-  }, [handleAuthResponse]);
+    await refreshSubscriptionStatus();
+  }, [handleAuthResponse, refreshSubscriptionStatus]);
 
   const register = useCallback(async (data: authApi.RegisterRequest) => {
     const response = await authApi.register(data);
     handleAuthResponse(response);
-  }, [handleAuthResponse]);
+    await refreshSubscriptionStatus();
+  }, [handleAuthResponse, refreshSubscriptionStatus]);
 
   const logout = useCallback(async () => {
     try {
-      const accessToken = getAccessToken();
-      const refreshToken = getRefreshToken();
-      if (accessToken && refreshToken) {
-        await authApi.revoke({ accessToken, refreshToken });
-      }
+      await authApi.logout();
     } catch {
       /* ignore */
     }
     clearTokens();
     setUser(null);
+    setHasActiveSubscription(false);
     navigate('/');
   }, [navigate]);
 
@@ -80,6 +105,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         isAuthenticated: !!user,
         isLoading,
+        hasActiveSubscription,
+        isSubscriptionLoading,
+        refreshSubscriptionStatus,
         login,
         register,
         logout,
