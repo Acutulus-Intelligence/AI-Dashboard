@@ -7,7 +7,6 @@ public interface IPaymentService
 {
     Task<string> CreateCheckoutSessionAsync(
         string customerId,
-        string email,
         Guid userId,
         Guid planId,
         string planName,
@@ -20,7 +19,6 @@ public interface IPaymentService
 
     Task<string> CreateCompanyCheckoutSessionAsync(
         string customerId,
-        string email,
         Guid userId,
         Guid companyId,
         Guid planId,

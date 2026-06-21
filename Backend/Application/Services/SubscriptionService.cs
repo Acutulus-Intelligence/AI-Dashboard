@@ -99,7 +99,7 @@ public class SubscriptionService : ISubscriptionService
             ?? await _paymentService.GetOrCreateCustomerAsync(user.Email!, user.Id, ct);
 
         var checkoutUrl = await _paymentService.CreateCheckoutSessionAsync(
-            customerId, user.Email!, user.Id, planId, plan.Name, price, period,
+            customerId, user.Id, planId, plan.Name, price, period,
             trialDays, successUrl, cancelUrl, ct);
 
         return new CheckoutResponse(checkoutUrl);
@@ -138,7 +138,7 @@ public class SubscriptionService : ISubscriptionService
             ?? await _paymentService.GetOrCreateCustomerAsync(owner.Email!, owner.Id, ct);
 
         var checkoutUrl = await _paymentService.CreateCompanyCheckoutSessionAsync(
-            customerId, owner.Email!, owner.Id, companyId, planId, plan.Name, price, period,
+            customerId, owner.Id, companyId, planId, plan.Name, price, period,
             trialDays, successUrl, cancelUrl, ct);
 
         return new CheckoutResponse(checkoutUrl);
@@ -183,7 +183,7 @@ public class SubscriptionService : ISubscriptionService
             ?? await _paymentService.GetOrCreateCustomerAsync(user.Email!, user.Id, ct);
 
         var checkoutUrl = await _paymentService.CreateCompanyCheckoutSessionAsync(
-            customerId, user.Email!, user.Id, companyResponse.Id, planId, plan.Name, price, period,
+            customerId, user.Id, companyResponse.Id, planId, plan.Name, price, period,
             trialDays, successUrl, cancelUrl, ct);
 
         return new CheckoutResponse(checkoutUrl);
@@ -201,6 +201,10 @@ public class SubscriptionService : ISubscriptionService
                     await HandleCheckoutCompletedAsync(paymentEvent, ct);
                     break;
 
+                case "customer.subscription.created":
+                    await HandleCheckoutCompletedAsync(paymentEvent, ct);
+                    break;
+
                 case "invoice.paid":
                     await HandleInvoicePaidAsync(paymentEvent, ct);
                     break;
@@ -210,10 +214,10 @@ public class SubscriptionService : ISubscriptionService
                     break;
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Log but don't throw — Stripe expects 200 for processed events
-            // even if our internal handling had no work to do.
+            Console.Error.WriteLine($"[StripeWebhook] Error processing {paymentEvent.Type}: {ex.Message}");
+            Console.Error.WriteLine(ex.StackTrace);
         }
     }
 
@@ -367,7 +371,10 @@ public class SubscriptionService : ISubscriptionService
 
         var stripeSubscriptionId = evt.StripeSubscriptionId;
         if (stripeSubscriptionId is null)
+        {
+            Console.Error.WriteLine($"[StripeWebhook] No subscription ID in {evt.Type} event for customer {evt.StripeCustomerId}");
             return;
+        }
 
         if (isCompany)
         {

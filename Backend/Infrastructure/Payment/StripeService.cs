@@ -23,7 +23,6 @@ public class StripeService : IPaymentService
 
     public async Task<string> CreateCheckoutSessionAsync(
         string customerId,
-        string email,
         Guid userId,
         Guid planId,
         string planName,
@@ -37,7 +36,6 @@ public class StripeService : IPaymentService
         var options = new SessionCreateOptions
         {
             Customer = customerId,
-            CustomerEmail = email,
             Mode = "subscription",
             SuccessUrl = successUrl,
             CancelUrl = cancelUrl,
@@ -82,7 +80,6 @@ public class StripeService : IPaymentService
 
     public async Task<string> CreateCompanyCheckoutSessionAsync(
         string customerId,
-        string email,
         Guid userId,
         Guid companyId,
         Guid planId,
@@ -97,7 +94,6 @@ public class StripeService : IPaymentService
         var options = new SessionCreateOptions
         {
             Customer = customerId,
-            CustomerEmail = email,
             Mode = "subscription",
             SuccessUrl = successUrl,
             CancelUrl = cancelUrl,
@@ -174,6 +170,20 @@ public class StripeService : IPaymentService
                     new Dictionary<string, string>(),
                     subscriptionId,
                     invoice.CustomerId
+                );
+            }
+
+            case "customer.subscription.created":
+            {
+                var subscription = stripeEvent.Data.Object as Subscription;
+                if (subscription is null)
+                    break;
+
+                return new PaymentWebhookEvent(
+                    stripeEvent.Type,
+                    subscription.Metadata,
+                    subscription.Id,
+                    subscription.CustomerId
                 );
             }
 
