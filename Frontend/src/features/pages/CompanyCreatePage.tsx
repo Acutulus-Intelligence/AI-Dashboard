@@ -1,48 +1,24 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { AlertCircle, Building2 } from 'lucide-react';
 import Button from '../components/Button';
-import BillingToggle from '../components/BillingToggle';
-import PlanCards from '../components/PlanCards';
-import { createCompany, type CompanyResponse } from '../../lib/api/company';
-import {
-  BILLING_PERIOD,
-  FREE_TRIAL_DAYS,
-  USER_TYPE,
-  createCompanyCheckout,
-  getPlans,
-  type BillingPeriod,
-  type SubscriptionPlan,
-} from '../../lib/api/subscription';
+import { useAuth } from '../store/useAuth';
+import { createCompany } from '../../lib/api/company';
+import { createCompanyCheckout } from '../../lib/api/subscription';
 import { ROUTES } from '../routes';
 
 export default function CompanyCreatePage() {
+  const { hasActiveSubscription } = useAuth();
+  const [searchParams] = useSearchParams();
+  const planId = searchParams.get('planId');
+  const billingParam = searchParams.get('billing');
+  const billing = billingParam === '1' ? 1 : 0;
+
   const [companyName, setCompanyName] = useState('');
-  const [company, setCompany] = useState<CompanyResponse | null>(null);
-  const [billing, setBilling] = useState<BillingPeriod>(BILLING_PERIOD.Monthly);
-  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
+  const [company, setCompany] = useState<{ id: string; name: string } | null>(null);
   const [loading, setLoading] = useState(false);
-  const [plansLoading, setPlansLoading] = useState(false);
-  const [loadingPlanId, setLoadingPlanId] = useState<string | null>(null);
+  const [redirecting, setRedirecting] = useState(false);
   const [error, setError] = useState('');
-
-  useEffect(() => {
-    async function loadPlans() {
-      if (!company) return;
-
-      setPlansLoading(true);
-      setError('');
-      try {
-        const response = await getPlans(USER_TYPE.Company);
-        setPlans(response.filter((plan) => plan.isActive));
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Could not load company plans.');
-      } finally {
-        setPlansLoading(false);
-      }
-    }
-
-    void loadPlans();
-  }, [company]);
 
   async function handleCreateCompany(e: FormEvent) {
     e.preventDefault();
@@ -53,34 +29,33 @@ export default function CompanyCreatePage() {
       return;
     }
 
+    if (!planId) {
+      setError('Missing plan information. Please go back and select a plan.');
+      return;
+    }
+
     setLoading(true);
     try {
       const response = await createCompany({ name: companyName.trim() });
       setCompany(response);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not create company.');
-    } finally {
-      setLoading(false);
-    }
-  }
 
-  async function handleCheckout(plan: SubscriptionPlan) {
-    if (!company) return;
-
-    setError('');
-    setLoadingPlanId(plan.id);
-    try {
+      setRedirecting(true);
+      const successUrl = hasActiveSubscription
+        ? `${window.location.origin}${ROUTES.PAYMENT_SUCCESS}?upgrade=true`
+        : `${window.location.origin}${ROUTES.PAYMENT_SUCCESS}`;
       const checkout = await createCompanyCheckout(
-        company.id,
-        plan.id,
+        response.id,
+        planId,
         billing,
-        `${window.location.origin}${ROUTES.PAYMENT_SUCCESS}`,
+        successUrl,
         `${window.location.origin}${ROUTES.PAYMENT_CANCEL}`,
       );
       window.location.href = checkout.checkoutUrl;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not start checkout.');
-      setLoadingPlanId(null);
+      setError(err instanceof Error ? err.message : 'Could not create company.');
+      setRedirecting(false);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -93,8 +68,7 @@ export default function CompanyCreatePage() {
             <div>
               <h1 className="text-headline-lg font-semibold">Create company workspace</h1>
               <p className="text-body-md text-on-surface-variant">
-                Add your company, then choose the subscription for the workspace. The first
-                {FREE_TRIAL_DAYS} days are free.
+                Enter your company name to create the workspace. You'll be redirected to checkout afterwards.
               </p>
             </div>
           </div>
@@ -106,7 +80,12 @@ export default function CompanyCreatePage() {
             </div>
           )}
 
-          {!company ? (
+          {redirecting ? (
+            <div className="flex min-h-52 flex-col items-center justify-center gap-4">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+              <p className="text-body-md text-on-surface-variant">Redirecting to checkout...</p>
+            </div>
+          ) : (
             <form onSubmit={handleCreateCompany} className="space-y-5">
               <div>
                 <label htmlFor="companyName" className="mb-1.5 block text-body-sm font-medium text-on-surface-variant">
@@ -125,30 +104,6 @@ export default function CompanyCreatePage() {
                 {loading ? 'Creating...' : 'Create company'}
               </Button>
             </form>
-          ) : (
-            <div>
-              <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <p className="font-mono text-label-caps uppercase text-outline">Company created</p>
-                  <h2 className="mt-1 text-headline-md font-semibold">{company.name}</h2>
-                </div>
-                <BillingToggle billing={billing} onChange={setBilling} />
-              </div>
-
-              {plansLoading ? (
-                <div className="flex min-h-52 items-center justify-center">
-                  <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-                </div>
-              ) : (
-                <PlanCards
-                  billing={billing}
-                  plans={plans}
-                  actionLabel="Choose company plan"
-                  loadingPlanId={loadingPlanId}
-                  onSelect={handleCheckout}
-                />
-              )}
-            </div>
           )}
         </div>
       </div>

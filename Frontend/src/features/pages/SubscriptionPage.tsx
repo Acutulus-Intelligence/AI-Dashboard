@@ -172,7 +172,7 @@ export default function SubscriptionPage() {
                     Create a company workspace with team management, shared dashboards, and more.
                   </p>
                   <div className="mt-4">
-                    <Link to={ROUTES.COMPANY_CREATE}>
+                    <Link to={ROUTES.PRICING}>
                       <Button variant="outline" className="w-full">Create company</Button>
                     </Link>
                   </div>

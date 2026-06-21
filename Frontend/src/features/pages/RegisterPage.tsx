@@ -42,7 +42,7 @@ export default function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [companyName, setCompanyName] = useState('');
+
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -83,7 +83,6 @@ export default function RegisterPage() {
     if (!/[0-9]/.test(password)) return 'Password must contain at least one digit (0-9).';
     if (!/[^a-zA-Z0-9]/.test(password)) return 'Password must contain at least one special character (e.g. !@#$%).';
     if (password !== confirmPassword) return 'Passwords do not match.';
-    if (userType === 'Company' && !companyName.trim()) return 'Please enter your company name.';
     return '';
   }
 
@@ -105,17 +104,19 @@ export default function RegisterPage() {
         firstName,
         lastName,
         userType: accountTypeToUserType(userType),
-        companyName: userType === 'Company' && companyName.trim() ? companyName.trim() : undefined,
       });
 
-      const checkout = await createCheckout({
-        planId: selectedPlanId,
-        billingPeriod: billing,
-        successUrl: `${window.location.origin}${ROUTES.PAYMENT_SUCCESS}`,
-        cancelUrl: `${window.location.origin}${ROUTES.PAYMENT_CANCEL}`,
-      });
-
-      window.location.href = checkout.checkoutUrl;
+      if (userType === 'Company') {
+        window.location.href = `${window.location.origin}${ROUTES.COMPANY_CREATE}?planId=${selectedPlanId}&billing=${billing}`;
+      } else {
+        const checkout = await createCheckout({
+          planId: selectedPlanId,
+          billingPeriod: billing,
+          successUrl: `${window.location.origin}${ROUTES.PAYMENT_SUCCESS}`,
+          cancelUrl: `${window.location.origin}${ROUTES.PAYMENT_CANCEL}`,
+        });
+        window.location.href = checkout.checkoutUrl;
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.');
       setLoading(false);
@@ -238,21 +239,6 @@ export default function RegisterPage() {
                 </div>
 
                 <div className="space-y-5">
-                  {userType === 'Company' && (
-                    <div>
-                      <label htmlFor="companyName" className="mb-1.5 block text-body-sm font-medium text-on-surface-variant">
-                        Company Name
-                      </label>
-                      <input
-                        id="companyName"
-                        type="text"
-                        value={companyName}
-                        onChange={(e) => setCompanyName(e.target.value)}
-                        placeholder="Acme Inc."
-                        className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-4 py-3 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-                  )}
 
                   <div className="grid gap-4 md:grid-cols-2">
                     <div>

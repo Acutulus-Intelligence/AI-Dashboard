@@ -18,11 +18,12 @@ export default function DashboardHeader({
   onNewChart,
   onNewDashboard,
 }: DashboardHeaderProps) {
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [companyName, setCompanyName] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const isCompany = user?.userType === 1;
 
   useEffect(() => {
     companyApi.getMyCompany().then((c) => setCompanyName(c.name)).catch(() => {});
@@ -81,22 +82,25 @@ export default function DashboardHeader({
 
             {menuOpen && (
               <div className="absolute right-0 top-full mt-2 w-48 overflow-hidden rounded-xl border border-outline-variant bg-white shadow-lg">
-                <button
-                  type="button"
-                  onClick={() => { setMenuOpen(false); navigate(ROUTES.ADMIN); }}
-                  className="flex w-full items-center gap-2 px-4 py-3 text-left text-body-md text-on-surface-variant transition-colors hover:bg-surface-container-low"
-                >
-                  <Shield size={16} />
-                  Admin Settings
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setMenuOpen(false); navigate(ROUTES.SUBSCRIPTION); }}
-                  className="flex w-full items-center gap-2 px-4 py-3 text-left text-body-md text-on-surface-variant transition-colors hover:bg-surface-container-low"
-                >
-                  <CreditCard size={16} />
-                  Subscription
-                </button>
+                {isCompany ? (
+                  <button
+                    type="button"
+                    onClick={() => { setMenuOpen(false); navigate(ROUTES.ADMIN); }}
+                    className="flex w-full items-center gap-2 px-4 py-3 text-left text-body-md text-on-surface-variant transition-colors hover:bg-surface-container-low"
+                  >
+                    <Shield size={16} />
+                    Admin Settings
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => { setMenuOpen(false); navigate(ROUTES.SUBSCRIPTION); }}
+                    className="flex w-full items-center gap-2 px-4 py-3 text-left text-body-md text-on-surface-variant transition-colors hover:bg-surface-container-low"
+                  >
+                    <CreditCard size={16} />
+                    Subscription
+                  </button>
+                )}
                 <div className="border-t border-outline-variant" />
                 <button
                   type="button"

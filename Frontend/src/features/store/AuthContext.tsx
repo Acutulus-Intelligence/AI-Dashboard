@@ -3,12 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import * as authApi from '../../lib/api/auth';
 import { AuthContext } from './AuthContext';
 
-interface AuthUser {
-  userId: string;
-  email: string;
-  roles: string[];
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -33,7 +27,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const fetchUser = useCallback(async () => {
     try {
       const userInfo = await authApi.getMe();
-      setUser(userInfo);
+      setUser({ ...userInfo, userType: Number(userInfo.userType) });
       return true;
     } catch {
       setUser(null);

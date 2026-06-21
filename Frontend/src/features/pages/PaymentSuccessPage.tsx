@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { CheckCircle2 } from 'lucide-react';
 import Button from '../components/Button';
 import { ROUTES } from '../routes';
@@ -7,8 +7,10 @@ import { useAuth } from '../store/useAuth';
 
 export default function PaymentSuccessPage() {
   const navigate = useNavigate();
-  const { refreshSubscriptionStatus } = useAuth();
+  const [searchParams] = useSearchParams();
+  const { refreshSubscriptionStatus, logout } = useAuth();
   const [timedOut, setTimedOut] = useState(false);
+  const isUpgrade = searchParams.get('upgrade') === 'true';
 
   useEffect(() => {
     let elapsed = 0;
@@ -19,7 +21,11 @@ export default function PaymentSuccessPage() {
 
       if (isActive) {
         window.clearInterval(interval);
-        navigate(ROUTES.DASHBOARD, { replace: true });
+        if (isUpgrade) {
+          await logout();
+        } else {
+          navigate(ROUTES.DASHBOARD, { replace: true });
+        }
       }
 
       if (elapsed >= 30000) {

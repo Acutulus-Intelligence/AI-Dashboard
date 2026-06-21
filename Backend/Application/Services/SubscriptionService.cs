@@ -126,6 +126,22 @@ public class SubscriptionService : ISubscriptionService
         if (plan.UserType != UserType.Company)
             throw new InvalidOperationException("This plan is for companies only.");
 
+        var existingIndividualSub = await _db.UserSubscriptions
+            .FirstOrDefaultAsync(s => s.UserId == actorId &&
+                (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial), ct);
+
+        if (existingIndividualSub is not null)
+        {
+            existingIndividualSub.Status = SubscriptionStatus.Canceled;
+            existingIndividualSub.EndDate = DateTime.UtcNow;
+
+            if (existingIndividualSub.StripeSubscriptionId is not null)
+                await _paymentService.CancelSubscriptionImmediatelyAsync(
+                    existingIndividualSub.StripeSubscriptionId, ct);
+        }
+
+        await _db.SaveChangesAsync(ct);
+
         var price = period == BillingPeriod.Monthly ? plan.MonthlyPrice : plan.YearlyPrice;
 
         var existingSubscription = await _db.CompanySubscriptions
@@ -167,13 +183,19 @@ public class SubscriptionService : ISubscriptionService
         var companyResponse = await _companyService.CreateAsync(userId, companyName, ct);
 
         var existingSubscription = await _db.UserSubscriptions
-            .FirstOrDefaultAsync(s => s.UserId == userId && s.Status == SubscriptionStatus.Active, ct);
+            .FirstOrDefaultAsync(s => s.UserId == userId && (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial), ct);
 
         if (existingSubscription is not null)
         {
             existingSubscription.Status = SubscriptionStatus.Canceled;
             existingSubscription.EndDate = DateTime.UtcNow;
+
+            if (existingSubscription.StripeSubscriptionId is not null)
+                await _paymentService.CancelSubscriptionImmediatelyAsync(
+                    existingSubscription.StripeSubscriptionId, ct);
         }
+
+        await _db.SaveChangesAsync(ct);
 
         var price = period == BillingPeriod.Monthly ? plan.MonthlyPrice : plan.YearlyPrice;
 
@@ -223,8 +245,13 @@ public class SubscriptionService : ISubscriptionService
 
     public async Task<bool> HasActiveSubscriptionAsync(Guid userId, CancellationToken ct = default)
     {
-        return await _db.UserSubscriptions
+        if (await _db.UserSubscriptions
             .AnyAsync(s => s.UserId == userId &&
+                (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active), ct))
+            return true;
+
+        return await _db.CompanySubscriptions
+            .AnyAsync(s => s.Company.OwnerId == userId &&
                 (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active), ct);
     }
 

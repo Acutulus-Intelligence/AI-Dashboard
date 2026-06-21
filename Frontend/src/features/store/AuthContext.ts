@@ -5,6 +5,7 @@ interface AuthUser {
   userId: string;
   email: string;
   roles: string[];
+  userType: number;
 }
 
 export interface AuthContextType {

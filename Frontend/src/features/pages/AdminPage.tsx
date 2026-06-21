@@ -170,7 +170,7 @@ export default function AdminPage() {
                       <Button
                         variant="outline"
                         className="w-full"
-                        onClick={(e) => { e.preventDefault(); navigate(ROUTES.COMPANY_CREATE); }}
+                        onClick={(e) => { e.preventDefault(); navigate(ROUTES.PRICING); }}
                       >
                         <CreditCard size={14} className="mr-1" />
                         Subscribe

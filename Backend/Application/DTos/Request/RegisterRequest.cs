@@ -5,5 +5,4 @@ public sealed record RegisterRequest(string Email,
     string FirstName, 
     string LastName, 
     UserType UserType, 
-    string? CompanyName = null, 
     string? InviteToken = null);

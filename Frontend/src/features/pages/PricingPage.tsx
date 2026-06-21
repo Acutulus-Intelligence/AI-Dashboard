@@ -7,6 +7,7 @@ import Button from '../components/Button';
 import BillingToggle from '../components/BillingToggle';
 import PlanCards from '../components/PlanCards';
 import { ROUTES } from '../routes';
+import { useAuth } from '../store/useAuth';
 import {
   BILLING_PERIOD,
   FREE_TRIAL_DAYS,
@@ -26,6 +27,7 @@ function isEnterprisePlan(plan: SubscriptionPlan) {
 
 export default function PricingPage() {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
   const [billing, setBilling] = useState<BillingPeriod>(BILLING_PERIOD.Monthly);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,6 +52,14 @@ export default function PricingPage() {
   function handleChoosePlan(plan: SubscriptionPlan) {
     if (isEnterprisePlan(plan)) {
       navigate(ROUTES.CONTACT);
+      return;
+    }
+
+    if (isAuthenticated) {
+      const target = getRegisterType(plan) === 'company'
+        ? `${ROUTES.COMPANY_CREATE}?planId=${plan.id}&billing=${billing}`
+        : `${ROUTES.SUBSCRIBE}?planId=${plan.id}&billing=${billing}`;
+      navigate(target);
       return;
     }
 

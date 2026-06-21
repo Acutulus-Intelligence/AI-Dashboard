@@ -33,23 +33,26 @@ public class StripeService : IPaymentService
         string cancelUrl,
         CancellationToken ct = default)
     {
+        var metadata = new Dictionary<string, string>
+        {
+            { "userId", userId.ToString() },
+            { "planId", planId.ToString() },
+            { "billingPeriod", billingPeriod.ToString() },
+            { "trialDays", trialDays.ToString() },
+            { "isCompany", "false" }
+        };
+
         var options = new SessionCreateOptions
         {
             Customer = customerId,
             Mode = "subscription",
             SuccessUrl = successUrl,
             CancelUrl = cancelUrl,
+            Metadata = metadata,
             SubscriptionData = new SessionSubscriptionDataOptions
             {
                 TrialPeriodDays = trialDays,
-                Metadata = new Dictionary<string, string>
-                {
-                    { "userId", userId.ToString() },
-                    { "planId", planId.ToString() },
-                    { "billingPeriod", billingPeriod.ToString() },
-                    { "trialDays", trialDays.ToString() },
-                    { "isCompany", "false" }
-                }
+                Metadata = metadata
             },
             LineItems =
             [
@@ -91,24 +94,27 @@ public class StripeService : IPaymentService
         string cancelUrl,
         CancellationToken ct = default)
     {
+        var metadata = new Dictionary<string, string>
+        {
+            { "userId", userId.ToString() },
+            { "companyId", companyId.ToString() },
+            { "planId", planId.ToString() },
+            { "billingPeriod", billingPeriod.ToString() },
+            { "trialDays", trialDays.ToString() },
+            { "isCompany", "true" }
+        };
+
         var options = new SessionCreateOptions
         {
             Customer = customerId,
             Mode = "subscription",
             SuccessUrl = successUrl,
             CancelUrl = cancelUrl,
+            Metadata = metadata,
             SubscriptionData = new SessionSubscriptionDataOptions
             {
                 TrialPeriodDays = trialDays,
-                Metadata = new Dictionary<string, string>
-                {
-                    { "userId", userId.ToString() },
-                    { "companyId", companyId.ToString() },
-                    { "planId", planId.ToString() },
-                    { "billingPeriod", billingPeriod.ToString() },
-                    { "trialDays", trialDays.ToString() },
-                    { "isCompany", "true" }
-                }
+                Metadata = metadata
             },
             LineItems =
             [

@@ -7,7 +7,6 @@ export interface RegisterRequest {
   firstName: string;
   lastName: string;
   userType: number;
-  companyName?: string;
   inviteToken?: string;
 }
 
@@ -31,6 +30,7 @@ export interface UserInfo {
   userId: string;
   email: string;
   roles: string[];
+  userType: string;
 }
 
 export function register(data: RegisterRequest): Promise<AuthResponse> {

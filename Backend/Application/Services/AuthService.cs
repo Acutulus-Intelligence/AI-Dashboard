@@ -49,16 +49,9 @@ public class AuthService : IAuthService
 
         await _userManager.AddToRoleAsync(user, "User");
 
-        if (request.UserType == UserType.Company)
+        if (!string.IsNullOrEmpty(request.InviteToken))
         {
-            if (!string.IsNullOrEmpty(request.CompanyName))
-            {
-                await _companyService.CreateAsync(user.Id, request.CompanyName, ct);
-            }
-            else if (!string.IsNullOrEmpty(request.InviteToken))
-            {
-                await _companyService.AcceptInviteAsync(request.InviteToken, user.Id, ct);
-            }
+            await _companyService.AcceptInviteAsync(request.InviteToken, user.Id, ct);
         }
 
         var roles = await _userManager.GetRolesAsync(user);
