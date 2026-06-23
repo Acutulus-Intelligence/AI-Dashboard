@@ -98,6 +98,23 @@ export default function AdminPage() {
             </div>
           )}
 
+          {companySub && companySub.status !== 0 && companySub.status !== 1 && (
+            <div className="mb-6 flex items-center justify-between gap-4 rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-body-sm text-amber-800">
+              <div className="flex items-center gap-2">
+                <AlertCircle size={16} className="shrink-0" />
+                <span>Your subscription has been cancelled. <span className="font-medium">Resubscribe</span> to regain dashboard access.</span>
+              </div>
+              <Button
+                variant="outline"
+                className="shrink-0 border-amber-300 text-amber-800 hover:bg-amber-100"
+                onClick={(e) => { e.preventDefault(); navigate(ROUTES.PRICING); }}
+              >
+                <CreditCard size={14} className="mr-1" />
+                Subscribe
+              </Button>
+            </div>
+          )}
+
           {loading ? (
             <div className="flex min-h-52 items-center justify-center">
               <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />

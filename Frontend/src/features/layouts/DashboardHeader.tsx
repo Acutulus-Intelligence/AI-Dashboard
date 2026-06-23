@@ -18,7 +18,7 @@ export default function DashboardHeader({
   onNewChart,
   onNewDashboard,
 }: DashboardHeaderProps) {
-  const { user, logout } = useAuth();
+  const { user, hasActiveSubscription, logout } = useAuth();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [companyName, setCompanyName] = useState<string | null>(null);
@@ -68,7 +68,9 @@ export default function DashboardHeader({
         </div>
 
         <div className="flex items-center gap-3">
-          <CreateDropdown onNewChart={onNewChart} onNewDashboard={onNewDashboard} />
+          {hasActiveSubscription && (
+            <CreateDropdown onNewChart={onNewChart} onNewDashboard={onNewDashboard} />
+          )}
 
           <div ref={ref} className="relative">
             <button

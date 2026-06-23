@@ -55,7 +55,7 @@ export default function Router() {
           <Route
             path={ROUTES.SUBSCRIPTION}
             element={
-              <ProtectedRoute>
+              <ProtectedRoute requireSubscription={false}>
                 <SubscriptionPage />
               </ProtectedRoute>
             }
@@ -63,7 +63,7 @@ export default function Router() {
           <Route
             path="/admin/users"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute requireSubscription={false}>
                 <AdminUsersPage />
               </ProtectedRoute>
             }
@@ -71,7 +71,7 @@ export default function Router() {
           <Route
             path={ROUTES.ADMIN}
             element={
-              <ProtectedRoute>
+              <ProtectedRoute requireSubscription={false}>
                 <AdminPage />
               </ProtectedRoute>
             }

@@ -77,15 +77,12 @@ public class SubscriptionService : ISubscriptionService
         var user = await _db.Users.FindAsync([userId], ct)
             ?? throw new KeyNotFoundException("User not found.");
 
+        if (user.CompanyId is not null)
+            throw new InvalidOperationException("You must leave your company before switching to an individual plan.");
+
         var plan = await _db.SubscriptionPlans
             .FirstOrDefaultAsync(p => p.Id == planId && p.IsActive, ct)
             ?? throw new KeyNotFoundException("Subscription plan not found.");
-
-        if (plan.UserType != user.UserType)
-            throw new InvalidOperationException("This plan does not match your account type.");
-
-        if (user.UserType != UserType.Individual)
-            throw new InvalidOperationException("Individual checkout is for individual users only.");
 
         var price = period == BillingPeriod.Monthly ? plan.MonthlyPrice : plan.YearlyPrice;
 
@@ -122,9 +119,6 @@ public class SubscriptionService : ISubscriptionService
         var plan = await _db.SubscriptionPlans
             .FirstOrDefaultAsync(p => p.Id == planId && p.IsActive, ct)
             ?? throw new KeyNotFoundException("Subscription plan not found.");
-
-        if (plan.UserType != UserType.Company)
-            throw new InvalidOperationException("This plan is for companies only.");
 
         var existingIndividualSub = await _db.UserSubscriptions
             .FirstOrDefaultAsync(s => s.UserId == actorId &&
@@ -240,6 +234,7 @@ public class SubscriptionService : ISubscriptionService
         {
             Console.Error.WriteLine($"[StripeWebhook] Error processing {paymentEvent.Type}: {ex.Message}");
             Console.Error.WriteLine(ex.StackTrace);
+            throw;
         }
     }
 
@@ -384,11 +379,23 @@ public class SubscriptionService : ISubscriptionService
 
     private async Task HandleCheckoutCompletedAsync(PaymentWebhookEvent evt, CancellationToken ct)
     {
-        var userId = Guid.Parse(evt.Metadata["userId"]);
-        var planId = Guid.Parse(evt.Metadata["planId"]);
-        var billingPeriod = Enum.Parse<BillingPeriod>(evt.Metadata["billingPeriod"]);
-        var isCompany = bool.Parse(evt.Metadata.GetValueOrDefault("isCompany", "false"));
-        var trialDays = int.Parse(evt.Metadata.GetValueOrDefault("trialDays", "7"));
+        if (!evt.Metadata.TryGetValue("userId", out var userIdRaw) ||
+            !Guid.TryParse(userIdRaw, out var userId))
+            throw new InvalidOperationException($"Missing or invalid 'userId' in {evt.Type} metadata.");
+
+        if (!evt.Metadata.TryGetValue("planId", out var planIdRaw) ||
+            !Guid.TryParse(planIdRaw, out var planId))
+            throw new InvalidOperationException($"Missing or invalid 'planId' in {evt.Type} metadata.");
+
+        if (!evt.Metadata.TryGetValue("billingPeriod", out var billingRaw) ||
+            !Enum.TryParse<BillingPeriod>(billingRaw, out var billingPeriod))
+            throw new InvalidOperationException($"Missing or invalid 'billingPeriod' in {evt.Type} metadata.");
+
+        var isCompany = evt.Metadata.TryGetValue("isCompany", out var isCompanyRaw) &&
+            bool.TryParse(isCompanyRaw, out var isCompanyParsed) && isCompanyParsed;
+
+        var trialDays = evt.Metadata.TryGetValue("trialDays", out var trialRaw) &&
+            int.TryParse(trialRaw, out var trialDaysParsed) ? trialDaysParsed : 7;
 
         var user = await _db.Users.FindAsync([userId], ct);
         if (user is not null && evt.StripeCustomerId is not null)
@@ -396,16 +403,18 @@ public class SubscriptionService : ISubscriptionService
             user.StripeCustomerId = evt.StripeCustomerId;
         }
 
-        var stripeSubscriptionId = evt.StripeSubscriptionId;
-        if (stripeSubscriptionId is null)
-        {
-            Console.Error.WriteLine($"[StripeWebhook] No subscription ID in {evt.Type} event for customer {evt.StripeCustomerId}");
+        var stripeSubscriptionId = evt.StripeSubscriptionId
+            ?? throw new InvalidOperationException($"No subscription ID in {evt.Type} event for customer {evt.StripeCustomerId}");
+
+        if (await _db.UserSubscriptions.AnyAsync(s => s.StripeSubscriptionId == stripeSubscriptionId, ct) ||
+            await _db.CompanySubscriptions.AnyAsync(s => s.StripeSubscriptionId == stripeSubscriptionId, ct))
             return;
-        }
 
         if (isCompany)
         {
-            var companyId = Guid.Parse(evt.Metadata["companyId"]);
+            if (!evt.Metadata.TryGetValue("companyId", out var companyIdRaw) ||
+                !Guid.TryParse(companyIdRaw, out var companyId))
+                throw new InvalidOperationException($"Missing or invalid 'companyId' in {evt.Type} metadata.");
             var existing = await _db.CompanySubscriptions
                 .FirstOrDefaultAsync(s => s.CompanyId == companyId, ct);
 
@@ -474,6 +483,13 @@ public class SubscriptionService : ISubscriptionService
                     TrialEndDate = DateTime.UtcNow.AddDays(7)
                 });
             }
+        }
+
+        if (user is not null)
+        {
+            var plan = await _db.SubscriptionPlans.FindAsync([planId], ct);
+            if (plan is not null && user.UserType != plan.UserType)
+                user.UserType = plan.UserType;
         }
 
         await _db.SaveChangesAsync(ct);

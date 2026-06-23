@@ -9,23 +9,25 @@ interface ProtectedRouteProps {
 }
 
 export default function ProtectedRoute({ children, requireSubscription = true }: ProtectedRouteProps) {
-  const { isAuthenticated, isLoading, hasActiveSubscription, isSubscriptionLoading } = useAuth();
+  const { isAuthenticated, isLoading, hasActiveSubscription, isSubscriptionLoading, user } = useAuth();
 
-  if (isLoading || isSubscriptionLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
+  if (!isLoading && !isSubscriptionLoading && !isAuthenticated) {
     return <Navigate to={ROUTES.LOGIN} replace />;
   }
 
-  if (requireSubscription && !hasActiveSubscription) {
-    return <Navigate to={ROUTES.SUBSCRIBE} replace />;
+  if (!isLoading && !isSubscriptionLoading && requireSubscription && !hasActiveSubscription) {
+    const target = user?.userType === 1 ? ROUTES.ADMIN : ROUTES.SUBSCRIPTION;
+    return <Navigate to={target} replace />;
   }
 
-  return <>{children}</>;
+  return (
+    <div className="relative">
+      {(isLoading || isSubscriptionLoading) && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+        </div>
+      )}
+      {children}
+    </div>
+  );
 }
