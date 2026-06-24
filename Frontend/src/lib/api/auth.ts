@@ -21,11 +21,6 @@ export interface AuthResponse {
   expiresIn: number;
 }
 
-export interface RefreshTokenRequest {
-  accessToken: string;
-  refreshToken: string;
-}
-
 export interface UserInfo {
   userId: string;
   email: string;
@@ -47,20 +42,6 @@ export function login(data: LoginRequest): Promise<AuthResponse> {
   });
 }
 
-export function refresh(data: RefreshTokenRequest): Promise<AuthResponse> {
-  return apiFetch<AuthResponse>('/api/auth/refresh', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-}
-
-export function revoke(data: RefreshTokenRequest): Promise<void> {
-  return apiFetch<void>('/api/auth/revoke', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-}
-
 export function logout(): Promise<void> {
   return apiFetch<void>('/api/auth/revoke', {
     method: 'POST',
@@ -69,10 +50,6 @@ export function logout(): Promise<void> {
 
 export function getMe(): Promise<UserInfo> {
   return apiFetch<UserInfo>('/api/auth/me');
-}
-
-export function me(): Promise<UserInfo> {
-  return getMe();
 }
 
 export function hasActiveSubscription(): Promise<boolean> {

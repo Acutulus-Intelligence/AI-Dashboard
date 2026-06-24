@@ -1,7 +1,7 @@
 import { createContext } from 'react';
 import * as authApi from '../../lib/api/auth';
 
-interface AuthUser {
+export interface AuthUser {
   userId: string;
   email: string;
   roles: string[];

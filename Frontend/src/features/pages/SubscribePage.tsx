@@ -14,7 +14,6 @@ import {
   type SubscriptionPlan,
 } from '../../lib/api/subscription';
 import * as companyApi from '../../lib/api/company';
-import { useAuth } from '../store/useAuth';
 import { ROUTES } from '../routes';
 
 function getPlanUserType(plan: SubscriptionPlan): number {
@@ -24,7 +23,6 @@ function getPlanUserType(plan: SubscriptionPlan): number {
 
 export default function SubscribePage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
   const [billing, setBilling] = useState<BillingPeriod>(BILLING_PERIOD.Monthly);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [loading, setLoading] = useState(true);

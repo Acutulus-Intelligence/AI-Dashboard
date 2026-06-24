@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as authApi from '../../lib/api/auth';
-import { AuthContext } from './AuthContext';
+import { AuthContext, type AuthUser } from './AuthContext';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);

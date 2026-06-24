@@ -15,7 +15,6 @@ export default function CompanyCreatePage() {
   const billing = billingParam === '1' ? 1 : 0;
 
   const [companyName, setCompanyName] = useState('');
-  const [company, setCompany] = useState<{ id: string; name: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [redirecting, setRedirecting] = useState(false);
   const [error, setError] = useState('');
@@ -37,7 +36,6 @@ export default function CompanyCreatePage() {
     setLoading(true);
     try {
       const response = await createCompany({ name: companyName.trim() });
-      setCompany(response);
 
       setRedirecting(true);
       const successUrl = hasActiveSubscription
