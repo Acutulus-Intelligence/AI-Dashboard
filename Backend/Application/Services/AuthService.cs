@@ -44,8 +44,7 @@ public class AuthService : IAuthService
 
         var createResult = await _userManager.CreateAsync(user, request.Password);
         if (!createResult.Succeeded)
-            throw new InvalidOperationException(
-                $"User creation failed: {string.Join(", ", createResult.Errors.Select(e => e.Description))}");
+            throw new InvalidOperationException("Registration failed. Please check your input and try again.");
 
         await _userManager.AddToRoleAsync(user, "User");
 
@@ -107,8 +106,7 @@ public class AuthService : IAuthService
 
         var result = await _userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
         if (!result.Succeeded)
-            throw new InvalidOperationException(
-                $"Password change failed: {string.Join(", ", result.Errors.Select(e => e.Description))}");
+            throw new InvalidOperationException("Password change failed. Please check your input and try again.");
     }
 
     public async Task UpdateProfileAsync(Guid userId, UpdateProfileRequest request, CancellationToken ct = default)
@@ -128,19 +126,16 @@ public class AuthService : IAuthService
 
             var setEmailResult = await _userManager.SetEmailAsync(user, request.Email);
             if (!setEmailResult.Succeeded)
-                throw new InvalidOperationException(
-                    $"Email update failed: {string.Join(", ", setEmailResult.Errors.Select(e => e.Description))}");
+                throw new InvalidOperationException("Email update failed. Please check your input and try again.");
 
             var setUserNameResult = await _userManager.SetUserNameAsync(user, request.Email);
             if (!setUserNameResult.Succeeded)
-                throw new InvalidOperationException(
-                    $"Username update failed: {string.Join(", ", setUserNameResult.Errors.Select(e => e.Description))}");
+                throw new InvalidOperationException("Profile update failed. Please check your input and try again.");
         }
 
         var updateResult = await _userManager.UpdateAsync(user);
         if (!updateResult.Succeeded)
-            throw new InvalidOperationException(
-                $"Profile update failed: {string.Join(", ", updateResult.Errors.Select(e => e.Description))}");
+            throw new InvalidOperationException("Profile update failed. Please check your input and try again.");
     }
 
     private async Task<AuthResult> GenerateAuthResultAsync(User user, IList<string> roles)

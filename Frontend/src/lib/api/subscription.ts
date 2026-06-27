@@ -83,24 +83,10 @@ export function getCurrentSubscription(): Promise<UserSubscription> {
 }
 
 export async function hasActiveSubscription(): Promise<boolean> {
-  try {
-    const response = await apiFetch<boolean | { hasActiveSubscription?: boolean; isActive?: boolean }>(
-      '/api/subscriptions/has-active',
-    );
-
-    if (typeof response === 'boolean') return response;
-    if (typeof response.hasActiveSubscription === 'boolean') return response.hasActiveSubscription;
-    if (typeof response.isActive === 'boolean') return response.isActive;
-  } catch {
-    /* fallback to the current backend contract */
-  }
-
-  try {
-    const subscription = await getCurrentSubscription();
-    return subscription.status === 0 || subscription.status === 1 || subscription.status === 'Trial' || subscription.status === 'Active';
-  } catch {
-    return false;
-  }
+  const response = await apiFetch<{ hasActiveSubscription: boolean }>(
+    '/api/subscriptions/has-active',
+  );
+  return response.hasActiveSubscription;
 }
 
 export function createCheckout(data: CreateCheckoutRequest): Promise<CreateCheckoutResponse> {

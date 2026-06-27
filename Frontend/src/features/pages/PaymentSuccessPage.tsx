@@ -36,7 +36,7 @@ export default function PaymentSuccessPage() {
         pollingRef.current = false;
         setTimedOut(true);
       }
-    }, 2000);
+    }, 3000);
 
     return () => window.clearInterval(interval);
   }, [navigate, refreshSubscriptionStatus]);

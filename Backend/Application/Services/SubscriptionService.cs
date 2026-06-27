@@ -8,6 +8,8 @@ namespace Application.Services;
 
 public class SubscriptionService : ISubscriptionService
 {
+    private const int DefaultTrialDays = 7;
+
     private readonly IApplicationDbContext _db;
     private readonly IPaymentService _paymentService;
     private readonly ICompanyService _companyService;
@@ -124,10 +126,12 @@ public class SubscriptionService : ISubscriptionService
             .FirstOrDefaultAsync(s => s.UserId == actorId &&
                 (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial), ct);
 
+        var now = DateTime.UtcNow;
+
         if (existingIndividualSub is not null)
         {
             existingIndividualSub.Status = SubscriptionStatus.Canceled;
-            existingIndividualSub.EndDate = DateTime.UtcNow;
+            existingIndividualSub.EndDate = now;
 
             if (existingIndividualSub.StripeSubscriptionId is not null)
                 await _paymentService.CancelSubscriptionImmediatelyAsync(
@@ -179,10 +183,12 @@ public class SubscriptionService : ISubscriptionService
         var existingSubscription = await _db.UserSubscriptions
             .FirstOrDefaultAsync(s => s.UserId == userId && (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial), ct);
 
+        var now = DateTime.UtcNow;
+
         if (existingSubscription is not null)
         {
             existingSubscription.Status = SubscriptionStatus.Canceled;
-            existingSubscription.EndDate = DateTime.UtcNow;
+            existingSubscription.EndDate = now;
 
             if (existingSubscription.StripeSubscriptionId is not null)
                 await _paymentService.CancelSubscriptionImmediatelyAsync(
@@ -313,6 +319,8 @@ public class SubscriptionService : ISubscriptionService
                 (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active), ct)
             ?? throw new InvalidOperationException("No active or trial subscription found.");
 
+        var now = DateTime.UtcNow;
+
         if (subscription.Status == SubscriptionStatus.Trial)
         {
             subscription.Status = SubscriptionStatus.Canceled;
@@ -323,7 +331,7 @@ public class SubscriptionService : ISubscriptionService
         else
         {
             subscription.Status = SubscriptionStatus.Canceled;
-            subscription.EndDate = DateTime.UtcNow;
+            subscription.EndDate = now;
 
             if (subscription.StripeSubscriptionId is not null)
                 await _paymentService.CancelSubscriptionAtPeriodEndAsync(subscription.StripeSubscriptionId, ct);
@@ -346,6 +354,8 @@ public class SubscriptionService : ISubscriptionService
                 (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active), ct)
             ?? throw new InvalidOperationException("No active or trial subscription found.");
 
+        var now = DateTime.UtcNow;
+
         if (subscription.Status == SubscriptionStatus.Trial)
         {
             subscription.Status = SubscriptionStatus.Canceled;
@@ -356,7 +366,7 @@ public class SubscriptionService : ISubscriptionService
         else
         {
             subscription.Status = SubscriptionStatus.Canceled;
-            subscription.EndDate = DateTime.UtcNow;
+            subscription.EndDate = now;
 
             if (subscription.StripeSubscriptionId is not null)
                 await _paymentService.CancelSubscriptionAtPeriodEndAsync(subscription.StripeSubscriptionId, ct);
@@ -368,12 +378,14 @@ public class SubscriptionService : ISubscriptionService
     private static int CalculateTrialDays(DateTime? trialEndDate)
     {
         if (trialEndDate is null)
-            return 7;
+            return DefaultTrialDays;
 
-        if (trialEndDate <= DateTime.UtcNow)
+        var now = DateTime.UtcNow;
+
+        if (trialEndDate <= now)
             return 0;
 
-        var remaining = (int)(trialEndDate.Value - DateTime.UtcNow).TotalDays;
+        var remaining = (int)(trialEndDate.Value - now).TotalDays;
         return Math.Max(1, remaining);
     }
 
@@ -395,7 +407,9 @@ public class SubscriptionService : ISubscriptionService
             bool.TryParse(isCompanyRaw, out var isCompanyParsed) && isCompanyParsed;
 
         var trialDays = evt.Metadata.TryGetValue("trialDays", out var trialRaw) &&
-            int.TryParse(trialRaw, out var trialDaysParsed) ? trialDaysParsed : 7;
+            int.TryParse(trialRaw, out var trialDaysParsed) ? trialDaysParsed : DefaultTrialDays;
+
+        var now = DateTime.UtcNow;
 
         var user = await _db.Users.FindAsync([userId], ct);
         if (user is not null && evt.StripeCustomerId is not null)
@@ -422,11 +436,11 @@ public class SubscriptionService : ISubscriptionService
             {
                 existing.PlanId = planId;
                 existing.BillingPeriod = billingPeriod;
-                existing.StartDate = DateTime.UtcNow;
-                existing.EndDate = DateTime.UtcNow.AddDays(trialDays);
+                existing.StartDate = now;
+                existing.EndDate = now.AddDays(trialDays);
                 existing.Status = SubscriptionStatus.Trial;
                 existing.StripeSubscriptionId = stripeSubscriptionId;
-                existing.TrialEndDate ??= DateTime.UtcNow.AddDays(7);
+                existing.TrialEndDate ??= now.AddDays(trialDays);
             }
             else
             {
@@ -441,11 +455,11 @@ public class SubscriptionService : ISubscriptionService
                         : 0,
                     BillingPeriod = billingPeriod,
                     MaxUsers = plan?.MaxUsers,
-                    StartDate = DateTime.UtcNow,
-                    EndDate = DateTime.UtcNow.AddDays(trialDays),
+                    StartDate = now,
+                    EndDate = now.AddDays(trialDays),
                     Status = SubscriptionStatus.Trial,
                     StripeSubscriptionId = stripeSubscriptionId,
-                    TrialEndDate = DateTime.UtcNow.AddDays(7)
+                    TrialEndDate = now.AddDays(trialDays)
                 });
             }
         }
@@ -458,11 +472,11 @@ public class SubscriptionService : ISubscriptionService
             {
                 existing.PlanId = planId;
                 existing.BillingPeriod = billingPeriod;
-                existing.StartDate = DateTime.UtcNow;
-                existing.EndDate = DateTime.UtcNow.AddDays(trialDays);
+                existing.StartDate = now;
+                existing.EndDate = now.AddDays(trialDays);
                 existing.Status = SubscriptionStatus.Trial;
                 existing.StripeSubscriptionId = stripeSubscriptionId;
-                existing.TrialEndDate ??= DateTime.UtcNow.AddDays(7);
+                existing.TrialEndDate ??= now.AddDays(trialDays);
             }
             else
             {
@@ -476,11 +490,11 @@ public class SubscriptionService : ISubscriptionService
                         ? (billingPeriod == BillingPeriod.Monthly ? plan.MonthlyPrice : plan.YearlyPrice)
                         : 0,
                     BillingPeriod = billingPeriod,
-                    StartDate = DateTime.UtcNow,
-                    EndDate = DateTime.UtcNow.AddDays(trialDays),
+                    StartDate = now,
+                    EndDate = now.AddDays(trialDays),
                     Status = SubscriptionStatus.Trial,
                     StripeSubscriptionId = stripeSubscriptionId,
-                    TrialEndDate = DateTime.UtcNow.AddDays(7)
+                    TrialEndDate = now.AddDays(trialDays)
                 });
             }
         }
@@ -500,6 +514,8 @@ public class SubscriptionService : ISubscriptionService
         if (evt.StripeSubscriptionId is null)
             return;
 
+        var now = DateTime.UtcNow;
+
         var userSub = await _db.UserSubscriptions
             .FirstOrDefaultAsync(s => s.StripeSubscriptionId == evt.StripeSubscriptionId, ct);
 
@@ -509,8 +525,8 @@ public class SubscriptionService : ISubscriptionService
                 userSub.Status = SubscriptionStatus.Active;
 
             userSub.EndDate = userSub.BillingPeriod == BillingPeriod.Monthly
-                ? DateTime.UtcNow.AddMonths(1)
-                : DateTime.UtcNow.AddYears(1);
+                ? now.AddMonths(1)
+                : now.AddYears(1);
 
             await _db.SaveChangesAsync(ct);
             return;
@@ -525,8 +541,8 @@ public class SubscriptionService : ISubscriptionService
                 companySub.Status = SubscriptionStatus.Active;
 
             companySub.EndDate = companySub.BillingPeriod == BillingPeriod.Monthly
-                ? DateTime.UtcNow.AddMonths(1)
-                : DateTime.UtcNow.AddYears(1);
+                ? now.AddMonths(1)
+                : now.AddYears(1);
 
             await _db.SaveChangesAsync(ct);
         }
@@ -537,13 +553,15 @@ public class SubscriptionService : ISubscriptionService
         if (evt.StripeSubscriptionId is null)
             return;
 
+        var now = DateTime.UtcNow;
+
         var userSub = await _db.UserSubscriptions
             .FirstOrDefaultAsync(s => s.StripeSubscriptionId == evt.StripeSubscriptionId, ct);
 
         if (userSub is not null)
         {
             userSub.Status = SubscriptionStatus.Canceled;
-            userSub.EndDate = DateTime.UtcNow;
+            userSub.EndDate = now;
             await _db.SaveChangesAsync(ct);
             return;
         }
@@ -554,7 +572,7 @@ public class SubscriptionService : ISubscriptionService
         if (companySub is not null)
         {
             companySub.Status = SubscriptionStatus.Canceled;
-            companySub.EndDate = DateTime.UtcNow;
+            companySub.EndDate = now;
             await _db.SaveChangesAsync(ct);
         }
     }
