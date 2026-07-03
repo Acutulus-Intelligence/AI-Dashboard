@@ -98,12 +98,9 @@ export default function SubscriptionPage() {
               <p className="mt-2 text-body-md text-on-surface-variant">
                 Subscribe to a plan to unlock your dashboard.
               </p>
-              <div className="mt-6 flex justify-center gap-3">
+              <div className="mt-6 flex justify-center">
                 <Link to={ROUTES.PRICING}>
                   <Button>View plans</Button>
-                </Link>
-                <Link to={ROUTES.SUBSCRIBE}>
-                  <Button variant="outline">Subscribe</Button>
                 </Link>
               </div>
             </div>
@@ -148,7 +145,7 @@ export default function SubscriptionPage() {
                     </div>
                     {subscription.endDate && (
                       <div className="flex justify-between">
-                        <dt className="text-on-surface-variant">End date</dt>
+                        <dt className="text-on-surface-variant">Renews</dt>
                         <dd className="text-on-background">{formatDate(subscription.endDate)}</dd>
                       </div>
                     )}

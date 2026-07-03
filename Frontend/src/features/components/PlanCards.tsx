@@ -7,6 +7,7 @@ interface PlanCardsProps {
   plans: SubscriptionPlan[];
   selectedPlanId?: string;
   actionLabel?: string;
+  getActionLabel?: (plan: SubscriptionPlan) => string;
   loadingPlanId?: string | null;
   onSelect: (plan: SubscriptionPlan) => void;
 }
@@ -30,6 +31,7 @@ export default function PlanCards({
   plans,
   selectedPlanId,
   actionLabel = 'Select',
+  getActionLabel,
   loadingPlanId = null,
   onSelect,
 }: PlanCardsProps) {
@@ -86,7 +88,11 @@ export default function PlanCards({
               disabled={loadingPlanId === plan.id}
               onClick={() => onSelect(plan)}
             >
-              {loadingPlanId === plan.id ? 'Preparing...' : actionLabel}
+              {loadingPlanId === plan.id
+                ? 'Preparing...'
+                : getActionLabel
+                  ? getActionLabel(plan)
+                  : actionLabel}
             </Button>
           </article>
         );

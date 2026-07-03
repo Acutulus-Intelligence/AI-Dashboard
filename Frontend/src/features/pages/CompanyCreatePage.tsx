@@ -1,18 +1,29 @@
-import { useState, type FormEvent } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useEffect, useState, type FormEvent } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertCircle, Building2 } from 'lucide-react';
 import Button from '../components/Button';
 import { useAuth } from '../store/useAuth';
-import { createCompany } from '../../lib/api/company';
+import { createCompany, getMyCompany } from '../../lib/api/company';
 import { createCompanyCheckout } from '../../lib/api/subscription';
 import { ROUTES } from '../routes';
 
 export default function CompanyCreatePage() {
+  const navigate = useNavigate();
   const { hasActiveSubscription } = useAuth();
   const [searchParams] = useSearchParams();
+  const [checkingExisting, setCheckingExisting] = useState(true);
   const planId = searchParams.get('planId');
   const billingParam = searchParams.get('billing');
   const billing = billingParam === '1' ? 1 : 0;
+
+  useEffect(() => {
+    getMyCompany()
+      .then(() => {
+        setError('You already have a company. Select a plan to update your subscription.');
+        setTimeout(() => navigate(ROUTES.PRICING, { replace: true }), 3000);
+      })
+      .catch(() => setCheckingExisting(false));
+  }, [navigate]);
 
   const [companyName, setCompanyName] = useState('');
   const [loading, setLoading] = useState(false);
@@ -78,10 +89,12 @@ export default function CompanyCreatePage() {
             </div>
           )}
 
-          {redirecting ? (
+          {checkingExisting || redirecting ? (
             <div className="flex min-h-52 flex-col items-center justify-center gap-4">
               <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-              <p className="text-body-md text-on-surface-variant">Redirecting to checkout...</p>
+              <p className="text-body-md text-on-surface-variant">
+                {checkingExisting ? 'Checking...' : 'Redirecting to checkout...'}
+              </p>
             </div>
           ) : (
             <form onSubmit={handleCreateCompany} className="space-y-5">

@@ -8,10 +8,13 @@ import BillingToggle from '../components/BillingToggle';
 import PlanCards from '../components/PlanCards';
 import { ROUTES } from '../routes';
 import { useAuth } from '../store/useAuth';
+import * as companyApi from '../../lib/api/company';
 import {
   BILLING_PERIOD,
   FREE_TRIAL_DAYS,
   USER_TYPE,
+  createCheckout,
+  createCompanyCheckout,
   getPlans,
   type BillingPeriod,
   type SubscriptionPlan,
@@ -31,6 +34,7 @@ export default function PricingPage() {
   const [billing, setBilling] = useState<BillingPeriod>(BILLING_PERIOD.Monthly);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingPlanId, setLoadingPlanId] = useState<string | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -38,7 +42,13 @@ export default function PricingPage() {
       setError('');
       try {
         const response = await getPlans();
-        setPlans(response.filter((plan) => plan.isActive));
+        const active = response.filter((plan) => plan.isActive);
+        active.sort((a, b) => {
+          const aIsEnterprise = isEnterprisePlan(a) ? 1 : 0;
+          const bIsEnterprise = isEnterprisePlan(b) ? 1 : 0;
+          return aIsEnterprise - bIsEnterprise;
+        });
+        setPlans(active);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Could not load plans.');
       } finally {
@@ -49,27 +59,57 @@ export default function PricingPage() {
     void loadPlans();
   }, []);
 
-  function handleChoosePlan(plan: SubscriptionPlan) {
+  async function handleChoosePlan(plan: SubscriptionPlan) {
     if (isEnterprisePlan(plan)) {
       navigate(ROUTES.CONTACT);
       return;
     }
 
-    if (isAuthenticated) {
-      const target = getRegisterType(plan) === 'company'
-        ? `${ROUTES.COMPANY_CREATE}?planId=${plan.id}&billing=${billing}`
-        : `${ROUTES.SUBSCRIBE}?planId=${plan.id}&billing=${billing}`;
-      navigate(target);
+    if (!isAuthenticated) {
+      navigate(ROUTES.REGISTER);
       return;
     }
 
-    const params = new URLSearchParams({
-      type: getRegisterType(plan),
-      planId: plan.id,
-      billing: String(billing),
-    });
+    if (getRegisterType(plan) === 'company') {
+      setLoadingPlanId(plan.id);
+      setError('');
 
-    navigate(`${ROUTES.REGISTER}?${params.toString()}`);
+      try {
+        const existing = await companyApi.getMyCompany();
+        if (existing) {
+          const checkout = await createCompanyCheckout(
+            existing.id,
+            plan.id,
+            billing,
+            `${window.location.origin}${ROUTES.PAYMENT_SUCCESS}`,
+            `${window.location.origin}${ROUTES.PAYMENT_CANCEL}`,
+          );
+          window.location.href = checkout.checkoutUrl;
+          return;
+        }
+      } catch {
+        /* no existing company — proceed to create */
+      }
+
+      navigate(`${ROUTES.COMPANY_CREATE}?planId=${plan.id}&billing=${billing}`);
+      return;
+    }
+
+    setLoadingPlanId(plan.id);
+    setError('');
+
+    try {
+      const checkout = await createCheckout({
+        planId: plan.id,
+        billingPeriod: billing,
+        successUrl: `${window.location.origin}${ROUTES.PAYMENT_SUCCESS}`,
+        cancelUrl: `${window.location.origin}${ROUTES.PAYMENT_CANCEL}`,
+      });
+      window.location.href = checkout.checkoutUrl;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not start checkout.');
+      setLoadingPlanId(null);
+    }
   }
 
   return (
@@ -111,8 +151,11 @@ export default function PricingPage() {
               <PlanCards
                 billing={billing}
                 plans={plans}
-                actionLabel="Get started"
+                loadingPlanId={loadingPlanId}
                 onSelect={handleChoosePlan}
+                getActionLabel={(plan) =>
+                  isEnterprisePlan(plan) ? 'Contact Us' : 'Get started'
+                }
               />
             )}
 

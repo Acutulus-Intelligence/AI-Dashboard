@@ -82,6 +82,13 @@ public class SubscriptionService : ISubscriptionService
         if (user.CompanyId is not null)
             throw new InvalidOperationException("You must leave your company before switching to an individual plan.");
 
+        var hasActive = await _db.UserSubscriptions
+            .AnyAsync(s => s.UserId == userId &&
+                (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial), ct);
+
+        if (hasActive)
+            throw new InvalidOperationException("You already have an active subscription.");
+
         var plan = await _db.SubscriptionPlans
             .FirstOrDefaultAsync(p => p.Id == planId && p.IsActive, ct)
             ?? throw new KeyNotFoundException("Subscription plan not found.");
@@ -114,6 +121,13 @@ public class SubscriptionService : ISubscriptionService
 
         if (company.OwnerId != actorId)
             throw new UnauthorizedAccessException("Only the company owner can manage subscriptions.");
+
+        var companyHasActive = await _db.CompanySubscriptions
+            .AnyAsync(s => s.CompanyId == companyId &&
+                (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial), ct);
+
+        if (companyHasActive)
+            throw new InvalidOperationException("This company already has an active subscription.");
 
         var owner = await _db.Users.FindAsync([actorId], ct)
             ?? throw new KeyNotFoundException("Owner not found.");
@@ -251,8 +265,13 @@ public class SubscriptionService : ISubscriptionService
                 (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active), ct))
             return true;
 
-        return await _db.CompanySubscriptions
-            .AnyAsync(s => s.Company.OwnerId == userId &&
+        var companyId = await _db.Users
+            .Where(u => u.Id == userId)
+            .Select(u => u.CompanyId)
+            .FirstOrDefaultAsync(ct);
+
+        return companyId.HasValue && await _db.CompanySubscriptions
+            .AnyAsync(s => s.CompanyId == companyId.Value &&
                 (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active), ct);
     }
 
