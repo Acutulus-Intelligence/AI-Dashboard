@@ -16,6 +16,8 @@ public class CompanyConfiguration : IEntityTypeConfiguration<Company>
             .IsRequired()
             .HasMaxLength(200);
 
+        builder.HasIndex(c => c.Name).IsUnique();
+
         builder.Property(c => c.Roles)
             .HasColumnType("text[]");
 

@@ -1,71 +1,114 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Check, ArrowRight } from 'lucide-react';
+import { AlertCircle, ArrowRight } from 'lucide-react';
 import Header from '../layouts/Header';
 import Footer from '../layouts/Footer';
 import Button from '../components/Button';
+import BillingToggle from '../components/BillingToggle';
+import PlanCards from '../components/PlanCards';
 import { ROUTES } from '../routes';
+import { useAuth } from '../store/useAuth';
+import * as companyApi from '../../lib/api/company';
+import {
+  BILLING_PERIOD,
+  FREE_TRIAL_DAYS,
+  USER_TYPE,
+  createCheckout,
+  createCompanyCheckout,
+  getPlans,
+  type BillingPeriod,
+  type SubscriptionPlan,
+} from '../../lib/api/subscription';
 
-const plans = [
-  {
-    id: 'individual',
-    name: 'Individual',
-    description: 'Perfect for solo analysts and freelancers.',
-    monthlyPrice: 4.95,
-    yearlyPrice: 49.95,
-    features: [
-      'Single user account',
-      'Connect external databases',
-      'AI-powered chart generation',
-      'Unlimited dashboards',
-      'Real-time collaboration',
-    ],
-    popular: false,
-  },
-  {
-    id: 'company',
-    name: 'Company',
-    description: 'For teams that need shared insights.',
-    monthlyPrice: 19.95,
-    yearlyPrice: 199.95,
-    features: [
-      'Up to 10 team members',
-      'Connect external databases',
-      'AI-powered chart generation',
-      'Unlimited dashboards',
-      'Role-based access control',
-      'Admin panel & user management',
-      'Team dashboards & sharing',
-    ],
-    popular: true,
-  },
-  {
-    id: 'enterprise',
-    name: 'Enterprise',
-    description: 'For organizations with advanced needs.',
-    features: [
-      'Unlimited users',
-      'Custom AI models & fine-tuning',
-      'Dedicated support',
-      'On-premise deployment option',
-      'SSO & advanced security',
-      'Custom integrations',
-      'SLA guarantees',
-    ],
-    popular: false,
-    custom: true,
-  },
-];
+function getRegisterType(plan: SubscriptionPlan) {
+  return plan.userType === USER_TYPE.Company || plan.userType === 'Company' ? 'company' : 'individual';
+}
+
+function isEnterprisePlan(plan: SubscriptionPlan) {
+  return plan.name.toLowerCase().includes('enterprise');
+}
 
 export default function PricingPage() {
-  const [billing, setBilling] = useState<'monthly' | 'yearly'>('monthly');
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
+  const [billing, setBilling] = useState<BillingPeriod>(BILLING_PERIOD.Monthly);
+  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingPlanId, setLoadingPlanId] = useState<string | null>(null);
+  const [error, setError] = useState('');
 
-  function handleChoosePlan(planId: string) {
-    if (planId === 'individual') {
-      navigate(`${ROUTES.REGISTER}?type=individual`);
-    } else if (planId === 'company') {
-      navigate(`${ROUTES.REGISTER}?type=company`);
+  useEffect(() => {
+    async function loadPlans() {
+      setError('');
+      try {
+        const response = await getPlans();
+        const active = response.filter((plan) => plan.isActive);
+        active.sort((a, b) => {
+          const aIsEnterprise = isEnterprisePlan(a) ? 1 : 0;
+          const bIsEnterprise = isEnterprisePlan(b) ? 1 : 0;
+          return aIsEnterprise - bIsEnterprise;
+        });
+        setPlans(active);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not load plans.');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    void loadPlans();
+  }, []);
+
+  async function handleChoosePlan(plan: SubscriptionPlan) {
+    if (isEnterprisePlan(plan)) {
+      navigate(ROUTES.CONTACT);
+      return;
+    }
+
+    if (!isAuthenticated) {
+      navigate(ROUTES.REGISTER);
+      return;
+    }
+
+    if (getRegisterType(plan) === 'company') {
+      setLoadingPlanId(plan.id);
+      setError('');
+
+      try {
+        const existing = await companyApi.getMyCompany();
+        if (existing) {
+          const checkout = await createCompanyCheckout(
+            existing.id,
+            plan.id,
+            billing,
+            `${window.location.origin}${ROUTES.PAYMENT_SUCCESS}`,
+            `${window.location.origin}${ROUTES.PAYMENT_CANCEL}`,
+          );
+          window.location.href = checkout.checkoutUrl;
+          return;
+        }
+      } catch {
+        /* no existing company — proceed to create */
+      }
+
+      navigate(`${ROUTES.COMPANY_CREATE}?planId=${plan.id}&billing=${billing}`);
+      return;
+    }
+
+    setLoadingPlanId(plan.id);
+    setError('');
+
+    try {
+      const checkout = await createCheckout({
+        planId: plan.id,
+        billingPeriod: billing,
+        successUrl: `${window.location.origin}${ROUTES.PAYMENT_SUCCESS}`,
+        cancelUrl: `${window.location.origin}${ROUTES.PAYMENT_CANCEL}`,
+      });
+      window.location.href = checkout.checkoutUrl;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not start checkout.');
+      setLoadingPlanId(null);
     }
   }
 
@@ -73,128 +116,66 @@ export default function PricingPage() {
     <div className="min-h-screen bg-background text-on-background">
       <Header />
 
-      <main>
-        <div className="mx-auto max-w-container-max px-gutter pb-24 pt-24">
-          <div className="mb-12 text-center">
-            <h1 className="text-display-md font-bold text-on-background">
-              Choose your plan
-            </h1>
-            <p className="mt-3 text-body-lg text-on-surface-variant">
-              Pick the right plan for you or your team.
-            </p>
-          </div>
-
-          <div className="mb-10 flex items-center justify-center gap-3">
-            <button
-              type="button"
-              onClick={() => setBilling('monthly')}
-              className={`rounded-lg px-4 py-2 text-body-sm font-semibold transition-all ${
-                billing === 'monthly'
-                  ? 'bg-primary text-on-primary'
-                  : 'text-on-surface-variant hover:text-on-background'
-              }`}
-            >
-              Monthly
-            </button>
-            <button
-              type="button"
-              onClick={() => setBilling('yearly')}
-              className={`rounded-lg px-4 py-2 text-body-sm font-semibold transition-all ${
-                billing === 'yearly'
-                  ? 'bg-primary text-on-primary'
-                  : 'text-on-surface-variant hover:text-on-background'
-              }`}
-            >
-              Yearly
-              <span className="ml-1.5 rounded-full bg-green-100 px-2 py-0.5 text-body-xs text-green-700">
-                Save ~16%
+      <main className="pt-16">
+        <section className="bg-surface px-gutter pb-16 pt-16">
+          <div className="mx-auto max-w-container-max">
+            <div className="mx-auto mb-10 max-w-3xl text-center">
+              <span className="mb-2 block font-mono text-label-caps uppercase text-outline">
+                Payment plans
               </span>
-            </button>
-          </div>
+              <h1 className="text-headline-lg font-semibold text-on-background md:text-display-lg">
+                Choose the right plan for your dashboards.
+              </h1>
+              <p className="mt-4 text-body-lg text-on-surface-variant">
+                Start with a {FREE_TRIAL_DAYS}-day free trial, then keep the plan that fits
+                your workflow as your team or AI usage grows.
+              </p>
+            </div>
 
-          <div className="grid gap-8 md:grid-cols-3">
-            {plans.map((plan) => (
-              <div
-                key={plan.id}
-                className={`relative flex flex-col rounded-2xl border-2 bg-surface p-8 shadow-sm transition-shadow hover:shadow-md ${
-                  plan.popular
-                    ? 'border-primary'
-                    : 'border-outline-variant'
-                }`}
-              >
-                {plan.popular && (
-                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-4 py-1 text-body-xs font-semibold text-on-primary">
-                    Most popular
-                  </span>
-                )}
+            <div className="mb-8 flex justify-center">
+              <BillingToggle billing={billing} onChange={setBilling} />
+            </div>
 
-                <div className="mb-6">
-                  <h2 className="text-headline-md font-bold text-on-background">
-                    {plan.name}
-                  </h2>
-                  <p className="mt-1 text-body-sm text-on-surface-variant">
-                    {plan.description}
-                  </p>
-                </div>
-
-                {'monthlyPrice' in plan && plan.monthlyPrice !== undefined ? (
-                  <div className="mb-6">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-display-sm font-bold text-on-background">
-                        ${billing === 'monthly' ? plan.monthlyPrice : plan.yearlyPrice}
-                      </span>
-                      <span className="text-body-md text-on-surface-variant">
-                        /{billing === 'monthly' ? 'mo' : 'yr'}
-                      </span>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="mb-6">
-                    <span className="text-display-sm font-bold text-on-background">
-                      Custom
-                    </span>
-                  </div>
-                )}
-
-                <ul className="mb-8 flex-1 space-y-3">
-                  {plan.features.map((feature) => (
-                    <li key={feature} className="flex items-start gap-2 text-body-sm text-on-background">
-                      <Check size={18} className="mt-0.5 shrink-0 text-green-500" />
-                      <span>{feature}</span>
-                    </li>
-                  ))}
-                </ul>
-
-                {'custom' in plan && plan.custom ? (
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => navigate(ROUTES.CONTACT)}
-                  >
-                    Contact us
-                    <ArrowRight size={16} />
-                  </Button>
-                ) : (
-                  <Button
-                    variant={plan.popular ? 'primary' : 'outline'}
-                    className="w-full"
-                    onClick={() => handleChoosePlan(plan.id)}
-                  >
-                    Get started
-                    <ArrowRight size={16} />
-                  </Button>
-                )}
+            {error && (
+              <div className="mx-auto mb-8 flex max-w-2xl items-center gap-2 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-body-sm text-red-700">
+                <AlertCircle size={16} className="shrink-0" aria-hidden="true" />
+                <span>{error}</span>
               </div>
-            ))}
-          </div>
+            )}
 
-          <p className="mt-12 text-center text-body-sm text-on-surface-variant">
+            {loading ? (
+              <div className="flex min-h-52 items-center justify-center">
+                <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+              </div>
+            ) : (
+              <PlanCards
+                billing={billing}
+                plans={plans}
+                loadingPlanId={loadingPlanId}
+                onSelect={handleChoosePlan}
+                getActionLabel={(plan) =>
+                  isEnterprisePlan(plan) ? 'Contact Us' : 'Get started'
+                }
+              />
+            )}
+
+            <div className="mt-10 flex justify-center">
+              <Button variant="outline" onClick={() => navigate(ROUTES.CONTACT)}>
+                Talk to us
+                <ArrowRight size={16} aria-hidden="true" />
+              </Button>
+            </div>
+          </div>
+        </section>
+
+        <section className="bg-background px-gutter pb-24">
+          <p className="text-center text-body-sm text-on-surface-variant">
             Already have an account?{' '}
             <Link to={ROUTES.LOGIN} className="font-semibold text-primary hover:underline">
               Sign in
             </Link>
           </p>
-        </div>
+        </section>
       </main>
 
       <Footer />

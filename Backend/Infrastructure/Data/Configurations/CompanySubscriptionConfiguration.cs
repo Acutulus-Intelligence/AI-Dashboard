@@ -12,6 +12,9 @@ public class CompanySubscriptionConfiguration : IEntityTypeConfiguration<Company
 
         builder.HasKey(cs => cs.Id);
 
+        builder.HasIndex(cs => cs.CompanyId)
+            .IsUnique();
+
         builder.Property(cs => cs.Price)
             .HasPrecision(18, 2);
 

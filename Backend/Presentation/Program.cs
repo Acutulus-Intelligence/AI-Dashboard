@@ -7,7 +7,7 @@ using Domain.Models;
 using FluentValidation;
 using Infrastructure.Auth;
 using Infrastructure.Data;
-
+using Infrastructure.Payment;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -35,6 +35,8 @@ builder.Services.Configure<JwtSettings>(jwtSettings);
 
 var jwtSecret = jwtSettings["Secret"]
     ?? throw new InvalidOperationException("JWT Secret is not configured.");
+
+builder.Services.Configure<StripeSettings>(builder.Configuration.GetSection("Stripe"));
 
 builder.Services.AddAuthentication(options =>
 {
@@ -78,6 +80,7 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ICompanyService, CompanyService>();
 builder.Services.AddScoped<IAdminService, AdminService>();
 builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
+builder.Services.AddScoped<IPaymentService, StripeService>();
 
 builder.Services.AddScoped<ITokenService, JwtService>();
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();

@@ -12,6 +12,9 @@ public class UserSubscriptionConfiguration : IEntityTypeConfiguration<UserSubscr
 
         builder.HasKey(us => us.Id);
 
+        builder.HasIndex(us => us.UserId)
+            .IsUnique();
+
         builder.Property(us => us.Price)
             .HasPrecision(18, 2);
 

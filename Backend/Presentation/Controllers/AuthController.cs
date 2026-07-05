@@ -66,12 +66,14 @@ public class AuthController : ControllerBase
         var userId = User.FindFirst("userId")?.Value;
         var email = User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value;
         var roles = User.FindAll(System.Security.Claims.ClaimTypes.Role).Select(c => c.Value).ToList();
+        var userType = User.FindFirst("userType")?.Value;
 
         return Ok(new
         {
             userId,
             email,
-            roles
+            roles,
+            userType
         });
     }
 

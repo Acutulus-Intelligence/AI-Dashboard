@@ -12,6 +12,7 @@ namespace Domain.Models
         public Guid? CompanyRoleId { get; set; }
         public CompanyRole? CompanyRole { get; set; }
         public UserType UserType { get; set; } = UserType.Individual;
+        public string? StripeCustomerId { get; set; }
 
         public ICollection<Dashboard> Dashboards { get; set; } = [];
         public ICollection<RefreshToken> RefreshTokens { get; set; } = [];

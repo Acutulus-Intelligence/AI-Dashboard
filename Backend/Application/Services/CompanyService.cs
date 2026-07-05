@@ -23,6 +23,13 @@ public class CompanyService : ICompanyService
         if (owner is null)
             throw new KeyNotFoundException("Owner user not found.");
 
+        if (owner.CompanyId is not null)
+            throw new InvalidOperationException("You already belong to a company.");
+
+        var nameExists = await _db.Companies.AnyAsync(c => c.Name == name, ct);
+        if (nameExists)
+            throw new ConflictException("A company with this name already exists.", "company_name_conflict");
+
         var company = new Company
         {
             Id = Guid.NewGuid(),
@@ -536,7 +543,8 @@ public class CompanyService : ICompanyService
                     subscription.MaxUsers,
                     subscription.StartDate,
                     subscription.EndDate,
-                    subscription.Status
+                    subscription.Status,
+                    subscription.TrialEndDate
                 )
                 : null
         );

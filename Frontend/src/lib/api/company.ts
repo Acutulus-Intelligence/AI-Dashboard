@@ -53,6 +53,7 @@ export interface CompanySubscriptionResponse {
   startDate: string;
   endDate: string | null;
   status: number;
+  trialEndDate: string | null;
 }
 
 export interface CreateCompanyRequest {

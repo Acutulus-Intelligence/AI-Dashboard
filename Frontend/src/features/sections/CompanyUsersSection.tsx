@@ -1,8 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Mail, X, AlertCircle, UserPlus, Clock, Trash2, Shield, Building2 } from 'lucide-react';
+import { Mail, X, AlertCircle, UserPlus, Clock, Trash2, Shield, Building2, CreditCard } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import Button from '../components/Button';
 import { ApiError } from '../../lib/api/client';
 import * as companyApi from '../../lib/api/company';
+import * as subscriptionApi from '../../lib/api/subscription';
+import { ROUTES } from '../routes';
 
 export default function CompanyUsersSection() {
   const [company, setCompany] = useState<companyApi.CompanyResponse | null>(null);
@@ -12,6 +15,7 @@ export default function CompanyUsersSection() {
   const [loading, setLoading] = useState(true);
   const [noCompany, setNoCompany] = useState(false);
   const [error, setError] = useState('');
+  const [subscriptionActive, setSubscriptionActive] = useState(false);
 
   const [showInvite, setShowInvite] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -34,6 +38,13 @@ export default function CompanyUsersSection() {
       setUsers(userList);
       setRoles(roleList);
       setInvites(inviteList);
+
+      try {
+        const sub = await subscriptionApi.getCompanySubscription(c.id);
+        setSubscriptionActive(sub.status === 0 || sub.status === 1);
+      } catch {
+        setSubscriptionActive(false);
+      }
     } catch (err: unknown) {
       if (err instanceof ApiError) {
         setNoCompany(true);
@@ -141,11 +152,26 @@ export default function CompanyUsersSection() {
           <h2 className="text-headline-sm font-bold text-on-background">{company.name || 'My Company'}</h2>
           <p className="text-body-sm text-on-surface-variant">{users.length} member{users.length !== 1 ? 's' : ''}</p>
         </div>
-        <Button variant="primary" className="px-4 py-2" onClick={() => setShowInvite(true)}>
+        <Button variant="primary" className="px-4 py-2" onClick={() => setShowInvite(true)} disabled={!subscriptionActive} title={!subscriptionActive ? 'Requires an active subscription' : ''}>
           <UserPlus size={16} />
           Invite User
         </Button>
       </div>
+
+      {!subscriptionActive && (
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-body-sm text-amber-800">
+          <div className="flex items-center gap-2">
+            <AlertCircle size={16} className="shrink-0" />
+            <span>Company management requires an active subscription.</span>
+          </div>
+          <Link to={ROUTES.PRICING}>
+            <Button variant="outline" className="shrink-0 border-amber-300 text-amber-800 hover:bg-amber-100">
+              <CreditCard size={14} className="mr-1" />
+              Subscribe
+            </Button>
+          </Link>
+        </div>
+      )}
 
       {/* Invite form */}
       {showInvite && (
@@ -245,7 +271,9 @@ export default function CompanyUsersSection() {
                       <button
                         type="button"
                         onClick={() => handleRemoveUser(u.id, u.email)}
-                        className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-body-xs text-red-600 transition-colors hover:bg-red-50"
+                        disabled={!subscriptionActive}
+                        className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-body-xs text-red-600 transition-colors hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                        title={!subscriptionActive ? 'Requires an active subscription' : ''}
                       >
                         <Trash2 size={14} />
                         Remove
@@ -283,8 +311,9 @@ export default function CompanyUsersSection() {
                   <button
                     type="button"
                     onClick={() => handleRevokeInvite(inv.id)}
-                    className="rounded-lg p-1.5 text-on-surface-variant transition-colors hover:bg-surface-container hover:text-red-600"
-                    title="Revoke invite"
+                    disabled={!subscriptionActive}
+                    className="rounded-lg p-1.5 text-on-surface-variant transition-colors hover:bg-surface-container hover:text-red-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                    title={!subscriptionActive ? 'Requires an active subscription' : ''}
                   >
                     <X size={16} />
                   </button>

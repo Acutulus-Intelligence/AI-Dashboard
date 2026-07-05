@@ -8,11 +8,20 @@ namespace Application.Services;
 
 public class SubscriptionService : ISubscriptionService
 {
-    private readonly IApplicationDbContext _db;
+    private const int DefaultTrialDays = 7;
 
-    public SubscriptionService(IApplicationDbContext db)
+    private readonly IApplicationDbContext _db;
+    private readonly IPaymentService _paymentService;
+    private readonly ICompanyService _companyService;
+
+    public SubscriptionService(
+        IApplicationDbContext db,
+        IPaymentService paymentService,
+        ICompanyService companyService)
     {
         _db = db;
+        _paymentService = paymentService;
+        _companyService = companyService;
     }
 
     public async Task<List<SubscriptionPlanResponse>> GetPlansAsync(UserType? userType = null, CancellationToken ct = default)
@@ -63,62 +72,48 @@ public class SubscriptionService : ISubscriptionService
         );
     }
 
-    public async Task<UserSubscriptionResponse> SubscribeUserAsync(Guid userId, Guid planId, BillingPeriod period, CancellationToken ct = default)
+    public async Task<CheckoutResponse> CreateUserCheckoutSessionAsync(
+        Guid userId, Guid planId, BillingPeriod period,
+        string successUrl, string cancelUrl, CancellationToken ct = default)
     {
         var user = await _db.Users.FindAsync([userId], ct)
             ?? throw new KeyNotFoundException("User not found.");
+
+        if (user.CompanyId is not null)
+            throw new InvalidOperationException("You must leave your company before switching to an individual plan.");
+
+        var hasActive = await _db.UserSubscriptions
+            .AnyAsync(s => s.UserId == userId &&
+                (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial), ct);
+
+        if (hasActive)
+            throw new InvalidOperationException("You already have an active subscription.");
 
         var plan = await _db.SubscriptionPlans
             .FirstOrDefaultAsync(p => p.Id == planId && p.IsActive, ct)
             ?? throw new KeyNotFoundException("Subscription plan not found.");
 
-        if (plan.UserType != user.UserType)
-            throw new InvalidOperationException("This plan does not match your account type.");
-
-        if (user.UserType != UserType.Individual)
-            throw new InvalidOperationException("Individual subscription endpoint is for individual users only. Company users should subscribe via the company endpoint.");
-
-        var existingSubscription = await _db.UserSubscriptions
-            .FirstOrDefaultAsync(s => s.UserId == userId && s.Status == SubscriptionStatus.Active, ct);
-
-        if (existingSubscription is not null)
-        {
-            existingSubscription.Status = SubscriptionStatus.Canceled;
-            existingSubscription.EndDate = DateTime.UtcNow;
-        }
-
         var price = period == BillingPeriod.Monthly ? plan.MonthlyPrice : plan.YearlyPrice;
 
-        var subscription = new UserSubscription
-        {
-            Id = Guid.NewGuid(),
-            UserId = userId,
-            PlanId = planId,
-            Price = price,
-            BillingPeriod = period,
-            StartDate = DateTime.UtcNow,
-            EndDate = period == BillingPeriod.Monthly
-                ? DateTime.UtcNow.AddMonths(1)
-                : DateTime.UtcNow.AddYears(1),
-            Status = SubscriptionStatus.Active
-        };
+        var existingSubscription = await _db.UserSubscriptions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.UserId == userId, ct);
 
-        _db.UserSubscriptions.Add(subscription);
-        await _db.SaveChangesAsync(ct);
+        var trialDays = CalculateTrialDays(existingSubscription?.TrialEndDate);
 
-        return new UserSubscriptionResponse(
-            subscription.Id,
-            subscription.PlanId,
-            plan.Name,
-            subscription.Price,
-            subscription.BillingPeriod,
-            subscription.StartDate,
-            subscription.EndDate,
-            subscription.Status
-        );
+        var customerId = user.StripeCustomerId
+            ?? await _paymentService.GetOrCreateCustomerAsync(user.Email!, user.Id, ct);
+
+        var checkoutUrl = await _paymentService.CreateCheckoutSessionAsync(
+            customerId, user.Id, planId, plan.Name, price, period,
+            trialDays, successUrl, cancelUrl, ct);
+
+        return new CheckoutResponse(checkoutUrl);
     }
 
-    public async Task<CompanySubscriptionResponse> SubscribeCompanyAsync(Guid companyId, Guid planId, BillingPeriod period, Guid actorId, CancellationToken ct = default)
+    public async Task<CheckoutResponse> CreateCompanyCheckoutSessionAsync(
+        Guid companyId, Guid planId, BillingPeriod period, Guid actorId,
+        string successUrl, string cancelUrl, CancellationToken ct = default)
     {
         var company = await _db.Companies
             .FirstOrDefaultAsync(c => c.Id == companyId, ct)
@@ -127,63 +122,239 @@ public class SubscriptionService : ISubscriptionService
         if (company.OwnerId != actorId)
             throw new UnauthorizedAccessException("Only the company owner can manage subscriptions.");
 
+        var companyHasActive = await _db.CompanySubscriptions
+            .AnyAsync(s => s.CompanyId == companyId &&
+                (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial), ct);
+
+        if (companyHasActive)
+            throw new InvalidOperationException("This company already has an active subscription.");
+
+        var owner = await _db.Users.FindAsync([actorId], ct)
+            ?? throw new KeyNotFoundException("Owner not found.");
+
+        var plan = await _db.SubscriptionPlans
+            .FirstOrDefaultAsync(p => p.Id == planId && p.IsActive, ct)
+            ?? throw new KeyNotFoundException("Subscription plan not found.");
+
+        var existingIndividualSub = await _db.UserSubscriptions
+            .FirstOrDefaultAsync(s => s.UserId == actorId &&
+                (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial), ct);
+
+        var now = DateTime.UtcNow;
+
+        if (existingIndividualSub is not null)
+        {
+            existingIndividualSub.Status = SubscriptionStatus.Canceled;
+            existingIndividualSub.EndDate = now;
+
+            if (existingIndividualSub.StripeSubscriptionId is not null)
+                await _paymentService.CancelSubscriptionImmediatelyAsync(
+                    existingIndividualSub.StripeSubscriptionId, ct);
+        }
+
+        await _db.SaveChangesAsync(ct);
+
+        var price = period == BillingPeriod.Monthly ? plan.MonthlyPrice : plan.YearlyPrice;
+
+        var existingSubscription = await _db.CompanySubscriptions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.CompanyId == companyId, ct);
+
+        var trialDays = CalculateTrialDays(existingSubscription?.TrialEndDate);
+
+        var customerId = owner.StripeCustomerId
+            ?? await _paymentService.GetOrCreateCustomerAsync(owner.Email!, owner.Id, ct);
+
+        var checkoutUrl = await _paymentService.CreateCompanyCheckoutSessionAsync(
+            customerId, owner.Id, companyId, planId, plan.Name, price, period,
+            trialDays, successUrl, cancelUrl, ct);
+
+        return new CheckoutResponse(checkoutUrl);
+    }
+
+    public async Task<CheckoutResponse> UpgradeToCompanyAsync(
+        Guid userId, string companyName, Guid planId, BillingPeriod period,
+        string successUrl, string cancelUrl, CancellationToken ct = default)
+    {
+        var user = await _db.Users.FindAsync([userId], ct)
+            ?? throw new KeyNotFoundException("User not found.");
+
+        if (user.UserType != UserType.Individual)
+            throw new InvalidOperationException("Only individual users can upgrade to a company.");
+
+        if (user.CompanyId is not null)
+            throw new InvalidOperationException("You already belong to a company.");
+
         var plan = await _db.SubscriptionPlans
             .FirstOrDefaultAsync(p => p.Id == planId && p.IsActive, ct)
             ?? throw new KeyNotFoundException("Subscription plan not found.");
 
         if (plan.UserType != UserType.Company)
-            throw new InvalidOperationException("This plan is for individuals only.");
+            throw new InvalidOperationException("This plan is not a company plan.");
 
-        var existingSubscription = await _db.CompanySubscriptions
-            .FirstOrDefaultAsync(s => s.CompanyId == companyId && s.Status == SubscriptionStatus.Active, ct);
+        var companyResponse = await _companyService.CreateAsync(userId, companyName, ct);
+
+        var existingSubscription = await _db.UserSubscriptions
+            .FirstOrDefaultAsync(s => s.UserId == userId && (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial), ct);
+
+        var now = DateTime.UtcNow;
 
         if (existingSubscription is not null)
         {
             existingSubscription.Status = SubscriptionStatus.Canceled;
-            existingSubscription.EndDate = DateTime.UtcNow;
+            existingSubscription.EndDate = now;
+
+            if (existingSubscription.StripeSubscriptionId is not null)
+                await _paymentService.CancelSubscriptionImmediatelyAsync(
+                    existingSubscription.StripeSubscriptionId, ct);
         }
+
+        await _db.SaveChangesAsync(ct);
 
         var price = period == BillingPeriod.Monthly ? plan.MonthlyPrice : plan.YearlyPrice;
 
-        var subscription = new CompanySubscription
-        {
-            Id = Guid.NewGuid(),
-            CompanyId = companyId,
-            PlanId = planId,
-            Price = price,
-            BillingPeriod = period,
-            MaxUsers = plan.MaxUsers,
-            StartDate = DateTime.UtcNow,
-            EndDate = period == BillingPeriod.Monthly
-                ? DateTime.UtcNow.AddMonths(1)
-                : DateTime.UtcNow.AddYears(1),
-            Status = SubscriptionStatus.Active
-        };
+        var trialDays = CalculateTrialDays(null);
 
-        _db.CompanySubscriptions.Add(subscription);
-        await _db.SaveChangesAsync(ct);
+        var customerId = user.StripeCustomerId
+            ?? await _paymentService.GetOrCreateCustomerAsync(user.Email!, user.Id, ct);
+
+        var checkoutUrl = await _paymentService.CreateCompanyCheckoutSessionAsync(
+            customerId, user.Id, companyResponse.Id, planId, plan.Name, price, period,
+            trialDays, successUrl, cancelUrl, ct);
+
+        return new CheckoutResponse(checkoutUrl);
+    }
+
+    public async Task HandleStripeWebhookAsync(string body, string signature, CancellationToken ct = default)
+    {
+        var paymentEvent = await _paymentService.HandleWebhookAsync(body, signature);
+
+        try
+        {
+            switch (paymentEvent.Type)
+            {
+                case "checkout.session.completed":
+                    await HandleCheckoutCompletedAsync(paymentEvent, ct);
+                    break;
+
+                case "customer.subscription.created":
+                    await HandleCheckoutCompletedAsync(paymentEvent, ct);
+                    break;
+
+                case "invoice.paid":
+                    await HandleInvoicePaidAsync(paymentEvent, ct);
+                    break;
+
+                case "customer.subscription.deleted":
+                    await HandleSubscriptionDeletedAsync(paymentEvent, ct);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[StripeWebhook] Error processing {paymentEvent.Type}: {ex.Message}");
+            Console.Error.WriteLine(ex.StackTrace);
+            throw;
+        }
+    }
+
+    public async Task<bool> HasActiveSubscriptionAsync(Guid userId, CancellationToken ct = default)
+    {
+        if (await _db.UserSubscriptions
+            .AnyAsync(s => s.UserId == userId &&
+                (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active), ct))
+            return true;
+
+        var companyId = await _db.Users
+            .Where(u => u.Id == userId)
+            .Select(u => u.CompanyId)
+            .FirstOrDefaultAsync(ct);
+
+        return companyId.HasValue && await _db.CompanySubscriptions
+            .AnyAsync(s => s.CompanyId == companyId.Value &&
+                (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active), ct);
+    }
+
+    public async Task<bool> CompanyHasActiveSubscriptionAsync(Guid companyId, CancellationToken ct = default)
+    {
+        return await _db.CompanySubscriptions
+            .AnyAsync(s => s.CompanyId == companyId &&
+                (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active), ct);
+    }
+
+    public async Task<UserSubscriptionResponse?> GetCurrentUserSubscriptionAsync(Guid userId, CancellationToken ct = default)
+    {
+        var subscription = await _db.UserSubscriptions
+            .AsNoTracking()
+            .Include(s => s.Plan)
+            .FirstOrDefaultAsync(s => s.UserId == userId &&
+                (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active), ct);
+
+        if (subscription is null)
+            return null;
+
+        return new UserSubscriptionResponse(
+            subscription.Id,
+            subscription.PlanId,
+            subscription.Plan.Name,
+            subscription.Price,
+            subscription.BillingPeriod,
+            subscription.StartDate,
+            subscription.EndDate,
+            subscription.Status,
+            subscription.TrialEndDate
+        );
+    }
+
+    public async Task<CompanySubscriptionResponse?> GetCurrentCompanySubscriptionAsync(Guid companyId, CancellationToken ct = default)
+    {
+        var subscription = await _db.CompanySubscriptions
+            .AsNoTracking()
+            .Include(s => s.Plan)
+            .FirstOrDefaultAsync(s => s.CompanyId == companyId &&
+                (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active), ct);
+
+        if (subscription is null)
+            return null;
 
         return new CompanySubscriptionResponse(
             subscription.Id,
             subscription.PlanId,
-            plan.Name,
+            subscription.Plan.Name,
             subscription.Price,
             subscription.BillingPeriod,
             subscription.MaxUsers,
             subscription.StartDate,
             subscription.EndDate,
-            subscription.Status
+            subscription.Status,
+            subscription.TrialEndDate
         );
     }
 
     public async Task CancelUserSubscriptionAsync(Guid userId, CancellationToken ct = default)
     {
         var subscription = await _db.UserSubscriptions
-            .FirstOrDefaultAsync(s => s.UserId == userId && s.Status == SubscriptionStatus.Active, ct)
-            ?? throw new InvalidOperationException("No active subscription found.");
+            .FirstOrDefaultAsync(s => s.UserId == userId &&
+                (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active), ct)
+            ?? throw new InvalidOperationException("No active or trial subscription found.");
 
-        subscription.Status = SubscriptionStatus.Canceled;
-        subscription.EndDate = DateTime.UtcNow;
+        var now = DateTime.UtcNow;
+
+        if (subscription.Status == SubscriptionStatus.Trial)
+        {
+            subscription.Status = SubscriptionStatus.Canceled;
+
+            if (subscription.StripeSubscriptionId is not null)
+                await _paymentService.CancelSubscriptionImmediatelyAsync(subscription.StripeSubscriptionId, ct);
+        }
+        else
+        {
+            subscription.Status = SubscriptionStatus.Canceled;
+            subscription.EndDate = now;
+
+            if (subscription.StripeSubscriptionId is not null)
+                await _paymentService.CancelSubscriptionAtPeriodEndAsync(subscription.StripeSubscriptionId, ct);
+        }
 
         await _db.SaveChangesAsync(ct);
     }
@@ -198,57 +369,230 @@ public class SubscriptionService : ISubscriptionService
             throw new UnauthorizedAccessException("Only the company owner can manage subscriptions.");
 
         var subscription = await _db.CompanySubscriptions
-            .FirstOrDefaultAsync(s => s.CompanyId == companyId && s.Status == SubscriptionStatus.Active, ct)
-            ?? throw new InvalidOperationException("No active subscription found.");
+            .FirstOrDefaultAsync(s => s.CompanyId == companyId &&
+                (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active), ct)
+            ?? throw new InvalidOperationException("No active or trial subscription found.");
 
-        subscription.Status = SubscriptionStatus.Canceled;
-        subscription.EndDate = DateTime.UtcNow;
+        var now = DateTime.UtcNow;
+
+        if (subscription.Status == SubscriptionStatus.Trial)
+        {
+            subscription.Status = SubscriptionStatus.Canceled;
+
+            if (subscription.StripeSubscriptionId is not null)
+                await _paymentService.CancelSubscriptionImmediatelyAsync(subscription.StripeSubscriptionId, ct);
+        }
+        else
+        {
+            subscription.Status = SubscriptionStatus.Canceled;
+            subscription.EndDate = now;
+
+            if (subscription.StripeSubscriptionId is not null)
+                await _paymentService.CancelSubscriptionAtPeriodEndAsync(subscription.StripeSubscriptionId, ct);
+        }
 
         await _db.SaveChangesAsync(ct);
     }
 
-    public async Task<UserSubscriptionResponse?> GetCurrentUserSubscriptionAsync(Guid userId, CancellationToken ct = default)
+    private static int CalculateTrialDays(DateTime? trialEndDate)
     {
-        var subscription = await _db.UserSubscriptions
-            .AsNoTracking()
-            .Include(s => s.Plan)
-            .FirstOrDefaultAsync(s => s.UserId == userId && s.Status == SubscriptionStatus.Active, ct);
+        if (trialEndDate is null)
+            return DefaultTrialDays;
 
-        if (subscription is null)
-            return null;
+        var now = DateTime.UtcNow;
 
-        return new UserSubscriptionResponse(
-            subscription.Id,
-            subscription.PlanId,
-            subscription.Plan.Name,
-            subscription.Price,
-            subscription.BillingPeriod,
-            subscription.StartDate,
-            subscription.EndDate,
-            subscription.Status
-        );
+        if (trialEndDate <= now)
+            return 0;
+
+        var remaining = (int)(trialEndDate.Value - now).TotalDays;
+        return Math.Max(1, remaining);
     }
 
-    public async Task<CompanySubscriptionResponse?> GetCurrentCompanySubscriptionAsync(Guid companyId, CancellationToken ct = default)
+    private async Task HandleCheckoutCompletedAsync(PaymentWebhookEvent evt, CancellationToken ct)
     {
-        var subscription = await _db.CompanySubscriptions
-            .AsNoTracking()
-            .Include(s => s.Plan)
-            .FirstOrDefaultAsync(s => s.CompanyId == companyId && s.Status == SubscriptionStatus.Active, ct);
+        if (!evt.Metadata.TryGetValue("userId", out var userIdRaw) ||
+            !Guid.TryParse(userIdRaw, out var userId))
+            throw new InvalidOperationException($"Missing or invalid 'userId' in {evt.Type} metadata.");
 
-        if (subscription is null)
-            return null;
+        if (!evt.Metadata.TryGetValue("planId", out var planIdRaw) ||
+            !Guid.TryParse(planIdRaw, out var planId))
+            throw new InvalidOperationException($"Missing or invalid 'planId' in {evt.Type} metadata.");
 
-        return new CompanySubscriptionResponse(
-            subscription.Id,
-            subscription.PlanId,
-            subscription.Plan.Name,
-            subscription.Price,
-            subscription.BillingPeriod,
-            subscription.MaxUsers,
-            subscription.StartDate,
-            subscription.EndDate,
-            subscription.Status
-        );
+        if (!evt.Metadata.TryGetValue("billingPeriod", out var billingRaw) ||
+            !Enum.TryParse<BillingPeriod>(billingRaw, out var billingPeriod))
+            throw new InvalidOperationException($"Missing or invalid 'billingPeriod' in {evt.Type} metadata.");
+
+        var isCompany = evt.Metadata.TryGetValue("isCompany", out var isCompanyRaw) &&
+            bool.TryParse(isCompanyRaw, out var isCompanyParsed) && isCompanyParsed;
+
+        var trialDays = evt.Metadata.TryGetValue("trialDays", out var trialRaw) &&
+            int.TryParse(trialRaw, out var trialDaysParsed) ? trialDaysParsed : DefaultTrialDays;
+
+        var now = DateTime.UtcNow;
+
+        var user = await _db.Users.FindAsync([userId], ct);
+        if (user is not null && evt.StripeCustomerId is not null)
+        {
+            user.StripeCustomerId = evt.StripeCustomerId;
+        }
+
+        var stripeSubscriptionId = evt.StripeSubscriptionId
+            ?? throw new InvalidOperationException($"No subscription ID in {evt.Type} event for customer {evt.StripeCustomerId}");
+
+        if (await _db.UserSubscriptions.AnyAsync(s => s.StripeSubscriptionId == stripeSubscriptionId, ct) ||
+            await _db.CompanySubscriptions.AnyAsync(s => s.StripeSubscriptionId == stripeSubscriptionId, ct))
+            return;
+
+        if (isCompany)
+        {
+            if (!evt.Metadata.TryGetValue("companyId", out var companyIdRaw) ||
+                !Guid.TryParse(companyIdRaw, out var companyId))
+                throw new InvalidOperationException($"Missing or invalid 'companyId' in {evt.Type} metadata.");
+            var existing = await _db.CompanySubscriptions
+                .FirstOrDefaultAsync(s => s.CompanyId == companyId, ct);
+
+            if (existing is not null)
+            {
+                existing.PlanId = planId;
+                existing.BillingPeriod = billingPeriod;
+                existing.StartDate = now;
+                existing.EndDate = now.AddDays(trialDays);
+                existing.Status = SubscriptionStatus.Trial;
+                existing.StripeSubscriptionId = stripeSubscriptionId;
+                existing.TrialEndDate ??= now.AddDays(trialDays);
+            }
+            else
+            {
+                var plan = await _db.SubscriptionPlans.FindAsync([planId], ct);
+                _db.CompanySubscriptions.Add(new CompanySubscription
+                {
+                    Id = Guid.NewGuid(),
+                    CompanyId = companyId,
+                    PlanId = planId,
+                    Price = plan is not null
+                        ? (billingPeriod == BillingPeriod.Monthly ? plan.MonthlyPrice : plan.YearlyPrice)
+                        : 0,
+                    BillingPeriod = billingPeriod,
+                    MaxUsers = plan?.MaxUsers,
+                    StartDate = now,
+                    EndDate = now.AddDays(trialDays),
+                    Status = SubscriptionStatus.Trial,
+                    StripeSubscriptionId = stripeSubscriptionId,
+                    TrialEndDate = now.AddDays(trialDays)
+                });
+            }
+        }
+        else
+        {
+            var existing = await _db.UserSubscriptions
+                .FirstOrDefaultAsync(s => s.UserId == userId, ct);
+
+            if (existing is not null)
+            {
+                existing.PlanId = planId;
+                existing.BillingPeriod = billingPeriod;
+                existing.StartDate = now;
+                existing.EndDate = now.AddDays(trialDays);
+                existing.Status = SubscriptionStatus.Trial;
+                existing.StripeSubscriptionId = stripeSubscriptionId;
+                existing.TrialEndDate ??= now.AddDays(trialDays);
+            }
+            else
+            {
+                var plan = await _db.SubscriptionPlans.FindAsync([planId], ct);
+                _db.UserSubscriptions.Add(new UserSubscription
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = userId,
+                    PlanId = planId,
+                    Price = plan is not null
+                        ? (billingPeriod == BillingPeriod.Monthly ? plan.MonthlyPrice : plan.YearlyPrice)
+                        : 0,
+                    BillingPeriod = billingPeriod,
+                    StartDate = now,
+                    EndDate = now.AddDays(trialDays),
+                    Status = SubscriptionStatus.Trial,
+                    StripeSubscriptionId = stripeSubscriptionId,
+                    TrialEndDate = now.AddDays(trialDays)
+                });
+            }
+        }
+
+        if (user is not null)
+        {
+            var plan = await _db.SubscriptionPlans.FindAsync([planId], ct);
+            if (plan is not null && user.UserType != plan.UserType)
+                user.UserType = plan.UserType;
+        }
+
+        await _db.SaveChangesAsync(ct);
+    }
+
+    private async Task HandleInvoicePaidAsync(PaymentWebhookEvent evt, CancellationToken ct)
+    {
+        if (evt.StripeSubscriptionId is null)
+            return;
+
+        var now = DateTime.UtcNow;
+
+        var userSub = await _db.UserSubscriptions
+            .FirstOrDefaultAsync(s => s.StripeSubscriptionId == evt.StripeSubscriptionId, ct);
+
+        if (userSub is not null)
+        {
+            if (userSub.Status == SubscriptionStatus.Trial)
+                userSub.Status = SubscriptionStatus.Active;
+
+            userSub.EndDate = userSub.BillingPeriod == BillingPeriod.Monthly
+                ? now.AddMonths(1)
+                : now.AddYears(1);
+
+            await _db.SaveChangesAsync(ct);
+            return;
+        }
+
+        var companySub = await _db.CompanySubscriptions
+            .FirstOrDefaultAsync(s => s.StripeSubscriptionId == evt.StripeSubscriptionId, ct);
+
+        if (companySub is not null)
+        {
+            if (companySub.Status == SubscriptionStatus.Trial)
+                companySub.Status = SubscriptionStatus.Active;
+
+            companySub.EndDate = companySub.BillingPeriod == BillingPeriod.Monthly
+                ? now.AddMonths(1)
+                : now.AddYears(1);
+
+            await _db.SaveChangesAsync(ct);
+        }
+    }
+
+    private async Task HandleSubscriptionDeletedAsync(PaymentWebhookEvent evt, CancellationToken ct)
+    {
+        if (evt.StripeSubscriptionId is null)
+            return;
+
+        var now = DateTime.UtcNow;
+
+        var userSub = await _db.UserSubscriptions
+            .FirstOrDefaultAsync(s => s.StripeSubscriptionId == evt.StripeSubscriptionId, ct);
+
+        if (userSub is not null)
+        {
+            userSub.Status = SubscriptionStatus.Canceled;
+            userSub.EndDate = now;
+            await _db.SaveChangesAsync(ct);
+            return;
+        }
+
+        var companySub = await _db.CompanySubscriptions
+            .FirstOrDefaultAsync(s => s.StripeSubscriptionId == evt.StripeSubscriptionId, ct);
+
+        if (companySub is not null)
+        {
+            companySub.Status = SubscriptionStatus.Canceled;
+            companySub.EndDate = now;
+            await _db.SaveChangesAsync(ct);
+        }
     }
 }

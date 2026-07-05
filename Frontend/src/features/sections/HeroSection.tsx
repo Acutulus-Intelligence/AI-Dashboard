@@ -1,6 +1,8 @@
+import { Link } from 'react-router-dom';
 import { Play } from 'lucide-react';
 import Button from '../components/Button';
 import DashboardPreview from './DashboardPreview';
+import { ROUTES } from '../routes';
 
 export default function HeroSection() {
   return (
@@ -21,7 +23,9 @@ export default function HeroSection() {
             intelligent assistant visualize your data for you.
           </p>
           <div className="flex flex-wrap gap-4">
-            <Button>Sign up now</Button>
+            <Link to={ROUTES.REGISTER}>
+              <Button>Sign up now</Button>
+            </Link>
             <Button variant="outline">
               <Play size={18} aria-hidden="true" />
               Watch demo
