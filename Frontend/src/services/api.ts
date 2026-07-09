@@ -47,15 +47,24 @@ async function refreshAccessToken(): Promise<string | null> {
 }
 
 export class ApiError extends Error {
+  public status: number;
+  public title: string;
+  public errorCode: string;
+  public traceId?: string;
+
   constructor(
-    public status: number,
-    public title: string,
-    public errorCode: string,
+    status: number,
+    title: string,
+    errorCode: string,
     message: string,
-    public traceId?: string,
+    traceId?: string,
   ) {
     super(message);
     this.name = 'ApiError';
+    this.status = status;
+    this.title = title;
+    this.errorCode = errorCode;
+    this.traceId = traceId;
   }
 }
 

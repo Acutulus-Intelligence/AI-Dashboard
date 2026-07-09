@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Sparkles, BarChart3, Brain, Loader2 } from 'lucide-react';
-import { getTablePreview, type ColumnInfo, type TablePreview } from '../../services/connectionsApi';
+import { getTablePreview, type TablePreview } from '../../services/connectionsApi';
 import { generateChart, type ChartConfigResponse } from '../../services/graphsApi';
 import { saveChart } from '../../lib/api/charts';
 import { getAll as getAllCharts } from '../charts/registry';
@@ -216,9 +216,8 @@ export default function GraphCreationPage() {
                   const ChartClass = getAllCharts().find((c) => c.id === result.chartType);
                   if (!ChartClass) return <div className="text-on-surface-variant">Unknown chart type: {result.chartType}</div>;
 
-                  const chart = new (ChartClass.constructor as new () => typeof ChartClass)();
                   const data = transformResult(result);
-                  return chart.render(data);
+                  return ChartClass.render(data);
                 })()}
               </div>
 

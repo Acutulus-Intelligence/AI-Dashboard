@@ -29,7 +29,7 @@ export class PieChartType extends Chart {
     return (
       <ResponsiveContainer width="100%" height="100%">
         <RechartsPieChart>
-          <Pie data={formatted} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+          <Pie data={formatted} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}>
             {formatted.map((_, i) => (
               <Cell key={i} fill={COLORS[i % COLORS.length]} />
             ))}
