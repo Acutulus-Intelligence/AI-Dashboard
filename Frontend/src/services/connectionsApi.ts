@@ -1,4 +1,4 @@
-import { api } from './api';
+import { apiFetch } from '../lib/api/client';
 
 export interface ConnectionResponse {
   id: string;
@@ -36,27 +36,30 @@ export interface TablePreview {
 }
 
 export async function getConnections(): Promise<ConnectionResponse[]> {
-  return api<ConnectionResponse[]>('/api/connections');
+  return apiFetch<ConnectionResponse[]>('/api/connections');
 }
 
 export async function createConnection(data: CreateConnectionRequest): Promise<ConnectionResponse> {
-  return api<ConnectionResponse>('/api/connections', { method: 'POST', body: data });
+  return apiFetch<ConnectionResponse>('/api/connections', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
 }
 
 export async function deleteConnection(id: string): Promise<void> {
-  return api(`/api/connections/${id}`, { method: 'DELETE' });
+  return apiFetch(`/api/connections/${id}`, { method: 'DELETE' });
 }
 
 export async function testConnection(id: string): Promise<{ isVerified: boolean }> {
-  return api<{ isVerified: boolean }>(`/api/connections/${id}/test`, { method: 'POST' });
+  return apiFetch<{ isVerified: boolean }>(`/api/connections/${id}/test`, { method: 'POST' });
 }
 
 export async function getTables(connectionId: string): Promise<TableInfo[]> {
-  return api<TableInfo[]>(`/api/connections/${connectionId}/tables`);
+  return apiFetch<TableInfo[]>(`/api/connections/${connectionId}/tables`);
 }
 
 export async function getTablePreview(connectionId: string, tableName: string, rows = 5): Promise<TablePreview> {
-  return api<TablePreview>(`/api/connections/${connectionId}/tables/${encodeURIComponent(tableName)}/preview`, {
-    params: { rows: String(rows) },
-  });
+  return apiFetch<TablePreview>(
+    `/api/connections/${connectionId}/tables/${encodeURIComponent(tableName)}/preview?${new URLSearchParams({ rows: String(rows) })}`,
+  );
 }

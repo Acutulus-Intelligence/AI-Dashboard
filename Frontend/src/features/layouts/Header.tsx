@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { LayoutDashboard, LogOut, Menu, UserCircle } from 'lucide-react';
+import { LayoutDashboard, LogOut, UserCircle } from 'lucide-react';
 import Button from '../components/Button';
 import HashLink from '../components/HashLink';
 import { useAuth } from '../store/useAuth';

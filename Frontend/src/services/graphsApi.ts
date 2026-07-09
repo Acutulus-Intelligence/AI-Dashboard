@@ -1,4 +1,4 @@
-import { api } from './api';
+import { apiFetch } from '../lib/api/client';
 
 export interface ChartConfigResponse {
   chartType: string;
@@ -20,9 +20,9 @@ export interface GenerateChartRequest {
 }
 
 export async function generateChart(data: GenerateChartRequest): Promise<ChartConfigResponse> {
-  return api<ChartConfigResponse>('/api/graphs/generate', { method: 'POST', body: data });
+  return apiFetch<ChartConfigResponse>('/api/graphs/generate', { method: 'POST', body: JSON.stringify(data) });
 }
 
 export async function generateChartManual(data: GenerateChartRequest): Promise<ChartConfigResponse> {
-  return api<ChartConfigResponse>('/api/graphs/manual', { method: 'POST', body: data });
+  return apiFetch<ChartConfigResponse>('/api/graphs/manual', { method: 'POST', body: JSON.stringify(data) });
 }
