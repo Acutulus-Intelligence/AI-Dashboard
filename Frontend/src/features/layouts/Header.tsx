@@ -1,23 +1,22 @@
-import { Link } from 'react-router-dom';
-import { Menu, LogOut } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useAuth } from '../auth/AuthContext';
+import { Link } from 'react-router-dom';
+import { LayoutDashboard, LogOut, Menu, UserCircle } from 'lucide-react';
 import Button from '../components/Button';
 import HashLink from '../components/HashLink';
-import LoginModal from '../auth/LoginModal';
+import { useAuth } from '../store/useAuth';
+import { ROUTES } from '../routes';
 
 const navItems = [
   { label: 'Product', to: '/#product' },
   { label: 'Features', to: '/#features' },
   { label: 'Benefits', to: '/#benefits' },
-  { label: 'Pricing', to: '/#pricing' },
+  { label: 'Pricing', to: ROUTES.PRICING },
 ];
 
 export default function Header() {
-  const { user, logout } = useAuth();
+  const { user, isAuthenticated, logout } = useAuth();
   const [hasScrolled, setHasScrolled] = useState(false);
-  const [loginOpen, setLoginOpen] = useState(false);
-  const [loginMode, setLoginMode] = useState<'login' | 'register'>('login');
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   useEffect(() => {
     const onScroll = () => setHasScrolled(window.scrollY > 10);
@@ -57,44 +56,57 @@ export default function Header() {
           )}
 
           <div className="hidden items-center gap-4 sm:flex">
-            {user ? (
-              <>
-                <span className="text-body-sm text-on-surface-variant">{user.email}</span>
-                <Link to="/dashboard">
-                  <Button variant="dark" className="px-4 py-2">
-                    Dashboard
-                  </Button>
-                </Link>
+            {isAuthenticated && user ? (
+              <div className="relative">
                 <button
-                  onClick={logout}
-                  className="flex cursor-pointer items-center gap-1 rounded-lg p-2 text-on-surface-variant hover:bg-surface-container"
+                  type="button"
+                  onClick={() => setIsMenuOpen((value) => !value)}
+                  className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-outline-variant bg-surface-container-lowest px-4 py-2 text-body-sm font-semibold text-on-background transition-colors hover:bg-surface-container-low"
                 >
-                  <LogOut size={18} />
+                  <UserCircle size={18} aria-hidden="true" />
+                  {user.email}
                 </button>
-              </>
+                {isMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-60 rounded-xl border border-outline-variant bg-surface-container-lowest p-2 shadow-ambient">
+                    <Link
+                      to={ROUTES.DASHBOARD}
+                      className="flex items-center gap-2 rounded-lg px-3 py-2 text-body-sm text-on-background hover:bg-surface-container"
+                      onClick={() => setIsMenuOpen(false)}
+                    >
+                      <LayoutDashboard size={16} aria-hidden="true" />
+                      Dashboard
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMenuOpen(false);
+                        void logout();
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-body-sm text-on-background hover:bg-surface-container"
+                    >
+                      <LogOut size={16} aria-hidden="true" />
+                      Logout
+                    </button>
+                  </div>
+                )}
+              </div>
             ) : (
               <>
-                <Button variant="ghost" className="px-4 py-2" onClick={() => { setLoginMode('login'); setLoginOpen(true); }}>
-                  Login
-                </Button>
-                <Button variant="dark" className="px-6 py-3" onClick={() => { setLoginMode('register'); setLoginOpen(true); }}>
-                  Sign Up
-                </Button>
+                <Link to={ROUTES.LOGIN}>
+                  <Button variant="ghost" className="px-4 py-2">
+                    Login
+                  </Button>
+                </Link>
+                <Link to={ROUTES.REGISTER}>
+                  <Button variant="dark" className="px-6 py-3">
+                    Sign Up
+                  </Button>
+                </Link>
               </>
             )}
           </div>
-
-          <button
-            type="button"
-            className="inline-flex size-11 items-center justify-center rounded-lg border border-outline-variant text-on-background md:hidden"
-            aria-label="Open menu"
-          >
-            <Menu size={22} aria-hidden="true" />
-          </button>
         </div>
       </header>
-
-      <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} initialMode={loginMode} />
     </>
   );
 }

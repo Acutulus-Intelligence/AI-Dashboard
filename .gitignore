@@ -396,3 +396,6 @@ dist.pem
 /Backend/Presentation/appsettings.Development.json
 /Backend/Presentation/Properties/launchSettings.json
 /Backend/launchSettings.json
+
+# Stripe CLI
+stripe.exe

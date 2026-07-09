@@ -1,4 +1,5 @@
-using Application.DTos.Request;
+using Application.Dtos.Request;
+using Domain.Enums;
 using FluentValidation;
 
 namespace Application.Validators;
@@ -22,5 +23,15 @@ public class RegisterRequestValidator : AbstractValidator<RegisterRequest>
         RuleFor(x => x.LastName)
             .NotEmpty()
             .MaximumLength(100);
+
+        RuleFor(x => x.UserType)
+            .IsInEnum();
+
+        When(x => x.UserType == UserType.Company, () =>
+        {
+            RuleFor(x => x.InviteToken)
+                .NotEmpty()
+                .WithMessage("Invite token is required when joining an existing company.");
+        });
     }
 }

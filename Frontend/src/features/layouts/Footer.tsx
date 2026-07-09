@@ -6,7 +6,7 @@ const footerGroups = [
     links: [
       { label: 'Features', to: '/#features' },
       { label: 'Integrations', to: '/#product' },
-      { label: 'Pricing', to: '/#pricing' },
+      { label: 'Pricing', to: '/pricing' },
     ],
   },
   {
@@ -22,7 +22,7 @@ const footerGroups = [
     title: 'SUPPORT',
     links: [
       { label: 'Status', to: '#' },
-      { label: 'Contact', to: '#' },
+      { label: 'Contact', to: '/contact' },
     ],
   },
 ];

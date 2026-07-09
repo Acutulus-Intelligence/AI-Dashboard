@@ -2,13 +2,16 @@ using System.Text;
 using Application.Common.Mapping;
 using Application.Interfaces;
 using Application.Services;
+using Application.Validators;
 using Domain.Models;
+using FluentValidation;
 using Infrastructure.Auth;
 using Infrastructure.Data;
 using Infrastructure.Ai;
 using Infrastructure.Ai.Services;
 using Infrastructure.Encryption;
 using Infrastructure.ExternalDb.Services;
+using Infrastructure.Payment;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -25,6 +28,8 @@ builder.Services.AddOpenApi("v1", options => { options.AddDocumentTransformer<Be
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
 
+builder.Services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<AppDbContext>());
+
 builder.Services.AddIdentity<User, IdentityRole<Guid>>()
     .AddEntityFrameworkStores<AppDbContext>()
     .AddDefaultTokenProviders();
@@ -34,6 +39,8 @@ builder.Services.Configure<JwtSettings>(jwtSettings);
 
 var jwtSecret = jwtSettings["Secret"]
     ?? throw new InvalidOperationException("JWT Secret is not configured.");
+
+builder.Services.Configure<StripeSettings>(builder.Configuration.GetSection("Stripe"));
 
 builder.Services.AddAuthentication(options =>
 {
@@ -53,14 +60,24 @@ builder.Services.AddAuthentication(options =>
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
         ClockSkew = TimeSpan.Zero,
     };
+
+    options.Events = new JwtBearerEvents
+    {
+        OnMessageReceived = context =>
+        {
+            var header = context.Request.Headers.Authorization.FirstOrDefault();
+            if (!string.IsNullOrEmpty(header) && header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                context.Token = header["Bearer ".Length..].Trim();
+                return Task.CompletedTask;
+            }
+
+            context.Token = context.Request.Cookies["access_token"];
+            return Task.CompletedTask;
+        }
+    };
 });
 
-builder.Services.AddAuthorization(options =>
-{
-    options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
-});
-
-// Register the exception mapper as a singleton
 builder.Services.AddSingleton<IExceptionMapper, ExceptionMapper>();
 
 // HTTP client for AI provider calls
@@ -85,12 +102,17 @@ builder.Services.AddScoped<IGraphGenerationService, GraphGenerationService>();
 
 // Application layer
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<ICompanyService, CompanyService>();
+builder.Services.AddScoped<IAdminService, AdminService>();
+builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
+builder.Services.AddScoped<IPaymentService, StripeService>();
 
-// Infrastructure layer
 builder.Services.AddScoped<ITokenService, JwtService>();
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 
-// CORS policy for frontend applications
+
+builder.Services.AddValidatorsFromAssemblyContaining<RegisterRequestValidator>();
+
 var corsOrigins = builder.Configuration
     .GetSection("Cors:AllowedOrigins")
     .Get<string[]>() ?? [];
@@ -112,8 +134,7 @@ var app = builder.Build();
 app.UseMiddleware<GlobalExceptionMiddleware>();
 
 if (app.Environment.IsDevelopment())
-{ 
-
+{
     app.MapOpenApi();
     app.MapScalarApiReference(options =>
     {

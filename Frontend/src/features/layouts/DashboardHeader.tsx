@@ -1,29 +1,62 @@
-import { AlignJustify, Pencil, Lock, Database } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { AlignJustify, Database, Settings, LogOut, Shield, CreditCard } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { ROUTES } from '../routes';
 import CreateDropdown from '../components/CreateDropdown';
+import { useAuth } from '../store/useAuth';
+import * as companyApi from '../../lib/api/company';
 import logoSrc from '../../assets/images/IconTransNoText.png';
 
 interface DashboardHeaderProps {
   onToggleNavbar: () => void;
   onNewChart: () => void;
   onNewDashboard: () => void;
-  editMode: boolean;
-  onToggleEditMode: () => void;
 }
 
 export default function DashboardHeader({
   onToggleNavbar,
   onNewChart,
   onNewDashboard,
-  editMode,
-  onToggleEditMode,
 }: DashboardHeaderProps) {
+  const { user, hasActiveSubscription, logout } = useAuth();
+  const navigate = useNavigate();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [companyName, setCompanyName] = useState<string | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+  const isCompany = user?.userType === 1;
+
+  useEffect(() => {
+    companyApi.getMyCompany().then((c) => setCompanyName(c.name)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false);
+    };
+    const onClickOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('mousedown', onClickOutside);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('mousedown', onClickOutside);
+    };
+  }, []);
+
   return (
     <header className="fixed top-0 z-50 w-full border-b border-outline-variant bg-surface-container-lowest">
       <div className="mx-auto flex h-16 w-full max-w-container-max items-center justify-between px-gutter">
         <div className="flex items-center gap-3">
-          <Link to="/" className="flex items-center">
+          <Link to="/" className="flex items-center gap-2">
             <img src={logoSrc} alt="Actulus Intelligence" className="h-8 w-auto" />
+            {companyName && (
+              <span className="hidden text-body-sm font-semibold text-on-background sm:inline">
+                {companyName}
+              </span>
+            )}
           </Link>
           <button
             type="button"
@@ -42,19 +75,53 @@ export default function DashboardHeader({
         </div>
 
         <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={onToggleEditMode}
-            className={`inline-flex cursor-pointer items-center gap-2 rounded-xl px-4 py-2.5 text-body-md font-semibold transition-all active:scale-95 ${
-              editMode
-                ? 'bg-secondary text-white shadow-sm'
-                : 'border border-outline-variant bg-surface text-on-surface-variant hover:bg-surface-container'
-            }`}
-          >
-            {editMode ? <Lock size={16} /> : <Pencil size={16} />}
-            {editMode ? 'Done' : 'Edit'}
-          </button>
-          <CreateDropdown onNewChart={onNewChart} onNewDashboard={onNewDashboard} />
+          {hasActiveSubscription && (
+            <CreateDropdown onNewChart={onNewChart} onNewDashboard={onNewDashboard} />
+          )}
+
+          <div ref={ref} className="relative">
+            <button
+              type="button"
+              onClick={() => setMenuOpen((prev) => !prev)}
+              className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-outline-variant bg-surface p-2.5 text-on-surface-variant transition-all hover:bg-surface-container active:scale-95"
+              title="Settings"
+            >
+              <Settings size={18} />
+            </button>
+
+            {menuOpen && (
+              <div className="absolute right-0 top-full mt-2 w-48 overflow-hidden rounded-xl border border-outline-variant bg-white shadow-lg">
+                {isCompany ? (
+                  <button
+                    type="button"
+                    onClick={() => { setMenuOpen(false); navigate(ROUTES.ADMIN); }}
+                    className="flex w-full items-center gap-2 px-4 py-3 text-left text-body-md text-on-surface-variant transition-colors hover:bg-surface-container-low"
+                  >
+                    <Shield size={16} />
+                    Admin Settings
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => { setMenuOpen(false); navigate(ROUTES.SUBSCRIPTION); }}
+                    className="flex w-full items-center gap-2 px-4 py-3 text-left text-body-md text-on-surface-variant transition-colors hover:bg-surface-container-low"
+                  >
+                    <CreditCard size={16} />
+                    Subscription
+                  </button>
+                )}
+                <div className="border-t border-outline-variant" />
+                <button
+                  type="button"
+                  onClick={() => { setMenuOpen(false); logout(); }}
+                  className="flex w-full items-center gap-2 px-4 py-3 text-left text-body-md text-red-600 transition-colors hover:bg-red-50"
+                >
+                  <LogOut size={16} />
+                  Sign Out
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </header>

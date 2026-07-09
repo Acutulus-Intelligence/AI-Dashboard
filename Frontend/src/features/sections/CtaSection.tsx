@@ -1,4 +1,6 @@
+import { Link } from 'react-router-dom';
 import Button from '../components/Button';
+import { ROUTES } from '../routes';
 
 export default function CtaSection() {
   return (
@@ -19,10 +21,12 @@ export default function CtaSection() {
           free trial today.
         </p>
         <div className="flex flex-wrap justify-center gap-4">
-          <Button>Sign up now</Button>
-          <Button variant="surface">
-            Log in
-          </Button>
+          <Link to={ROUTES.PRICING}>
+            <Button>Get Started</Button>
+          </Link>
+          <Link to={ROUTES.LOGIN}>
+            <Button variant="surface">Log in</Button>
+          </Link>
         </div>
       </div>
     </section>
