@@ -16,7 +16,7 @@ export default function ProtectedRoute({ children, requireSubscription = true }:
   }
 
   if (!isLoading && !isSubscriptionLoading && requireSubscription && !hasActiveSubscription) {
-    const target = user?.userType === 1 ? ROUTES.ADMIN : ROUTES.SUBSCRIPTION;
+    const target = user?.userType === 1 ? ROUTES.ADMIN : ROUTES.PRICING;
     return <Navigate to={target} replace />;
   }
 

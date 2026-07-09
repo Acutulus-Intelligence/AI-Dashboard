@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { AlignJustify, Database, Settings, LogOut, Shield, CreditCard } from 'lucide-react';
+import { AlignJustify, Settings, LogOut, Shield, CreditCard } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ROUTES } from '../routes';
 import CreateDropdown from '../components/CreateDropdown';
@@ -65,13 +65,6 @@ export default function DashboardHeader({
           >
             <AlignJustify size={20} />
           </button>
-          <Link
-            to="/dashboard/connections"
-            className="ml-2 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-body-sm text-on-surface-variant hover:bg-surface-container"
-          >
-            <Database size={16} />
-            Connections
-          </Link>
         </div>
 
         <div className="flex items-center gap-3">
@@ -103,11 +96,11 @@ export default function DashboardHeader({
                 ) : (
                   <button
                     type="button"
-                    onClick={() => { setMenuOpen(false); navigate(ROUTES.SUBSCRIPTION); }}
+                    onClick={() => { setMenuOpen(false); navigate(ROUTES.SETTINGS); }}
                     className="flex w-full items-center gap-2 px-4 py-3 text-left text-body-md text-on-surface-variant transition-colors hover:bg-surface-container-low"
                   >
                     <CreditCard size={16} />
-                    Subscription
+                    Settings
                   </button>
                 )}
                 <div className="border-t border-outline-variant" />

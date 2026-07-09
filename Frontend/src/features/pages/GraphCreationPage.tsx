@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams, useNavigate, Link } from 'react-router-dom';
+import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Sparkles, BarChart3, Brain, Loader2 } from 'lucide-react';
 import { getTablePreview, type ColumnInfo, type TablePreview } from '../../services/connectionsApi';
 import { generateChart, type ChartConfigResponse } from '../../services/graphsApi';
@@ -9,10 +9,11 @@ import { getAll as getAllCharts } from '../charts/registry';
 type Mode = 'prompt' | 'prefab' | 'auto';
 
 export default function GraphCreationPage() {
-  const [params] = useSearchParams();
+  const location = useLocation();
   const navigate = useNavigate();
-  const connectionId = params.get('connectionId') || '';
-  const tableName = params.get('table') || '';
+  const state = location.state as { connectionId?: string; table?: string } | null;
+  const connectionId = state?.connectionId ?? '';
+  const tableName = state?.table ?? '';
 
   const [preview, setPreview] = useState<TablePreview | null>(null);
   const [loading, setLoading] = useState(true);

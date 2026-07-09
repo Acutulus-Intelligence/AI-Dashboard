@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, Database, CheckCircle, XCircle, ChevronRight, Table, Eye } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Plus, Trash2, Database, CheckCircle, XCircle, ChevronRight, Table, Eye, ArrowLeft } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import DashboardHeader from '../layouts/DashboardHeader';
+import { ROUTES } from '../routes';
 import {
   getConnections,
   createConnection,
@@ -18,6 +20,7 @@ const DB_PROVIDERS = [
 ];
 
 export default function ConnectionsPage() {
+  const navigate = useNavigate();
   const [connections, setConnections] = useState<ConnectionResponse[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<CreateConnectionRequest>({
@@ -74,20 +77,31 @@ export default function ConnectionsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background p-8">
-      <div className="mx-auto max-w-container-max">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-headline-lg font-bold text-on-background">Database Connections</h1>
-            <p className="text-body-md text-on-surface-variant">Connect external databases to generate AI-powered charts</p>
+    <div className="min-h-screen bg-background">
+      <DashboardHeader
+        onToggleNavbar={() => console.log('sidebar toggle')}
+        onNewChart={() => {}}
+        onNewDashboard={() => {}}
+      />
+      <main className="pt-16">
+        <div className="mx-auto max-w-container-max px-gutter py-8">
+          <div className="mb-6 flex items-center justify-between border-b border-outline-variant/40 pb-3">
+            <div className="flex items-center gap-3">
+              <Link
+                to={ROUTES.DASHBOARD}
+                className="inline-flex items-center justify-center rounded-lg p-1.5 text-on-surface-variant transition-colors hover:bg-surface-container"
+              >
+                <ArrowLeft size={18} />
+              </Link>
+              <h1 className="text-headline-md font-bold text-on-background">Database Connections</h1>
+            </div>
+            <button
+              onClick={() => setShowForm(!showForm)}
+              className="flex cursor-pointer items-center gap-2 rounded-xl bg-primary px-5 py-3 text-body-md font-semibold text-white transition-transform active:scale-95"
+            >
+              <Plus size={18} /> Add Connection
+            </button>
           </div>
-          <button
-            onClick={() => setShowForm(!showForm)}
-            className="flex cursor-pointer items-center gap-2 rounded-xl bg-primary px-5 py-3 text-body-md font-semibold text-white transition-transform active:scale-95"
-          >
-            <Plus size={18} /> Add Connection
-          </button>
-        </div>
 
         {showForm && (
           <form onSubmit={handleCreate} className="mb-8 rounded-xl border border-outline-variant bg-surface p-6">
@@ -145,10 +159,10 @@ export default function ConnectionsPage() {
                   ) : (
                     <div className="space-y-2">
                       {tables.map((t) => (
-                        <Link
+                        <button
                           key={t.tableName}
-                          to={`/dashboard/graphs/new?connectionId=${conn.id}&table=${encodeURIComponent(t.tableName)}`}
-                          className="flex items-center justify-between rounded-lg p-3 text-body-md text-on-surface-variant hover:bg-surface-container"
+                          onClick={() => navigate('/dashboard/graphs/new', { state: { connectionId: conn.id, table: t.tableName } })}
+                          className="flex w-full cursor-pointer items-center justify-between rounded-lg p-3 text-body-md text-on-surface-variant hover:bg-surface-container"
                         >
                           <div className="flex items-center gap-2">
                             <Table size={16} className="text-secondary" />
@@ -159,7 +173,7 @@ export default function ConnectionsPage() {
                             <Eye size={16} />
                             <ChevronRight size={16} />
                           </div>
-                        </Link>
+                        </button>
                       ))}
                       {tables.length === 0 && (
                         <div className="text-body-sm text-on-surface-variant">No tables found.</div>
@@ -179,6 +193,7 @@ export default function ConnectionsPage() {
           )}
         </div>
       </div>
+      </main>
     </div>
   );
 }

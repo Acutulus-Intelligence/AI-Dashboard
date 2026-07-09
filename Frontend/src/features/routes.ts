@@ -8,7 +8,7 @@ export const ROUTES = {
   CONTACT: '/contact',
   PAYMENT_SUCCESS: '/payment/success',
   PAYMENT_CANCEL: '/payment/cancel',
-  SUBSCRIBE: '/subscribe',
   COMPANY_CREATE: '/company/create',
+  SETTINGS: '/settings',
   SUBSCRIPTION: '/subscription',
 } as const;
