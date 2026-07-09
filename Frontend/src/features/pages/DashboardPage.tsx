@@ -1,11 +1,13 @@
 import { useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Pencil, Plus } from 'lucide-react';
 import DashboardHeader from '../layouts/DashboardHeader';
 import DashboardGrid from '../sections/DashboardGrid';
-import ChartTypePicker from '../components/ChartTypePicker';
+import SavedChartsPicker from '../components/SavedChartsPicker';
 import type { DashboardGridHandle } from '../sections/DashboardGrid';
 
 export default function DashboardPage() {
+  const navigate = useNavigate();
   const gridRef = useRef<DashboardGridHandle>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
@@ -14,7 +16,7 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-background">
       <DashboardHeader
         onToggleNavbar={() => console.log('sidebar toggle')}
-        onNewChart={() => setPickerOpen(true)}
+        onNewChart={() => navigate('/dashboard/connections')}
         onNewDashboard={() => {
           if (window.confirm('Reset dashboard to default layout?')) {
             gridRef.current?.resetDashboard();
@@ -55,12 +57,11 @@ export default function DashboardPage() {
           </div>
         </div>
       </main>
-      <ChartTypePicker
+      <SavedChartsPicker
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
-        onSelect={(chartId) => {
-          gridRef.current?.addWidget(chartId);
-          setPickerOpen(false);
+        onSelect={(savedChartId) => {
+          gridRef.current?.addWidget(savedChartId);
         }}
       />
     </div>

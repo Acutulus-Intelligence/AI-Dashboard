@@ -4,6 +4,7 @@ import { LineChartType } from './LineChart';
 import { PieChartType } from './PieChart';
 import { AreaChartType } from './AreaChart';
 import { ScatterChartType } from './ScatterChart';
+import { TableChartType } from './TableChart';
 
 const _registry = new Map<string, Chart>();
 
@@ -24,3 +25,4 @@ register(new LineChartType());
 register(new PieChartType());
 register(new AreaChartType());
 register(new ScatterChartType());
+register(new TableChartType());

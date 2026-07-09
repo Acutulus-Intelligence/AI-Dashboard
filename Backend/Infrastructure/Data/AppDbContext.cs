@@ -23,6 +23,8 @@ namespace Infrastructure.Data
         public DbSet<SubscriptionPlan> SubscriptionPlans => Set<SubscriptionPlan>();
         public DbSet<UserSubscription> UserSubscriptions => Set<UserSubscription>();
         public DbSet<CompanySubscription> CompanySubscriptions => Set<CompanySubscription>();
+        public DbSet<SavedChart> SavedCharts => Set<SavedChart>();
+        public DbSet<DashboardWidget> DashboardWidgets => Set<DashboardWidget>();
 
         protected override void OnModelCreating(ModelBuilder builder)
         {
@@ -37,6 +39,8 @@ namespace Infrastructure.Data
             builder.ApplyConfiguration(new SubscriptionPlanConfiguration());
             builder.ApplyConfiguration(new UserSubscriptionConfiguration());
             builder.ApplyConfiguration(new CompanySubscriptionConfiguration());
+            builder.ApplyConfiguration(new SavedChartConfiguration());
+            builder.ApplyConfiguration(new DashboardWidgetConfiguration());
 
             builder.Entity<Company>(entity =>
             {
@@ -54,14 +58,7 @@ namespace Infrastructure.Data
                     .OnDelete(DeleteBehavior.Cascade);
             });
 
-            builder.Entity<Dashboard>(entity =>
-            {
-                entity.Property(d => d.AllowedRoles)
-                    .HasColumnType("text[]");
-
-                entity.HasMany(d => d.Users)
-                    .WithMany(u => u.Dashboards);
-            });
+            // Dashboard config moved to DashboardConfiguration
         }
     }
 }

@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Sparkles, BarChart3, Brain, Loader2 } from 'lucide-react';
 import { getTablePreview, type ColumnInfo, type TablePreview } from '../../services/connectionsApi';
 import { generateChart, type ChartConfigResponse } from '../../services/graphsApi';
+import { saveChart } from '../../lib/api/charts';
 import { getAll as getAllCharts } from '../charts/registry';
 
 type Mode = 'prompt' | 'prefab' | 'auto';
@@ -19,6 +20,8 @@ export default function GraphCreationPage() {
   const [prompt, setPrompt] = useState('');
   const [prefabType, setPrefabType] = useState('');
   const [generating, setGenerating] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [savedChartId, setSavedChartId] = useState<string | null>(null);
   const [result, setResult] = useState<ChartConfigResponse | null>(null);
   const [error, setError] = useState('');
 
@@ -225,18 +228,58 @@ export default function GraphCreationPage() {
             </div>
 
             <div className="flex gap-3">
-              <button
-                onClick={() => navigate(`/dashboard?chartType=${result.chartType}&title=${encodeURIComponent(result.title)}&sql=${encodeURIComponent(result.sqlQuery)}`)}
-                className="cursor-pointer rounded-xl bg-secondary px-6 py-3 text-body-md font-semibold text-white transition-transform active:scale-95"
-              >
-                Add to Dashboard
-              </button>
-              <button
-                onClick={() => { setResult(null); setError(''); }}
-                className="cursor-pointer rounded-xl border border-outline-variant bg-surface px-6 py-3 text-body-md text-on-surface-variant"
-              >
-                Create Another
-              </button>
+              {savedChartId ? (
+                <>
+                  <button
+                    onClick={() => navigate('/dashboard')}
+                    className="cursor-pointer rounded-xl bg-secondary px-6 py-3 text-body-md font-semibold text-white transition-transform active:scale-95"
+                  >
+                    View in Dashboard
+                  </button>
+                  <button
+                    onClick={() => { setResult(null); setSavedChartId(null); setError(''); }}
+                    className="cursor-pointer rounded-xl border border-outline-variant bg-surface px-6 py-3 text-body-md text-on-surface-variant"
+                  >
+                    Create Another
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={async () => {
+                      setSaving(true);
+                      try {
+                        const res = await saveChart({
+                          title: result.title,
+                          chartType: result.chartType,
+                          xAxis: result.xAxis,
+                          yAxis: result.yAxis,
+                          aggregation: result.aggregation,
+                          groupBy: result.groupBy,
+                          sqlQuery: result.sqlQuery,
+                          connectionId,
+                          tableName,
+                        });
+                        setSavedChartId(res.id);
+                      } catch {
+                        setError('Failed to save chart');
+                      }
+                      setSaving(false);
+                    }}
+                    disabled={saving}
+                    className="flex cursor-pointer items-center gap-2 rounded-xl bg-secondary px-6 py-3 text-body-md font-semibold text-white transition-transform active:scale-95"
+                  >
+                    {saving ? <Loader2 size={18} className="animate-spin" /> : null}
+                    {saving ? 'Saving...' : 'Save Chart'}
+                  </button>
+                  <button
+                    onClick={() => { setResult(null); setError(''); }}
+                    className="cursor-pointer rounded-xl border border-outline-variant bg-surface px-6 py-3 text-body-md text-on-surface-variant"
+                  >
+                    Create Another
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -245,8 +288,8 @@ export default function GraphCreationPage() {
   );
 }
 
-function transformResult(res: ChartConfigResponse): { labels: string[]; datasets: { label: string; values: number[] }[] } {
-  if (!res.queryResult?.length) return { labels: [], datasets: [] };
+export function transformResult(res: ChartConfigResponse) {
+  if (!res.queryResult?.length) return { labels: [], datasets: [], queryResult: [] };
 
   const labels = res.queryResult.map((row) => String(row[res.xAxis] ?? ''));
   const datasets = res.yAxis.map((axis) => ({
@@ -258,5 +301,5 @@ function transformResult(res: ChartConfigResponse): { labels: string[]; datasets
     }),
   }));
 
-  return { labels, datasets };
+  return { labels, datasets, queryResult: res.queryResult };
 }

@@ -85,7 +85,7 @@ __PREFERENCE__
 
 Return this exact JSON structure:
 {
-  ""chartType"": ""bar"" | ""line"" | ""pie"" | ""area"" | ""scatter"",
+  ""chartType"": ""bar"" | ""line"" | ""pie"" | ""area"" | ""scatter"" | ""table"",
   ""title"": ""string — concise chart title"",
   ""xAxis"": ""column_name — the column for the x-axis / labels"",
   ""yAxis"": [""column_name — one or more columns for the y-axis / values""],

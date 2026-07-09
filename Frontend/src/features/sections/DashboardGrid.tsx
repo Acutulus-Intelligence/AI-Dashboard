@@ -3,10 +3,12 @@ import GridLayout, { type Layout, type LayoutItem } from 'react-grid-layout/lega
 import 'react-grid-layout/css/styles.css';
 import { X } from 'lucide-react';
 import ChartRenderer from '../charts/ChartRenderer';
-import { get } from '../charts/registry';
+import { getDashboard, saveWidgets } from '../../lib/api/dashboards';
+import { executeChart } from '../../lib/api/charts';
+import { transformResult } from '../pages/GraphCreationPage';
 
 export interface DashboardGridHandle {
-  addWidget: (chartId: string) => void;
+  addWidget: (savedChartId: string) => void;
   resetDashboard: () => void;
 }
 
@@ -14,10 +16,18 @@ interface DashboardGridProps {
   editMode: boolean;
 }
 
+interface WidgetData {
+  labels: string[];
+  datasets: { label: string; values: number[] }[];
+  queryResult?: Record<string, unknown>[];
+}
+
 interface Widget {
   id: string;
+  savedChartId: string;
   chartId: string;
   title: string;
+  data?: WidgetData;
 }
 
 const COLS = 12;
@@ -44,10 +54,6 @@ function useContainerWidth() {
 
   return { width, containerRef: ref };
 }
-
-const defaultWidgets: Widget[] = [];
-
-const defaultLayout: LayoutItem[] = [];
 
 let nextId = 200;
 
@@ -99,33 +105,110 @@ function GridOverlay({ containerHeight, containerWidth }: { containerHeight: num
   );
 }
 
+async function addWidgetWithData(
+  savedChartId: string,
+  setWidgets: React.Dispatch<React.SetStateAction<Widget[]>>,
+  setLayout: React.Dispatch<React.SetStateAction<LayoutItem[]>>,
+) {
+  const result = await executeChart(savedChartId);
+  const data = transformResult(result);
+  const id = createId();
+  setWidgets((prev) => [...prev, {
+    id,
+    savedChartId,
+    chartId: result.chartType,
+    title: result.title,
+    data,
+  }]);
+  setLayout((prev) => [
+    ...prev,
+    { i: id, x: 0, y: (prev.length + 1) * 10, w: 6, h: 6, minW: MIN_W, minH: MIN_H },
+  ]);
+}
+
+function widgetsToRequestItems(widgets: Widget[], layout: LayoutItem[]) {
+  return widgets.map((w) => {
+    const item = layout.find((l) => l.i === w.id);
+    return {
+      savedChartId: w.savedChartId,
+      positionX: item?.x ?? 0,
+      positionY: item?.y ?? 0,
+      width: item?.w ?? 6,
+      height: item?.h ?? 6,
+    };
+  });
+}
+
 const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(function DashboardGrid({ editMode }, ref) {
   const { width: containerWidth, containerRef } = useContainerWidth();
 
-  const [widgets, setWidgets] = useState<Widget[]>(defaultWidgets);
-  const [layout, setLayout] = useState<LayoutItem[]>(defaultLayout);
+  const [widgets, setWidgets] = useState<Widget[]>([]);
+  const [layout, setLayout] = useState<LayoutItem[]>([]);
   const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
-  const widgetById = useMemo(() => {
-    const map: Record<string, Widget> = {};
-    for (const w of widgets) map[w.id] = w;
-    return map;
-  }, [widgets]);
+  useEffect(() => {
+    let cancelled = false;
+    getDashboard()
+      .then(async (dash) => {
+        if (cancelled) return;
+        const w: Widget[] = [];
+        const l: LayoutItem[] = [];
+        for (const dw of dash.widgets) {
+          const id = createId();
+          w.push({
+            id,
+            savedChartId: dw.savedChartId,
+            chartId: dw.chartType,
+            title: dw.chartTitle,
+          });
+          l.push({
+            i: id,
+            x: dw.positionX,
+            y: dw.positionY,
+            w: dw.width,
+            h: dw.height,
+            minW: MIN_W,
+            minH: MIN_H,
+          });
+        }
+        const results = await Promise.allSettled(
+          w.map((widget) => executeChart(widget.savedChartId)),
+        );
+        if (cancelled) return;
+        results.forEach((result, i) => {
+          if (result.status === 'fulfilled') {
+            w[i].data = transformResult(result.value);
+          }
+        });
+        setWidgets(w);
+        setLayout(l);
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+    return () => { cancelled = true; };
+  }, []);
+
+  const persistLayout = useCallback(async (w: Widget[], l: LayoutItem[]) => {
+    const items = widgetsToRequestItems(w, l);
+    try {
+      await saveWidgets(items);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const handleLayoutChange = useCallback((newLayout: Layout) => {
     setLayout(newLayout as LayoutItem[]);
   }, []);
 
-  const addWidget = useCallback((chartId: string) => {
-    const chart = get(chartId);
-    const size = chart?.defaultSize ?? { w: 4, h: 4 };
-    const id = createId();
-    setWidgets((prev) => [...prev, { id, chartId, title: chart?.label ?? 'New Chart' }]);
-    setLayout((prev) => [
-      ...prev,
-      { i: id, x: 0, y: (prev.length + 1) * 10, w: size.w, h: size.h, minW: MIN_W, minH: MIN_H },
-    ]);
-  }, []);
+  const addWidget = useCallback(async (savedChartId: string) => {
+    try {
+      await addWidgetWithData(savedChartId, setWidgets, setLayout);
+    } catch {
+      /* ignore */
+    }
+  }, [widgets, layout]);
 
   const removeWidget = useCallback((id: string) => {
     setWidgets((prev) => prev.filter((w) => w.id !== id));
@@ -148,17 +231,25 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
   }, []);
 
   const resetDashboard = useCallback(() => {
-    const fresh = defaultWidgets.map((w) => ({ ...w, id: createId() }));
-    setWidgets(fresh);
-    setLayout(
-      defaultLayout.map((item, i) => ({
-        ...item,
-        i: fresh[i]?.id ?? createId(),
-      })),
-    );
-  }, []);
+    setWidgets([]);
+    setLayout([]);
+    persistLayout([], []);
+  }, [persistLayout]);
 
   useImperativeHandle(ref, () => ({ addWidget, resetDashboard }), [addWidget, resetDashboard]);
+
+  // Persist layout when widgets change
+  useEffect(() => {
+    if (!loaded) return;
+    const timer = setTimeout(() => persistLayout(widgets, layout), 500);
+    return () => clearTimeout(timer);
+  }, [widgets, layout, loaded, persistLayout]);
+
+  const widgetById = useMemo(() => {
+    const map: Record<string, Widget> = {};
+    for (const w of widgets) map[w.id] = w;
+    return map;
+  }, [widgets]);
 
   const containerHeight = useMemo(() => {
     if (layout.length === 0) return GAP;
@@ -176,6 +267,10 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
 
   if (containerWidth <= 0) {
     return <div ref={containerRef} />;
+  }
+
+  if (!loaded) {
+    return <div ref={containerRef} className="text-center text-on-surface-variant py-8">Loading dashboard...</div>;
   }
 
   return (
@@ -259,7 +354,7 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
               </div>
               <div className="relative min-h-0 flex-1">
                 <div className="absolute inset-0 p-3">
-                  <ChartRenderer chartId={widget.chartId} />
+                  <ChartRenderer chartId={widget.chartId} data={widget.data} />
                 </div>
               </div>
             </div>
