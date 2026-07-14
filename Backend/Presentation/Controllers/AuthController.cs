@@ -61,20 +61,14 @@ public class AuthController : ControllerBase
 
     [HttpGet("me")]
     [Authorize]
-    public IActionResult Me()
+    public async Task<IActionResult> Me(CancellationToken ct)
     {
         var userId = User.FindFirst("userId")?.Value;
-        var email = User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value;
-        var roles = User.FindAll(System.Security.Claims.ClaimTypes.Role).Select(c => c.Value).ToList();
-        var userType = User.FindFirst("userType")?.Value;
+        if (userId is null || !Guid.TryParse(userId, out var parsedUserId))
+            return Unauthorized();
 
-        return Ok(new
-        {
-            userId,
-            email,
-            roles,
-            userType
-        });
+        var me = await _authService.GetMeAsync(parsedUserId, ct);
+        return Ok(me);
     }
 
     [HttpPost("change-password")]

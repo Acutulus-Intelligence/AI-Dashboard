@@ -23,7 +23,8 @@ public class GenerateChartRequestValidator : AbstractValidator<GenerateChartRequ
         {
             RuleFor(x => x.Prompt)
                 .NotEmpty()
-                .WithMessage("Prompt is required when mode is 'prompt'.");
+                .WithMessage("Prompt is required when mode is 'prompt'.")
+                .MaximumLength(2000);
         });
 
         When(x => x.Mode == "prefab", () =>

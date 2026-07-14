@@ -2,8 +2,23 @@ import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AlertCircle, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import Button from '../components/Button';
+import PasswordRequirements from '../components/PasswordRequirements';
 import { useAuth } from '../store/useAuth';
 import { ROUTES } from '../routes';
+import { ApiError } from '../../lib/api/client';
+import {
+  type RegisterFieldErrors,
+  mapRegisterApiError,
+  validateRegisterForm,
+} from '../validation/registerForm';
+
+function fieldClass(hasError: boolean) {
+  return `w-full rounded-xl border bg-surface-container-lowest px-4 py-3 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 ${
+    hasError
+      ? 'border-red-400 focus:border-red-400 focus:ring-red-200'
+      : 'border-outline-variant focus:border-primary focus:ring-primary/20'
+  }`;
+}
 
 export default function RegisterPage() {
   const navigate = useNavigate();
@@ -15,28 +30,25 @@ export default function RegisterPage() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
+  const [formError, setFormError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<RegisterFieldErrors>({});
   const [loading, setLoading] = useState(false);
-
-  function validateForm() {
-    if (!firstName.trim() || !lastName.trim() || !email.trim() || !password)
-      return 'Please fill in all required fields.';
-    if (password.length < 8) return 'Password must be at least 8 characters.';
-    if (!/[A-Z]/.test(password)) return 'Password must contain at least one uppercase letter.';
-    if (!/[a-z]/.test(password)) return 'Password must contain at least one lowercase letter.';
-    if (!/[0-9]/.test(password)) return 'Password must contain at least one digit (0-9).';
-    if (!/[^a-zA-Z0-9]/.test(password)) return 'Password must contain at least one special character (e.g. !@#$%).';
-    if (password !== confirmPassword) return 'Passwords do not match.';
-    return '';
-  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    setError('');
+    setFormError('');
+    setFieldErrors({});
 
-    const validationError = validateForm();
-    if (validationError) {
-      setError(validationError);
+    const validation = validateRegisterForm({
+      firstName,
+      lastName,
+      email,
+      password,
+      confirmPassword,
+    });
+
+    if (!validation.isValid) {
+      setFieldErrors(validation.fieldErrors);
       return;
     }
 
@@ -51,7 +63,14 @@ export default function RegisterPage() {
       });
       navigate(ROUTES.PRICING, { replace: true });
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.');
+      if (err instanceof ApiError) {
+        const mapped = mapRegisterApiError(err);
+        setFieldErrors(mapped.fieldErrors);
+        if (mapped.formError) setFormError(mapped.formError);
+      } else {
+        setFormError(err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.');
+      }
+    } finally {
       setLoading(false);
     }
   }
@@ -75,14 +94,14 @@ export default function RegisterPage() {
               </p>
             </div>
 
-            {error && (
+            {formError && (
               <div className="mb-6 flex items-center gap-2 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-body-sm text-red-700">
                 <AlertCircle size={16} className="shrink-0" />
-                <span>{error}</span>
+                <span role="alert">{formError}</span>
               </div>
             )}
 
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={handleSubmit} noValidate>
               <div className="space-y-5">
                 <div className="grid gap-4 md:grid-cols-2">
                   <div>
@@ -95,8 +114,12 @@ export default function RegisterPage() {
                       value={firstName}
                       onChange={(e) => setFirstName(e.target.value)}
                       placeholder="John"
-                      className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-4 py-3 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      aria-invalid={!!fieldErrors.firstName}
+                      className={fieldClass(!!fieldErrors.firstName)}
                     />
+                    {fieldErrors.firstName && (
+                      <p className="mt-1 text-body-sm text-red-600" role="alert">{fieldErrors.firstName}</p>
+                    )}
                   </div>
                   <div>
                     <label htmlFor="lastName" className="mb-1.5 block text-body-sm font-medium text-on-surface-variant">
@@ -108,8 +131,12 @@ export default function RegisterPage() {
                       value={lastName}
                       onChange={(e) => setLastName(e.target.value)}
                       placeholder="Doe"
-                      className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-4 py-3 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      aria-invalid={!!fieldErrors.lastName}
+                      className={fieldClass(!!fieldErrors.lastName)}
                     />
+                    {fieldErrors.lastName && (
+                      <p className="mt-1 text-body-sm text-red-600" role="alert">{fieldErrors.lastName}</p>
+                    )}
                   </div>
                 </div>
 
@@ -124,8 +151,12 @@ export default function RegisterPage() {
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
                     autoComplete="email"
-                    className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-4 py-3 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    aria-invalid={!!fieldErrors.email}
+                    className={fieldClass(!!fieldErrors.email)}
                   />
+                  {fieldErrors.email && (
+                    <p className="mt-1 text-body-sm text-red-600" role="alert">{fieldErrors.email}</p>
+                  )}
                 </div>
 
                 <div>
@@ -138,9 +169,10 @@ export default function RegisterPage() {
                       type={showPassword ? 'text' : 'password'}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      placeholder="At least 8 characters"
+                      placeholder="Create a strong password"
                       autoComplete="new-password"
-                      className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-4 py-3 pr-11 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      aria-invalid={!!fieldErrors.password}
+                      className={`${fieldClass(!!fieldErrors.password)} pr-11`}
                     />
                     <button
                       type="button"
@@ -151,6 +183,10 @@ export default function RegisterPage() {
                       {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
                   </div>
+                  {fieldErrors.password && (
+                    <p className="mt-1 text-body-sm text-red-600" role="alert">{fieldErrors.password}</p>
+                  )}
+                  <PasswordRequirements password={password} />
                 </div>
 
                 <div>
@@ -164,8 +200,12 @@ export default function RegisterPage() {
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Repeat your password"
                     autoComplete="new-password"
-                    className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-4 py-3 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    aria-invalid={!!fieldErrors.confirmPassword}
+                    className={fieldClass(!!fieldErrors.confirmPassword)}
                   />
+                  {fieldErrors.confirmPassword && (
+                    <p className="mt-1 text-body-sm text-red-600" role="alert">{fieldErrors.confirmPassword}</p>
+                  )}
                 </div>
 
                 <Button type="submit" variant="primary" className="w-full" disabled={loading}>

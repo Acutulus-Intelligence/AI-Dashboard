@@ -2,7 +2,9 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Application.Interfaces;
+using Domain.Enums;
 using Domain.Models;
+using Infrastructure.ExternalDb.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -14,16 +16,24 @@ public class OpenRouterService : IAiService
     private readonly AiSettings _settings;
     private readonly ILogger<OpenRouterService> _logger;
 
-    public OpenRouterService(HttpClient httpClient, IOptions<AiSettings> settings, ILogger<OpenRouterService> logger)
+    public OpenRouterService(
+        HttpClient httpClient,
+        IOptions<AiSettings> settings,
+        ILogger<OpenRouterService> logger)
     {
         _httpClient = httpClient;
         _settings = settings.Value;
         _logger = logger;
     }
 
-    public async Task<AiChartConfig> GenerateChartConfigAsync(string schemaJson, string prompt, string? prefabChartType = null, CancellationToken ct = default)
+    public async Task<AiChartConfig> GenerateChartConfigAsync(
+        string schemaJson,
+        string prompt,
+        DbProvider dbProvider,
+        string? prefabChartType = null,
+        CancellationToken ct = default)
     {
-        var systemPrompt = BuildSystemPrompt(schemaJson, prefabChartType);
+        var systemPrompt = BuildSystemPrompt(schemaJson, dbProvider, prefabChartType);
 
         var requestBody = new
         {
@@ -55,18 +65,22 @@ public class OpenRouterService : IAiService
         if (string.IsNullOrEmpty(content))
             throw new InvalidOperationException("AI returned an empty response.");
 
-        _logger.LogInformation("AI response: {Response}", content);
-
         var config = JsonSerializer.Deserialize<AiChartConfig>(content)
             ?? throw new InvalidOperationException("Failed to parse AI response as chart config.");
 
         if (string.IsNullOrEmpty(config.ChartType) || string.IsNullOrEmpty(config.SqlQuery))
             throw new InvalidOperationException("AI response is missing required fields (chartType, sqlQuery).");
 
+        _logger.LogInformation(
+            "AI chart config generated: chartType={ChartType}, sqlLength={SqlLength}",
+            config.ChartType,
+            config.SqlQuery.Length);
+        _logger.LogDebug("AI chart config response received with title={Title}", config.Title);
+
         return config;
     }
 
-    private static string BuildSystemPrompt(string schemaJson, string? prefabChartType)
+    private static string BuildSystemPrompt(string schemaJson, DbProvider dbProvider, string? prefabChartType)
     {
         var chartPreference = prefabChartType switch
         {
@@ -74,10 +88,19 @@ public class OpenRouterService : IAiService
             null => "Choose the best chart type based on the data."
         };
 
+        var quotingRule = SqlIdentifierQuoter.GetQuotingRule(dbProvider);
+        var dbName = dbProvider switch
+        {
+            DbProvider.PostgreSql => "PostgreSQL",
+            DbProvider.MySql => "MySQL",
+            _ => "SQL"
+        };
+
         var template = @"
 You are a data visualization assistant. Given a database table schema, generate a chart configuration.
 Return ONLY valid JSON — no markdown, no code fences, no extra text.
 
+Database: __DBNAME__
 Table schema:
 __SCHEMA__
 
@@ -95,15 +118,17 @@ Return this exact JSON structure:
 }
 
 Rules:
-- sqlQuery must be a valid SELECT query only
-- Use double quotes for table and column names
+- sqlQuery must be a valid SELECT query only for __DBNAME__
+- __QUOTING_RULE__
 - Never include actual data values — only column names and SQL
 - The JSON must be parseable and complete
 ";
 
         return template
+            .Replace("__DBNAME__", dbName)
             .Replace("__SCHEMA__", schemaJson)
-            .Replace("__PREFERENCE__", chartPreference);
+            .Replace("__PREFERENCE__", chartPreference)
+            .Replace("__QUOTING_RULE__", quotingRule);
     }
 
     private class OpenRouterResponse

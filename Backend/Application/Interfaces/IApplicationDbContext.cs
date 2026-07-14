@@ -11,6 +11,7 @@ public interface IApplicationDbContext
     DbSet<CompanySubscription> CompanySubscriptions { get; }
     DbSet<Dashboard> Dashboards { get; }
     DbSet<DashboardWidget> DashboardWidgets { get; }
+    DbSet<ExternalConnection> ExternalConnections { get; }
     DbSet<SavedChart> SavedCharts { get; }
     DbSet<RefreshToken> RefreshTokens { get; }
     DbSet<SubscriptionPlan> SubscriptionPlans { get; }

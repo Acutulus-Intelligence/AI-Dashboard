@@ -5,11 +5,13 @@ using Application.Services;
 using Application.Validators;
 using Domain.Models;
 using FluentValidation;
+using FluentValidation.AspNetCore;
 using Infrastructure.Auth;
 using Infrastructure.Data;
 using Infrastructure.Ai;
 using Infrastructure.Ai.Services;
 using Infrastructure.Encryption;
+using Infrastructure.ExternalDb;
 using Infrastructure.ExternalDb.Services;
 using Infrastructure.Payment;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -113,7 +115,10 @@ builder.Services.AddScoped<ITokenService, JwtService>();
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 
 
+builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddValidatorsFromAssemblyContaining<RegisterRequestValidator>();
+
+builder.Services.Configure<ExternalDbSettings>(builder.Configuration.GetSection("ExternalDb"));
 
 var corsOrigins = builder.Configuration
     .GetSection("Cors:AllowedOrigins")

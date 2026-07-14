@@ -5,6 +5,9 @@ using Domain.Enums;
 using Domain.Models;
 using Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using MySql.Data.MySqlClient;
+using Npgsql;
 
 namespace Infrastructure.ExternalDb.Services;
 
@@ -12,15 +15,20 @@ public class ExternalConnectionService : IExternalConnectionService
 {
     private readonly AppDbContext _db;
     private readonly IEncryptionService _encryption;
+    private readonly ExternalDbSettings _settings;
 
-    public ExternalConnectionService(AppDbContext db, IEncryptionService encryption)
+    public ExternalConnectionService(AppDbContext db, IEncryptionService encryption, IOptions<ExternalDbSettings> settings)
     {
         _db = db;
         _encryption = encryption;
+        _settings = settings.Value;
     }
 
     public async Task<ConnectionResponse> CreateAsync(Guid userId, CreateConnectionRequest request, CancellationToken ct = default)
     {
+        if (HostBlocklist.IsBlocked(request.Host, _settings.BlockedHosts))
+            throw new ArgumentException("This host is not allowed.");
+
         var connectionString = BuildConnectionString(request);
 
         var connection = new ExternalConnection
@@ -97,10 +105,22 @@ public class ExternalConnectionService : IExternalConnectionService
     {
         return request.DbProvider switch
         {
-            DbProvider.PostgreSql =>
-                $"Host={request.Host};Port={request.Port};Database={request.Database};Username={request.Username};Password={request.Password}",
-            DbProvider.MySql =>
-                $"Server={request.Host};Port={request.Port};Database={request.Database};User={request.Username};Password={request.Password}",
+            DbProvider.PostgreSql => new NpgsqlConnectionStringBuilder
+            {
+                Host = request.Host,
+                Port = request.Port,
+                Database = request.Database,
+                Username = request.Username,
+                Password = request.Password
+            }.ConnectionString,
+            DbProvider.MySql => new MySqlConnectionStringBuilder
+            {
+                Server = request.Host,
+                Port = (uint)request.Port,
+                Database = request.Database,
+                UserID = request.Username,
+                Password = request.Password
+            }.ConnectionString,
             _ => throw new ArgumentOutOfRangeException(nameof(request.DbProvider))
         };
     }
@@ -109,8 +129,8 @@ public class ExternalConnectionService : IExternalConnectionService
     {
         return provider switch
         {
-            DbProvider.PostgreSql => new Npgsql.NpgsqlConnection(connectionString),
-            DbProvider.MySql => new MySql.Data.MySqlClient.MySqlConnection(connectionString),
+            DbProvider.PostgreSql => new NpgsqlConnection(connectionString),
+            DbProvider.MySql => new MySqlConnection(connectionString),
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         };
     }

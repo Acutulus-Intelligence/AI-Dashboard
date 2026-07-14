@@ -1,3 +1,4 @@
+using Application.DTos.Request;
 using Application.DTos.Response;
 using Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -46,12 +47,16 @@ public class SchemaController : ControllerBase
     }
 
     [HttpGet("{tableName}/preview")]
-    public async Task<IActionResult> PreviewTable(Guid connectionId, string tableName, [FromQuery] int rows = 5, CancellationToken ct = default)
+    public async Task<IActionResult> PreviewTable(
+        Guid connectionId,
+        string tableName,
+        [FromQuery] PreviewTableQuery query,
+        CancellationToken ct = default)
     {
         var userId = GetUserId();
 
         var schema = await _schemaInspector.GetTableSchemaAsync(connectionId, userId, tableName, ct);
-        var data = await _schemaInspector.PreviewTableAsync(connectionId, userId, tableName, rows, ct);
+        var data = await _schemaInspector.PreviewTableAsync(connectionId, userId, tableName, query.Rows, ct);
 
         var response = new TablePreviewResponse(
             tableName,

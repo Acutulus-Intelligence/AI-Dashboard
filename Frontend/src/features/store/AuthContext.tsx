@@ -27,7 +27,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const fetchUser = useCallback(async () => {
     try {
       const userInfo = await authApi.getMe();
-      setUser({ ...userInfo, userType: Number(userInfo.userType) });
+      setUser({
+        ...userInfo,
+        userType: Number(userInfo.userType),
+        firstName: userInfo.firstName ?? null,
+        lastName: userInfo.lastName ?? null,
+      });
       return true;
     } catch {
       setUser(null);

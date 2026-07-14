@@ -6,6 +6,8 @@ export interface AuthUser {
   email: string;
   roles: string[];
   userType: number;
+  firstName?: string | null;
+  lastName?: string | null;
 }
 
 export interface AuthContextType {

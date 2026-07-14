@@ -264,8 +264,26 @@ namespace Infrastructure.Data.Migrations
                     b.Property<int>("PositionY")
                         .HasColumnType("integer");
 
-                    b.Property<Guid>("SavedChartId")
+                    b.Property<Guid?>("SavedChartId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("TextContent")
+                        .HasMaxLength(5000)
+                        .HasColumnType("character varying(5000)");
+
+                    b.Property<int?>("TextHorizontalAlign")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("TextVariant")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("TextVerticalAlign")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("WidgetType")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
 
                     b.Property<int>("Width")
                         .HasColumnType("integer");
@@ -829,8 +847,7 @@ namespace Infrastructure.Data.Migrations
                     b.HasOne("Domain.Models.SavedChart", "SavedChart")
                         .WithMany()
                         .HasForeignKey("SavedChartId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Dashboard");
 

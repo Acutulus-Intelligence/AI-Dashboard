@@ -1,23 +1,27 @@
-using System.Text.Json;
 using Application.DTos.Request;
 using Application.DTos.Response;
 using Application.Interfaces;
-
+using Domain.Enums;
+using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 namespace Application.Services;
 
 public class GraphGenerationService : IGraphGenerationService
 {
+    private readonly IApplicationDbContext _db;
     private readonly ISchemaInspector _schemaInspector;
     private readonly IAiService _aiService;
     private readonly ISqlValidator _sqlValidator;
     private readonly IQueryExecutor _queryExecutor;
 
     public GraphGenerationService(
+        IApplicationDbContext db,
         ISchemaInspector schemaInspector,
         IAiService aiService,
         ISqlValidator sqlValidator,
         IQueryExecutor queryExecutor)
     {
+        _db = db;
         _schemaInspector = schemaInspector;
         _aiService = aiService;
         _sqlValidator = sqlValidator;
@@ -26,6 +30,7 @@ public class GraphGenerationService : IGraphGenerationService
 
     public async Task<ChartConfigResponse> GenerateAsync(GenerateChartRequest request, Guid userId, CancellationToken ct = default)
     {
+        var dbProvider = await GetDbProviderAsync(request.ConnectionId, userId, ct);
         var schema = await _schemaInspector.GetTableSchemaAsync(request.ConnectionId, userId, request.TableName, ct);
 
         var schemaJson = JsonSerializer.Serialize(new
@@ -47,7 +52,7 @@ public class GraphGenerationService : IGraphGenerationService
             _ => "Show me this data in a chart."
         };
 
-        var config = await _aiService.GenerateChartConfigAsync(schemaJson, prompt, request.PrefabChartType, ct);
+        var config = await _aiService.GenerateChartConfigAsync(schemaJson, prompt, dbProvider, request.PrefabChartType, ct);
 
         if (!_sqlValidator.IsSelectOnly(config.SqlQuery, out var errorMessage))
             throw new InvalidOperationException($"AI generated an invalid query: {errorMessage}");
@@ -68,6 +73,7 @@ public class GraphGenerationService : IGraphGenerationService
 
     public async Task<ChartConfigResponse> ManualAsync(GenerateChartRequest request, Guid userId, CancellationToken ct = default)
     {
+        var dbProvider = await GetDbProviderAsync(request.ConnectionId, userId, ct);
         var schema = await _schemaInspector.GetTableSchemaAsync(request.ConnectionId, userId, request.TableName, ct);
 
         var schemaJson = JsonSerializer.Serialize(new
@@ -83,7 +89,7 @@ public class GraphGenerationService : IGraphGenerationService
 
         var prompt = $"Create a {request.PrefabChartType ?? "bar"} chart for this table. Use xAxis={request.Prompt ?? ""} for x-axis.";
 
-        var config = await _aiService.GenerateChartConfigAsync(schemaJson, prompt, request.PrefabChartType, ct);
+        var config = await _aiService.GenerateChartConfigAsync(schemaJson, prompt, dbProvider, request.PrefabChartType, ct);
 
         if (!_sqlValidator.IsSelectOnly(config.SqlQuery, out var errorMessage))
             throw new InvalidOperationException($"AI generated an invalid query: {errorMessage}");
@@ -100,5 +106,15 @@ public class GraphGenerationService : IGraphGenerationService
             config.SqlQuery,
             result
         );
+    }
+
+    private async Task<DbProvider> GetDbProviderAsync(Guid connectionId, Guid userId, CancellationToken ct)
+    {
+        var connection = await _db.ExternalConnections
+            .AsNoTracking()
+            .FirstOrDefaultAsync(ec => ec.Id == connectionId && ec.UserId == userId, ct)
+            ?? throw new KeyNotFoundException("Connection not found.");
+
+        return connection.DbProvider;
     }
 }

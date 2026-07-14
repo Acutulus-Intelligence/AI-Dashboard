@@ -1,7 +1,16 @@
+using System.Text.Json.Serialization;
+using Domain.Enums;
+
 namespace Application.DTos.Request;
 
 public sealed record WidgetItem(
-    Guid SavedChartId,
+    Guid? Id,
+    WidgetType WidgetType,
+    Guid? SavedChartId,
+    string? TextContent,
+    [property: JsonPropertyName("textVariant")] TextVariant? TextStyle,
+    [property: JsonPropertyName("textHorizontalAlign")] TextHorizontalAlignment? HorizontalAlign,
+    [property: JsonPropertyName("textVerticalAlign")] TextVerticalAlignment? VerticalAlign,
     int PositionX,
     int PositionY,
     int Width,

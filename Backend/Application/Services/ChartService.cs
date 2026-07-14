@@ -19,6 +19,15 @@ public class ChartService : IChartService
 
     public async Task<ChartResponse> SaveChartAsync(Guid userId, SaveChartRequest request, CancellationToken ct = default)
     {
+        if (request.ConnectionId.HasValue)
+        {
+            var ownsConnection = await _db.ExternalConnections
+                .AnyAsync(ec => ec.Id == request.ConnectionId.Value && ec.UserId == userId, ct);
+
+            if (!ownsConnection)
+                throw new UnauthorizedAccessException("Connection does not belong to you.");
+        }
+
         var chart = new SavedChart
         {
             Id = Guid.NewGuid(),

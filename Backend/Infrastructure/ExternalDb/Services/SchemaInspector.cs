@@ -3,6 +3,7 @@ using Domain.Enums;
 using Domain.Models;
 using Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Infrastructure.ExternalDb.Services;
 
@@ -10,11 +11,13 @@ public class SchemaInspector : ISchemaInspector
 {
     private readonly AppDbContext _db;
     private readonly IEncryptionService _encryption;
+    private readonly ExternalDbSettings _settings;
 
-    public SchemaInspector(AppDbContext db, IEncryptionService encryption)
+    public SchemaInspector(AppDbContext db, IEncryptionService encryption, IOptions<ExternalDbSettings> settings)
     {
         _db = db;
         _encryption = encryption;
+        _settings = settings.Value;
     }
 
     public async Task<List<TableSchema>> GetSchemaAsync(Guid connectionId, Guid userId, CancellationToken ct = default)
@@ -50,15 +53,31 @@ public class SchemaInspector : ISchemaInspector
         return new TableSchema { TableName = tableName, Columns = columns };
     }
 
-    public async Task<List<Dictionary<string, object?>>> PreviewTableAsync(Guid connectionId, Guid userId, string tableName, int rowLimit = 5, CancellationToken ct = default)
+    public async Task<List<Dictionary<string, object?>>> PreviewTableAsync(
+        Guid connectionId,
+        Guid userId,
+        string tableName,
+        int rowLimit = 5,
+        CancellationToken ct = default)
     {
+        var clampedLimit = Math.Clamp(rowLimit, 1, _settings.PreviewMaxRows);
         var (provider, connectionString) = await GetConnectionAsync(connectionId, userId, ct);
 
         using var conn = CreateConnection(provider, connectionString);
         await conn.OpenAsync(ct);
 
+        var schema = await GetColumnsAsync(conn, tableName, ct);
+        if (schema.Count == 0)
+            return [];
+
+        var columnList = string.Join(", ", schema.Select(c => SqlIdentifierQuoter.Quote(provider, c.ColumnName)));
+        var quotedTable = SqlIdentifierQuoter.Quote(provider, tableName);
+        var limitClause = provider == DbProvider.MySql
+            ? $" LIMIT {clampedLimit}"
+            : $" LIMIT {clampedLimit}";
+
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"SELECT * FROM {QuoteIdentifier(tableName)} LIMIT {rowLimit}";
+        cmd.CommandText = $"SELECT {columnList} FROM {quotedTable}{limitClause}";
         cmd.CommandTimeout = 15;
 
         var results = new List<Dictionary<string, object?>>();
@@ -80,8 +99,11 @@ public class SchemaInspector : ISchemaInspector
     private async Task<(DbProvider provider, string connectionString)> GetConnectionAsync(Guid connectionId, Guid userId, CancellationToken ct)
     {
         var connection = await _db.ExternalConnections
+            .AsNoTracking()
             .FirstOrDefaultAsync(ec => ec.Id == connectionId && ec.UserId == userId, ct)
             ?? throw new KeyNotFoundException("Connection not found.");
+
+        await _db.Database.CloseConnectionAsync();
 
         return (connection.DbProvider, _encryption.Decrypt(connection.EncryptedConnectionString));
     }
@@ -112,10 +134,5 @@ public class SchemaInspector : ISchemaInspector
             DbProvider.MySql => new MySql.Data.MySqlClient.MySqlConnection(connectionString),
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         };
-    }
-
-    private static string QuoteIdentifier(string identifier)
-    {
-        return $"\"{identifier.Replace("\"", "\"\"")}\"";
     }
 }

@@ -26,6 +26,8 @@ export interface UserInfo {
   email: string;
   roles: string[];
   userType: string;
+  firstName?: string | null;
+  lastName?: string | null;
 }
 
 export function register(data: RegisterRequest): Promise<AuthResponse> {
