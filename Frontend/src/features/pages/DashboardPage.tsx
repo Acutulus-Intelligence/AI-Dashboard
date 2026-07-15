@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Pencil, Plus } from 'lucide-react';
+import { ROUTES } from '../routes';
 import DashboardHeader from '../layouts/DashboardHeader';
 import DashboardGrid from '../sections/DashboardGrid';
 import SavedChartsPicker from '../components/SavedChartsPicker';
@@ -33,7 +34,7 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-background">
       <DashboardHeader
         onToggleNavbar={() => console.log('sidebar toggle')}
-        onNewChart={() => navigate('/dashboard/connections')}
+        onNewChart={() => navigate(ROUTES.CONNECTIONS)}
         onNewDashboard={() => {
           if (window.confirm('Reset dashboard to default layout?')) {
             gridRef.current?.resetDashboard();

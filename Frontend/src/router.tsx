@@ -77,7 +77,7 @@ export default function Router() {
             }
           />
           <Route
-            path="/admin/users"
+            path={ROUTES.ADMIN_USERS}
             element={
               <ProtectedRoute requireSubscription={false}>
                 <LazyPage><AdminUsersPage /></LazyPage>
@@ -100,8 +100,8 @@ export default function Router() {
               </ProtectedRoute>
             }
           />
-          <Route path="/dashboard/connections" element={<ProtectedRoute><LazyPage><ConnectionsPage /></LazyPage></ProtectedRoute>} />
-          <Route path="/dashboard/graphs/new" element={<ProtectedRoute><LazyPage><GraphCreationPage /></LazyPage></ProtectedRoute>} />
+          <Route path={ROUTES.CONNECTIONS} element={<ProtectedRoute><LazyPage><ConnectionsPage /></LazyPage></ProtectedRoute>} />
+          <Route path={ROUTES.GRAPHS_NEW} element={<ProtectedRoute><LazyPage><GraphCreationPage /></LazyPage></ProtectedRoute>} />
           <Route path="*" element={<LazyPage><LandingPage /></LazyPage>} />
         </Routes>
       </AuthProvider>

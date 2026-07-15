@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search, BarChart3, LineChart, PieChart, LayoutDashboard, Table2, X, Loader2 } from 'lucide-react';
+import { ROUTES } from '../routes';
 import { getCharts, type ChartResponse } from '../../lib/api/charts';
 
 interface SavedChartsPickerProps {
@@ -71,7 +72,7 @@ export default function SavedChartsPicker({ open, onClose, onSelect }: SavedChar
           type="button"
           onClick={() => {
             onClose();
-            navigate('/dashboard/connections');
+            navigate(ROUTES.CONNECTIONS);
           }}
           className="mb-4 flex w-full cursor-pointer items-center gap-3 rounded-xl border border-dashed border-secondary bg-secondary/5 px-4 py-3 text-left text-body-md font-semibold text-secondary transition-colors hover:bg-secondary/10"
         >

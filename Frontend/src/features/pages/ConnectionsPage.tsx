@@ -161,7 +161,7 @@ export default function ConnectionsPage() {
                       {tables.map((t) => (
                         <button
                           key={t.tableName}
-                          onClick={() => navigate('/dashboard/graphs/new', { state: { connectionId: conn.id, table: t.tableName } })}
+                          onClick={() => navigate(ROUTES.GRAPHS_NEW, { state: { connectionId: conn.id, table: t.tableName } })}
                           className="flex w-full cursor-pointer items-center justify-between rounded-lg p-3 text-body-md text-on-surface-variant hover:bg-surface-container"
                         >
                           <div className="flex items-center gap-2">

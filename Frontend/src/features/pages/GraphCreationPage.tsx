@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Sparkles, BarChart3, Brain, Loader2 } from 'lucide-react';
+import { ROUTES } from '../routes';
 import { getTablePreview, type TablePreview } from '../../services/connectionsApi';
 import { generateChart, type ChartConfigResponse } from '../../services/graphsApi';
 import { saveChart } from '../../lib/api/charts';
@@ -58,7 +59,7 @@ export default function GraphCreationPage() {
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="text-center">
           <p className="mb-4 text-body-md text-on-surface-variant">No table selected.</p>
-          <Link to="/dashboard/connections" className="text-secondary underline">Go to Connections</Link>
+          <Link to={ROUTES.CONNECTIONS} className="text-secondary underline">Go to Connections</Link>
         </div>
       </div>
     );
@@ -69,7 +70,7 @@ export default function GraphCreationPage() {
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="mx-auto max-w-4xl">
-        <Link to="/dashboard/connections" className="mb-6 flex items-center gap-2 text-body-sm text-on-surface-variant hover:text-secondary">
+        <Link to={ROUTES.CONNECTIONS} className="mb-6 flex items-center gap-2 text-body-sm text-on-surface-variant hover:text-secondary">
           <ArrowLeft size={16} /> Back to Connections
         </Link>
 

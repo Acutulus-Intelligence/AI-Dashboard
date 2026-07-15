@@ -162,7 +162,7 @@ export default function SettingsPage() {
               )}
 
               <Link
-                to="/dashboard/connections"
+                to={ROUTES.CONNECTIONS}
                 className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm transition-shadow hover:shadow-md"
               >
                 <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
