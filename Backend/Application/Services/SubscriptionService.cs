@@ -101,8 +101,9 @@ public class SubscriptionService : ISubscriptionService
 
         var trialDays = CalculateTrialDays(existingSubscription?.TrialEndDate);
 
+        var userEmail = user.Email ?? throw new InvalidOperationException("User email is required for payment processing.");
         var customerId = user.StripeCustomerId
-            ?? await _paymentService.GetOrCreateCustomerAsync(user.Email!, user.Id, ct);
+            ?? await _paymentService.GetOrCreateCustomerAsync(userEmail, user.Id, ct);
 
         var checkoutUrl = await _paymentService.CreateCheckoutSessionAsync(
             customerId, user.Id, planId, plan.Name, price, period,
@@ -162,8 +163,9 @@ public class SubscriptionService : ISubscriptionService
 
         var trialDays = CalculateTrialDays(existingSubscription?.TrialEndDate);
 
+        var ownerEmail = owner.Email ?? throw new InvalidOperationException("Owner email is required for payment processing.");
         var customerId = owner.StripeCustomerId
-            ?? await _paymentService.GetOrCreateCustomerAsync(owner.Email!, owner.Id, ct);
+            ?? await _paymentService.GetOrCreateCustomerAsync(ownerEmail, owner.Id, ct);
 
         var checkoutUrl = await _paymentService.CreateCompanyCheckoutSessionAsync(
             customerId, owner.Id, companyId, planId, plan.Name, price, period,
@@ -215,8 +217,9 @@ public class SubscriptionService : ISubscriptionService
 
         var trialDays = CalculateTrialDays(null);
 
+        var upgradeEmail = user.Email ?? throw new InvalidOperationException("User email is required for payment processing.");
         var customerId = user.StripeCustomerId
-            ?? await _paymentService.GetOrCreateCustomerAsync(user.Email!, user.Id, ct);
+            ?? await _paymentService.GetOrCreateCustomerAsync(upgradeEmail, user.Id, ct);
 
         var checkoutUrl = await _paymentService.CreateCompanyCheckoutSessionAsync(
             customerId, user.Id, companyResponse.Id, planId, plan.Name, price, period,

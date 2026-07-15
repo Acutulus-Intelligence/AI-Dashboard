@@ -29,7 +29,7 @@ export default function LoginPage() {
     try {
       await login(email, password);
       const isActive = await refreshSubscriptionStatus();
-      navigate(isActive ? ROUTES.DASHBOARD : ROUTES.SUBSCRIBE);
+      navigate(isActive ? ROUTES.DASHBOARD : ROUTES.PRICING);
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message);

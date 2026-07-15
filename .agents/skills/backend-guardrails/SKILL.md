@@ -115,8 +115,10 @@ Presentation.csproj    → Application, Domain, Infrastructure
   INSERT/UPDATE/DELETE/DROP/ALTER/TRUNCATE.
 - Encrypt connection strings via Infrastructure/Encryption before storage.
   Never log or expose credentials.
-- Schema inspection: metadata only (tables, columns, types, foreign keys).
-  Never read actual row data.
+- Schema inspection for AI: metadata only (tables, columns, types, foreign keys).
+  Never send row data to the AI provider.
+- Table preview for the frontend may return a small, server-capped sample of rows
+  (default max 10) to help users build charts. Never expose unbounded row data.
 - Shared dashboards: UUID links, read-only. No mutations via share links.
 
 ## EF Core Conventions

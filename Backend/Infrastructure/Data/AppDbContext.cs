@@ -19,9 +19,12 @@ namespace Infrastructure.Data
         public DbSet<CompanyRole> CompanyRoles => Set<CompanyRole>();
         public DbSet<Dashboard> Dashboards => Set<Dashboard>();
         public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+        public DbSet<ExternalConnection> ExternalConnections => Set<ExternalConnection>();
         public DbSet<SubscriptionPlan> SubscriptionPlans => Set<SubscriptionPlan>();
         public DbSet<UserSubscription> UserSubscriptions => Set<UserSubscription>();
         public DbSet<CompanySubscription> CompanySubscriptions => Set<CompanySubscription>();
+        public DbSet<SavedChart> SavedCharts => Set<SavedChart>();
+        public DbSet<DashboardWidget> DashboardWidgets => Set<DashboardWidget>();
 
         protected override void OnModelCreating(ModelBuilder builder)
         {
@@ -32,9 +35,30 @@ namespace Infrastructure.Data
             builder.ApplyConfiguration(new CompanyRoleConfiguration());
             builder.ApplyConfiguration(new DashboardConfiguration());
             builder.ApplyConfiguration(new RefreshTokenConfiguration());
+            builder.ApplyConfiguration(new ExternalConnectionConfiguration());
             builder.ApplyConfiguration(new SubscriptionPlanConfiguration());
             builder.ApplyConfiguration(new UserSubscriptionConfiguration());
             builder.ApplyConfiguration(new CompanySubscriptionConfiguration());
+            builder.ApplyConfiguration(new SavedChartConfiguration());
+            builder.ApplyConfiguration(new DashboardWidgetConfiguration());
+
+            builder.Entity<Company>(entity =>
+            {
+                entity.Property(c => c.Roles)
+                    .HasColumnType("text[]");
+
+                entity.HasMany(c => c.Users)
+                    .WithOne(u => u.Company)
+                    .HasForeignKey(u => u.CompanyId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasMany(c => c.Dashboards)
+                    .WithOne(d => d.Company)
+                    .HasForeignKey(d => d.CompanyId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // Dashboard config moved to DashboardConfiguration
         }
     }
 }

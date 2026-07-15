@@ -30,7 +30,7 @@ function isEnterprisePlan(plan: SubscriptionPlan) {
 
 export default function PricingPage() {
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, hasActiveSubscription, user } = useAuth();
   const [billing, setBilling] = useState<BillingPeriod>(BILLING_PERIOD.Monthly);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,7 +42,10 @@ export default function PricingPage() {
       setError('');
       try {
         const response = await getPlans();
-        const active = response.filter((plan) => plan.isActive);
+        let active = response.filter((plan) => plan.isActive);
+        if (isAuthenticated && hasActiveSubscription && user?.userType !== 1) {
+          active = active.filter((plan) => getRegisterType(plan) !== 'individual');
+        }
         active.sort((a, b) => {
           const aIsEnterprise = isEnterprisePlan(a) ? 1 : 0;
           const bIsEnterprise = isEnterprisePlan(b) ? 1 : 0;

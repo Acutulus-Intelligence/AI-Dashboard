@@ -1,25 +1,49 @@
 import { useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Pencil, Plus } from 'lucide-react';
+import { ROUTES } from '../routes';
 import DashboardHeader from '../layouts/DashboardHeader';
 import DashboardGrid from '../sections/DashboardGrid';
-import ChartTypePicker from '../components/ChartTypePicker';
+import SavedChartsPicker from '../components/SavedChartsPicker';
+import TextWidgetDropdown from '../components/TextWidgetDropdown';
 import type { DashboardGridHandle } from '../sections/DashboardGrid';
 
 export default function DashboardPage() {
+  const navigate = useNavigate();
   const gridRef = useRef<DashboardGridHandle>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const handleSaveEdit = async () => {
+    setSaving(true);
+    try {
+      await gridRef.current?.saveEdit();
+      setEditMode(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    gridRef.current?.cancelEdit();
+    setEditMode(false);
+  };
 
   return (
     <div className="min-h-screen bg-background">
       <DashboardHeader
         onToggleNavbar={() => console.log('sidebar toggle')}
-        onNewChart={() => setPickerOpen(true)}
+        onNewChart={() => navigate(ROUTES.CONNECTIONS)}
         onNewDashboard={() => {
           if (window.confirm('Reset dashboard to default layout?')) {
             gridRef.current?.resetDashboard();
           }
         }}
+        editMode={editMode}
+        onSaveEdit={handleSaveEdit}
+        onCancelEdit={handleCancelEdit}
+        saving={saving}
       />
       <main className="pt-16">
         <div className="mx-auto max-w-container-max px-gutter py-8">
@@ -27,27 +51,30 @@ export default function DashboardPage() {
             <h1 className="text-headline-md font-bold text-on-background">Dashboard</h1>
             <div className="flex items-center gap-2">
               {editMode && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setPickerOpen(true)}
+                    className="inline-flex cursor-pointer items-center justify-center rounded-lg p-2 text-primary transition-colors hover:bg-primary/10 active:scale-90"
+                    title="Add existing chart"
+                  >
+                    <Plus size={20} />
+                  </button>
+                  <TextWidgetDropdown
+                    onSelect={(variant) => gridRef.current?.addTextWidget(variant)}
+                  />
+                </>
+              )}
+              {!editMode && (
                 <button
                   type="button"
-                  onClick={() => setPickerOpen(true)}
-                  className="inline-flex cursor-pointer items-center justify-center rounded-lg p-2 text-primary transition-colors hover:bg-primary/10 active:scale-90"
-                  title="Add existing chart"
+                  onClick={() => setEditMode(true)}
+                  className="inline-flex cursor-pointer items-center justify-center rounded-lg p-2 text-on-surface-variant transition-colors hover:bg-surface-container active:scale-90"
+                  title="Edit dashboard"
                 >
-                  <Plus size={20} />
+                  <Pencil size={18} />
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => setEditMode((prev) => !prev)}
-                className={`inline-flex cursor-pointer items-center justify-center rounded-lg p-2 transition-colors active:scale-90 ${
-                  editMode
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-on-surface-variant hover:bg-surface-container'
-                }`}
-                title={editMode ? 'Done editing' : 'Edit dashboard'}
-              >
-                <Pencil size={18} />
-              </button>
             </div>
           </div>
           <div className={editMode ? 'min-h-[calc(100vh-10rem)]' : ''}>
@@ -55,11 +82,11 @@ export default function DashboardPage() {
           </div>
         </div>
       </main>
-      <ChartTypePicker
+      <SavedChartsPicker
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
-        onSelect={(chartId) => {
-          gridRef.current?.addWidget(chartId);
+        onSelect={(savedChartId) => {
+          gridRef.current?.addWidget(savedChartId);
         }}
       />
     </div>

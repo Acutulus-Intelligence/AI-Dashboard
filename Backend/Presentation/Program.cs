@@ -5,8 +5,14 @@ using Application.Services;
 using Application.Validators;
 using Domain.Models;
 using FluentValidation;
+using FluentValidation.AspNetCore;
 using Infrastructure.Auth;
 using Infrastructure.Data;
+using Infrastructure.Ai;
+using Infrastructure.Ai.Services;
+using Infrastructure.Encryption;
+using Infrastructure.ExternalDb;
+using Infrastructure.ExternalDb.Services;
 using Infrastructure.Payment;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
@@ -76,6 +82,29 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddSingleton<IExceptionMapper, ExceptionMapper>();
 
+// HTTP client for AI provider calls
+builder.Services.AddHttpClient();
+
+// Encryption
+builder.Services.Configure<EncryptionSettings>(builder.Configuration.GetSection("Encryption"));
+builder.Services.AddScoped<IEncryptionService, AesEncryptionService>();
+
+// External database connections
+builder.Services.AddScoped<IExternalConnectionService, ExternalConnectionService>();
+builder.Services.AddScoped<ISchemaInspector, SchemaInspector>();
+builder.Services.AddSingleton<ISqlValidator, SqlValidator>();
+builder.Services.AddScoped<IQueryExecutor, QueryExecutor>();
+
+// AI service
+builder.Services.Configure<AiSettings>(builder.Configuration.GetSection("Ai"));
+builder.Services.AddHttpClient<IAiService, OpenRouterService>();
+
+// Graph generation
+builder.Services.AddScoped<IGraphGenerationService, GraphGenerationService>();
+builder.Services.AddScoped<IChartService, ChartService>();
+builder.Services.AddScoped<IDashboardService, DashboardService>();
+
+// Application layer
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ICompanyService, CompanyService>();
 builder.Services.AddScoped<IAdminService, AdminService>();
@@ -86,7 +115,10 @@ builder.Services.AddScoped<ITokenService, JwtService>();
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 
 
+builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddValidatorsFromAssemblyContaining<RegisterRequestValidator>();
+
+builder.Services.Configure<ExternalDbSettings>(builder.Configuration.GetSection("ExternalDb"));
 
 var corsOrigins = builder.Configuration
     .GetSection("Cors:AllowedOrigins")

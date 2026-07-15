@@ -1,21 +1,37 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './features/store/AuthContext.tsx';
 import ProtectedRoute from './features/components/ProtectedRoute';
 import ScrollToTop from './features/components/ScrollToTop';
-import LandingPage from './features/pages/LandingPage';
-import DashboardPage from './features/pages/DashboardPage';
-import AdminPage from './features/pages/AdminPage';
-import AdminUsersPage from './features/pages/AdminUsersPage';
-import LoginPage from './features/pages/LoginPage';
-import RegisterPage from './features/pages/RegisterPage';
-import PricingPage from './features/pages/PricingPage';
-import ContactPage from './features/pages/ContactPage';
-import PaymentSuccessPage from './features/pages/PaymentSuccessPage';
-import PaymentCancelPage from './features/pages/PaymentCancelPage';
-import SubscribePage from './features/pages/SubscribePage';
-import CompanyCreatePage from './features/pages/CompanyCreatePage';
-import SubscriptionPage from './features/pages/SubscriptionPage';
 import { ROUTES } from './features/routes';
+
+const LandingPage = lazy(() => import('./features/pages/LandingPage'));
+const DashboardPage = lazy(() => import('./features/pages/DashboardPage'));
+const ConnectionsPage = lazy(() => import('./features/pages/ConnectionsPage'));
+const GraphCreationPage = lazy(() => import('./features/pages/GraphCreationPage'));
+const AdminPage = lazy(() => import('./features/pages/AdminPage'));
+const AdminUsersPage = lazy(() => import('./features/pages/AdminUsersPage'));
+const LoginPage = lazy(() => import('./features/pages/LoginPage'));
+const RegisterPage = lazy(() => import('./features/pages/RegisterPage'));
+const PricingPage = lazy(() => import('./features/pages/PricingPage'));
+const ContactPage = lazy(() => import('./features/pages/ContactPage'));
+const PaymentSuccessPage = lazy(() => import('./features/pages/PaymentSuccessPage'));
+const PaymentCancelPage = lazy(() => import('./features/pages/PaymentCancelPage'));
+const CompanyCreatePage = lazy(() => import('./features/pages/CompanyCreatePage'));
+const SettingsPage = lazy(() => import('./features/pages/SettingsPage'));
+const SubscriptionPage = lazy(() => import('./features/pages/SubscriptionPage'));
+
+function PageLoader() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background text-on-surface-variant">
+      Loading...
+    </div>
+  );
+}
+
+function LazyPage({ children }: { children: React.ReactNode }) {
+  return <Suspense fallback={<PageLoader />}>{children}</Suspense>;
+}
 
 export default function Router() {
   return (
@@ -23,24 +39,16 @@ export default function Router() {
       <ScrollToTop />
       <AuthProvider>
         <Routes>
-          <Route path={ROUTES.LOGIN} element={<LoginPage />} />
-          <Route path={ROUTES.REGISTER} element={<RegisterPage />} />
-          <Route path={ROUTES.PRICING} element={<PricingPage />} />
-          <Route path={ROUTES.CONTACT} element={<ContactPage />} />
-          <Route path={ROUTES.PAYMENT_CANCEL} element={<PaymentCancelPage />} />
+          <Route path={ROUTES.LOGIN} element={<LazyPage><LoginPage /></LazyPage>} />
+          <Route path={ROUTES.REGISTER} element={<LazyPage><RegisterPage /></LazyPage>} />
+          <Route path={ROUTES.PRICING} element={<LazyPage><PricingPage /></LazyPage>} />
+          <Route path={ROUTES.CONTACT} element={<LazyPage><ContactPage /></LazyPage>} />
+          <Route path={ROUTES.PAYMENT_CANCEL} element={<LazyPage><PaymentCancelPage /></LazyPage>} />
           <Route
             path={ROUTES.PAYMENT_SUCCESS}
             element={
               <ProtectedRoute requireSubscription={false}>
-                <PaymentSuccessPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path={ROUTES.SUBSCRIBE}
-            element={
-              <ProtectedRoute requireSubscription={false}>
-                <SubscribePage />
+                <LazyPage><PaymentSuccessPage /></LazyPage>
               </ProtectedRoute>
             }
           />
@@ -48,7 +56,15 @@ export default function Router() {
             path={ROUTES.COMPANY_CREATE}
             element={
               <ProtectedRoute requireSubscription={false}>
-                <CompanyCreatePage />
+                <LazyPage><CompanyCreatePage /></LazyPage>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path={ROUTES.SETTINGS}
+            element={
+              <ProtectedRoute requireSubscription={false}>
+                <LazyPage><SettingsPage /></LazyPage>
               </ProtectedRoute>
             }
           />
@@ -56,15 +72,15 @@ export default function Router() {
             path={ROUTES.SUBSCRIPTION}
             element={
               <ProtectedRoute requireSubscription={false}>
-                <SubscriptionPage />
+                <LazyPage><SubscriptionPage /></LazyPage>
               </ProtectedRoute>
             }
           />
           <Route
-            path="/admin/users"
+            path={ROUTES.ADMIN_USERS}
             element={
               <ProtectedRoute requireSubscription={false}>
-                <AdminUsersPage />
+                <LazyPage><AdminUsersPage /></LazyPage>
               </ProtectedRoute>
             }
           />
@@ -72,7 +88,7 @@ export default function Router() {
             path={ROUTES.ADMIN}
             element={
               <ProtectedRoute requireSubscription={false}>
-                <AdminPage />
+                <LazyPage><AdminPage /></LazyPage>
               </ProtectedRoute>
             }
           />
@@ -80,11 +96,13 @@ export default function Router() {
             path={ROUTES.DASHBOARD}
             element={
               <ProtectedRoute>
-                <DashboardPage />
+                <LazyPage><DashboardPage /></LazyPage>
               </ProtectedRoute>
             }
           />
-          <Route path="*" element={<LandingPage />} />
+          <Route path={ROUTES.CONNECTIONS} element={<ProtectedRoute><LazyPage><ConnectionsPage /></LazyPage></ProtectedRoute>} />
+          <Route path={ROUTES.GRAPHS_NEW} element={<ProtectedRoute><LazyPage><GraphCreationPage /></LazyPage></ProtectedRoute>} />
+          <Route path="*" element={<LazyPage><LandingPage /></LazyPage>} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>

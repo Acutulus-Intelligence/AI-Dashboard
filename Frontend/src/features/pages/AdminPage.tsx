@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, Shield, Building2, AlertCircle, CheckCircle2, XCircle, CreditCard } from 'lucide-react';
+import { ArrowLeft, Users, Shield, Building2, Database, AlertCircle, CheckCircle2, XCircle, CreditCard } from 'lucide-react';
 import DashboardHeader from '../layouts/DashboardHeader';
 import Button from '../components/Button';
 import { ROUTES } from '../routes';
@@ -122,7 +122,7 @@ export default function AdminPage() {
           ) : (
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
               <Link
-                to="/admin/users"
+                to={ROUTES.ADMIN_USERS}
                 className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm transition-shadow hover:shadow-md"
               >
                 <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -139,6 +139,17 @@ export default function AdminPage() {
                 <h2 className="mb-2 text-body-lg font-semibold text-on-background">Security</h2>
                 <p className="text-body-sm text-on-surface-variant">Manage your account security and authentication settings.</p>
               </div>
+
+              <Link
+                to={ROUTES.CONNECTIONS}
+                className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm transition-shadow hover:shadow-md"
+              >
+                <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <Database size={24} />
+                </div>
+                <h2 className="mb-2 text-body-lg font-semibold text-on-background">Connections</h2>
+                <p className="text-body-sm text-on-surface-variant">Connect external databases to generate AI-powered charts.</p>
+              </Link>
 
               {company ? (
                 <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm transition-shadow hover:shadow-md">
@@ -167,7 +178,7 @@ export default function AdminPage() {
                       </p>
                       {companySub.endDate && (
                         <p className="text-on-surface-variant">
-                          Ends {formatDate(companySub.endDate)}
+                          Renews {formatDate(companySub.endDate)}
                         </p>
                       )}
                       {(companySub.status === 0 || companySub.status === 1) && (

@@ -1,6 +1,7 @@
 using Application.Common.Exceptions;
 using Application.Dtos;
 using Application.Dtos.Request;
+using Application.Dtos.Response;
 using Application.Interfaces;
 using Domain.Enums;
 using Domain.Models;
@@ -136,6 +137,24 @@ public class AuthService : IAuthService
         var updateResult = await _userManager.UpdateAsync(user);
         if (!updateResult.Succeeded)
             throw new InvalidOperationException("Profile update failed. Please check your input and try again.");
+    }
+
+    public async Task<UserMeResponse> GetMeAsync(Guid userId, CancellationToken ct = default)
+    {
+        var user = await _userManager.FindByIdAsync(userId.ToString());
+        if (user is null)
+            throw new UnauthorizedAccessException("User not found.");
+
+        var roles = await _userManager.GetRolesAsync(user);
+
+        return new UserMeResponse(
+            user.Id,
+            user.Email ?? string.Empty,
+            roles.ToList(),
+            user.UserType,
+            user.FirstName,
+            user.LastName
+        );
     }
 
     private async Task<AuthResult> GenerateAuthResultAsync(User user, IList<string> roles)
