@@ -33,7 +33,7 @@ export default function Header() {
         }`}
       >
         <div className="mx-auto flex h-16 w-full max-w-container-max items-center justify-between gap-4 px-gutter">
-          <Link to="/" className="text-headline-md font-bold text-on-background">
+          <Link to={ROUTES.HOME} className="text-headline-md font-bold text-on-background">
             AI Dashboard
           </Link>
 

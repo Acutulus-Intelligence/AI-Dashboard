@@ -5,6 +5,7 @@ using Domain.Enums;
 using Domain.Models;
 using Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MySql.Data.MySqlClient;
 using Npgsql;
@@ -16,12 +17,14 @@ public class ExternalConnectionService : IExternalConnectionService
     private readonly AppDbContext _db;
     private readonly IEncryptionService _encryption;
     private readonly ExternalDbSettings _settings;
+    private readonly ILogger<ExternalConnectionService> _logger;
 
-    public ExternalConnectionService(AppDbContext db, IEncryptionService encryption, IOptions<ExternalDbSettings> settings)
+    public ExternalConnectionService(AppDbContext db, IEncryptionService encryption, IOptions<ExternalDbSettings> settings, ILogger<ExternalConnectionService> logger)
     {
         _db = db;
         _encryption = encryption;
         _settings = settings.Value;
+        _logger = logger;
     }
 
     public async Task<ConnectionResponse> CreateAsync(Guid userId, CreateConnectionRequest request, CancellationToken ct = default)
@@ -93,8 +96,9 @@ public class ExternalConnectionService : IExternalConnectionService
             await _db.SaveChangesAsync(ct);
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Connection verification failed for {ConnectionId} ({ConnectionName})", connection.Id, connection.Name);
             connection.IsVerified = false;
             await _db.SaveChangesAsync(ct);
             return false;

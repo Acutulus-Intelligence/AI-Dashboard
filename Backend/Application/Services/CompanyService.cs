@@ -174,7 +174,8 @@ public class CompanyService : ICompanyService
         if (role.IsSystemRole && role.Name == "Owner")
             throw new InvalidOperationException("Cannot invite users as Owner.");
 
-        var existingUser = await _db.Users.FirstOrDefaultAsync(u => u.Email!.ToLower() == email.ToLower(), ct);
+        var existingUser = await _db.Users.FirstOrDefaultAsync(u =>
+            u.Email != null && u.Email.Equals(email, StringComparison.OrdinalIgnoreCase), ct);
         if (existingUser?.CompanyId == companyId)
             throw new ConflictException("User is already a member of this company.", "already_member");
 
