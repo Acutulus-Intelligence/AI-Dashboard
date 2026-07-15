@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertCircle, ArrowLeft, CheckCircle2, CreditCard, Database, XCircle } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Building2, CheckCircle2, CreditCard, Database, XCircle } from 'lucide-react';
 import Button from '../components/Button';
 import DashboardHeader from '../layouts/DashboardHeader';
 import { ROUTES } from '../routes';
 import * as subscriptionApi from '../../lib/api/subscription';
+import { useAuth } from '../store/useAuth';
 
 function formatDate(dateStr: string | null) {
   if (!dateStr) return '—';
@@ -27,6 +28,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState('');
+  const { user } = useAuth();
 
   async function loadSubscription() {
     setError('');
@@ -171,6 +173,23 @@ export default function SettingsPage() {
                   Connect external databases to generate AI-powered charts.
                 </p>
               </Link>
+
+              {subscription && user?.userType !== 1 && (
+                <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm transition-shadow hover:shadow-md">
+                  <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                    <Building2 size={24} />
+                  </div>
+                  <h2 className="mb-2 text-body-lg font-semibold text-on-background">Upgrade to Company</h2>
+                  <p className="text-body-sm text-on-surface-variant">
+                    Create a company workspace with team management, shared dashboards, and more.
+                  </p>
+                  <div className="mt-4">
+                    <Link to={ROUTES.PRICING}>
+                      <Button variant="outline" className="w-full">Create company</Button>
+                    </Link>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
