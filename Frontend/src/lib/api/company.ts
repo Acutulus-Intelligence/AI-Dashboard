@@ -41,6 +41,7 @@ export interface CompanyInviteResponse {
   expiresAt: string;
   isExpired: boolean;
   isAccepted: boolean;
+  companyName: string;
 }
 
 export interface CompanySubscriptionResponse {

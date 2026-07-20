@@ -116,8 +116,12 @@ public class CompanyService : ICompanyService
             throw new InvalidOperationException("Cannot change the owner's role.");
 
         var user = await _db.Users
+            .Include(u => u.CompanyRole)
             .FirstOrDefaultAsync(u => u.Id == targetUserId && u.CompanyId == companyId, ct)
             ?? throw new KeyNotFoundException("User not found in this company.");
+
+        if (actorId != company.OwnerId && user.CompanyRole is { IsSystemRole: true, Name: "Admin" })
+            throw new UnauthorizedAccessException("Cannot change another admin's role.");
 
         var role = await _db.CompanyRoles
             .FirstOrDefaultAsync(r => r.Id == roleId && r.CompanyId == companyId, ct)
@@ -175,7 +179,7 @@ public class CompanyService : ICompanyService
             throw new InvalidOperationException("Cannot invite users as Owner.");
 
         var existingUser = await _db.Users.FirstOrDefaultAsync(u =>
-            u.Email != null && u.Email.Equals(email, StringComparison.OrdinalIgnoreCase), ct);
+            u.Email != null && u.Email.ToLower() == email.ToLower(), ct);
         if (existingUser?.CompanyId == companyId)
             throw new ConflictException("User is already a member of this company.", "already_member");
 
@@ -256,6 +260,7 @@ public class CompanyService : ICompanyService
         var invites = await _db.CompanyInvites
             .AsNoTracking()
             .Include(i => i.Role)
+            .Include(i => i.Company)
             .Where(i => i.CompanyId == companyId)
             .OrderByDescending(i => i.CreatedAt)
             .Select(i => new CompanyInviteResponse(
@@ -266,7 +271,8 @@ public class CompanyService : ICompanyService
                 i.CreatedAt,
                 i.ExpiresAt,
                 i.ExpiresAt <= DateTime.UtcNow,
-                i.IsAccepted
+                i.IsAccepted,
+                i.Company.Name
             ))
             .ToListAsync(ct);
 
@@ -278,6 +284,7 @@ public class CompanyService : ICompanyService
         var invites = await _db.CompanyInvites
             .AsNoTracking()
             .Include(i => i.Role)
+            .Include(i => i.Company)
             .Where(i => i.Email.ToLower() == email.ToLower() && !i.IsAccepted && i.ExpiresAt > DateTime.UtcNow)
             .OrderByDescending(i => i.CreatedAt)
             .Select(i => new CompanyInviteResponse(
@@ -288,7 +295,8 @@ public class CompanyService : ICompanyService
                 i.CreatedAt,
                 i.ExpiresAt,
                 false,
-                false
+                false,
+                i.Company.Name
             ))
             .ToListAsync(ct);
 
@@ -553,24 +561,9 @@ public class CompanyService : ICompanyService
 
     private async Task EnsureCanViewCompanyAsync(Guid companyId, Guid userId, CancellationToken ct)
     {
-        var company = await _db.Companies
-            .AsNoTracking()
-            .FirstOrDefaultAsync(c => c.Id == companyId, ct)
-            ?? throw new KeyNotFoundException("Company not found.");
-
-        var user = await _db.Users
-            .Include(u => u.CompanyRole)
-            .FirstOrDefaultAsync(u => u.Id == userId && u.CompanyId == companyId, ct);
-
-        if (user is null)
+        var isMember = await _db.Users.AnyAsync(u => u.Id == userId && u.CompanyId == companyId, ct);
+        if (!isMember)
             throw new UnauthorizedAccessException("You are not a member of this company.");
-
-        var isOwner = user.Id == company.OwnerId;
-        var isAdmin = user.CompanyRole is { IsSystemRole: true }
-            && (user.CompanyRole.Name == "Owner" || user.CompanyRole.Name == "Admin");
-
-        if (!isOwner && !isAdmin)
-            throw new UnauthorizedAccessException("Only the company owner and admins can view company information.");
     }
 
     private async Task EnsureMemberAsync(Guid companyId, Guid userId, CancellationToken ct)

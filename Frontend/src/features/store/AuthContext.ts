@@ -8,6 +8,7 @@ export interface AuthUser {
   userType: number;
   firstName?: string | null;
   lastName?: string | null;
+  companyRoleName?: string | null;
 }
 
 export interface AuthContextType {
@@ -17,6 +18,7 @@ export interface AuthContextType {
   hasActiveSubscription: boolean;
   isSubscriptionLoading: boolean;
   refreshSubscriptionStatus: () => Promise<boolean>;
+  refreshUser: () => Promise<boolean>;
   login: (email: string, password: string) => Promise<void>;
   register: (data: authApi.RegisterRequest) => Promise<void>;
   logout: () => Promise<void>;

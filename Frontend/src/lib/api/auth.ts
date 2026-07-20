@@ -28,6 +28,7 @@ export interface UserInfo {
   userType: string;
   firstName?: string | null;
   lastName?: string | null;
+  companyRoleName?: string | null;
 }
 
 export function register(data: RegisterRequest): Promise<AuthResponse> {
@@ -56,4 +57,36 @@ export function getMe(): Promise<UserInfo> {
 
 export function hasActiveSubscription(): Promise<boolean> {
   return getHasActiveSubscription();
+}
+
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
+  confirmNewPassword: string;
+}
+
+export interface UpdateProfileRequest {
+  firstName: string;
+  lastName: string;
+  email?: string;
+}
+
+export function changePassword(data: ChangePasswordRequest): Promise<void> {
+  return apiFetch<void>('/api/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export function updateProfile(data: UpdateProfileRequest): Promise<void> {
+  return apiFetch<void>('/api/auth/profile', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteAccount(): Promise<void> {
+  return apiFetch<void>('/api/auth/account', {
+    method: 'DELETE',
+  });
 }

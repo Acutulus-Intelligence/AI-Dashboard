@@ -11,10 +11,12 @@ namespace Presentation.Controllers;
 public class CompanyController : ControllerBase
 {
     private readonly ICompanyService _companyService;
+    private readonly ISubscriptionService _subscriptionService;
 
-    public CompanyController(ICompanyService companyService)
+    public CompanyController(ICompanyService companyService, ISubscriptionService subscriptionService)
     {
         _companyService = companyService;
+        _subscriptionService = subscriptionService;
     }
 
     [HttpPost]
@@ -78,6 +80,16 @@ public class CompanyController : ControllerBase
     {
         var userId = GetUserId();
         await _companyService.AcceptInviteByIdAsync(request.InviteId, userId, ct);
+
+        try
+        {
+            await _subscriptionService.CancelUserSubscriptionAsync(userId, ct);
+        }
+        catch
+        {
+            // User may not have an individual subscription — that's fine.
+        }
+
         return NoContent();
     }
 

@@ -14,4 +14,5 @@ export const ROUTES = {
   GRAPHS_NEW: '/dashboard/graphs/new',
   SETTINGS: '/settings',
   SUBSCRIPTION: '/subscription',
+  PROFILE: '/profile',
 } as const;

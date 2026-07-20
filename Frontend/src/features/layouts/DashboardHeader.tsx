@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { AlignJustify, Settings, LogOut, Shield, CreditCard } from 'lucide-react';
+import { AlignJustify, Settings, LogOut, Shield, CreditCard, User } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ROUTES } from '../routes';
 import CreateDropdown from '../components/CreateDropdown';
@@ -141,6 +141,14 @@ export default function DashboardHeader({
 
             {menuOpen && (
               <div className="absolute right-0 top-full mt-2 w-48 overflow-hidden rounded-xl border border-outline-variant bg-white shadow-lg">
+                <button
+                  type="button"
+                  onClick={() => { setMenuOpen(false); navigate(ROUTES.PROFILE); }}
+                  className="flex w-full items-center gap-2 px-4 py-3 text-left text-body-md text-on-surface-variant transition-colors hover:bg-surface-container-low"
+                >
+                  <User size={16} />
+                  Profile
+                </button>
                 {isCompany ? (
                   <button
                     type="button"
@@ -148,7 +156,7 @@ export default function DashboardHeader({
                     className="flex w-full items-center gap-2 px-4 py-3 text-left text-body-md text-on-surface-variant transition-colors hover:bg-surface-container-low"
                   >
                     <Shield size={16} />
-                    Admin Settings
+                    {user?.companyRoleName === 'Owner' || user?.companyRoleName === 'Admin' ? 'Admin Settings' : 'Settings'}
                   </button>
                 ) : (
                   <button

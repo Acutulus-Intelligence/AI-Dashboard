@@ -8,5 +8,6 @@ public sealed record UserMeResponse(
     IReadOnlyList<string> Roles,
     UserType UserType,
     string? FirstName,
-    string? LastName
+    string? LastName,
+    string? CompanyRoleName
 );
