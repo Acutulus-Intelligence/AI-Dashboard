@@ -3,6 +3,7 @@ import { Plus, Trash2, Database, CheckCircle, XCircle, ChevronRight, Table, Eye,
 import { Link, useNavigate } from 'react-router-dom';
 import DashboardHeader from '../layouts/DashboardHeader';
 import { ROUTES } from '../routes';
+import { useAuth } from '../store/useAuth';
 import {
   getConnections,
   createConnection,
@@ -20,7 +21,9 @@ const DB_PROVIDERS = [
 ];
 
 export default function ConnectionsPage() {
+  const { user } = useAuth();
   const navigate = useNavigate();
+  const canManageConnections = !user || user.userType !== 1 || user.companyRoleName === 'Owner';
   const [connections, setConnections] = useState<ConnectionResponse[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<CreateConnectionRequest>({
@@ -95,12 +98,14 @@ export default function ConnectionsPage() {
               </Link>
               <h1 className="text-headline-md font-bold text-on-background">Database Connections</h1>
             </div>
-            <button
-              onClick={() => setShowForm(!showForm)}
-              className="flex cursor-pointer items-center gap-2 rounded-xl bg-primary px-5 py-3 text-body-md font-semibold text-white transition-transform active:scale-95"
-            >
-              <Plus size={18} /> Add Connection
-            </button>
+            {canManageConnections && (
+              <button
+                onClick={() => setShowForm(!showForm)}
+                className="flex cursor-pointer items-center gap-2 rounded-xl bg-primary px-5 py-3 text-body-md font-semibold text-white transition-transform active:scale-95"
+              >
+                <Plus size={18} /> Add Connection
+              </button>
+            )}
           </div>
 
         {showForm && (
@@ -148,7 +153,9 @@ export default function ConnectionsPage() {
                   <button onClick={() => toggleExpand(conn.id)} className="flex cursor-pointer items-center gap-1 rounded-lg border border-outline-variant px-3 py-1.5 text-body-sm text-on-surface-variant hover:bg-surface-container">
                     <Table size={14} /> Tables
                   </button>
-                  <button onClick={() => handleDelete(conn.id)} className="cursor-pointer rounded-lg p-2 text-on-surface-variant hover:bg-surface-container"><Trash2 size={16} /></button>
+                  {canManageConnections && (
+                    <button onClick={() => handleDelete(conn.id)} className="cursor-pointer rounded-lg p-2 text-on-surface-variant hover:bg-surface-container"><Trash2 size={16} /></button>
+                  )}
                 </div>
               </div>
 
@@ -188,7 +195,7 @@ export default function ConnectionsPage() {
           {connections.length === 0 && !showForm && (
             <div className="rounded-xl border border-dashed border-outline-variant p-12 text-center text-on-surface-variant">
               <Database size={40} className="mx-auto mb-3 opacity-40" />
-              <p className="text-body-md">No connections yet. Click "Add Connection" to get started.</p>
+              <p className="text-body-md">{canManageConnections ? 'No connections yet. Click "Add Connection" to get started.' : 'No connections available.'}</p>
             </div>
           )}
         </div>
