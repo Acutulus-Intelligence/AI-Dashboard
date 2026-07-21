@@ -156,7 +156,7 @@ export default function DashboardHeader({
                     className="flex w-full items-center gap-2 px-4 py-3 text-left text-body-md text-on-surface-variant transition-colors hover:bg-surface-container-low"
                   >
                     <Shield size={16} />
-                    {user?.companyRoleName === 'Owner' || user?.companyRoleName === 'Admin' ? 'Admin Settings' : 'Settings'}
+                    {user?.companyRoleName === 'Owner' ? 'Admin Settings' : 'Settings'}
                   </button>
                 ) : (
                   <button

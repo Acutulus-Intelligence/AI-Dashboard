@@ -58,19 +58,27 @@ export default function CompanyUsersSection() {
   const [acceptingInvite, setAcceptingInvite] = useState<string | null>(null);
   const [rejectingInvite, setRejectingInvite] = useState<string | null>(null);
 
+  const [confirmRemoveUserId, setConfirmRemoveUserId] = useState<string | null>(null);
+  const [confirmRemoveText, setConfirmRemoveText] = useState('');
+  const [confirmRemoveLoading, setConfirmRemoveLoading] = useState(false);
+
+  const [confirmDeleteRoleId, setConfirmDeleteRoleId] = useState<string | null>(null);
+  const [confirmDeleteRoleText, setConfirmDeleteRoleText] = useState('');
+  const [confirmDeleteRoleName, setConfirmDeleteRoleName] = useState('');
+  const [confirmDeleteRoleLoading, setConfirmDeleteRoleLoading] = useState(false);
+
   const isOwner = company && user?.userId === company.ownerId;
   const me = users.find(u => u.id === user?.userId);
   const myRole = roles.find(r => r.id === me?.roleId);
   const canManageUsers = isOwner || myRole?.canManageUsers;
   const canManageRoles = isOwner || myRole?.canManageRoles;
-  const adminUserIds = new Set(
-    users
-      .filter(u => {
-        const role = roles.find(r => r.id === u.roleId);
-        return role?.isSystemRole && role?.name === 'Admin';
-      })
-      .map(u => u.id)
-  );
+  const isPeerRole = (targetRoleId: string | null | undefined): boolean => {
+    if (!targetRoleId || !myRole) return false;
+    const targetRole = roles.find(r => r.id === targetRoleId);
+    if (!targetRole) return false;
+    return targetRole.canManageUsers === myRole.canManageUsers &&
+           targetRole.canManageRoles === myRole.canManageRoles;
+  };
 
   async function loadData() {
     setLoading(true);
@@ -148,13 +156,19 @@ export default function CompanyUsersSection() {
     }
   }
 
-  async function handleRemoveUser(userId: string, email: string) {
-    if (!window.confirm(`Remove ${email} from the company?`)) return;
+  async function executeRemoveUser() {
+    if (!confirmRemoveUserId) return;
+    setConfirmRemoveLoading(true);
+    setError('');
     try {
-      await companyApi.removeUser(company!.id, userId);
-      setUsers((prev) => prev.filter((u) => u.id !== userId));
+      await companyApi.removeUser(company!.id, confirmRemoveUserId);
+      setUsers((prev) => prev.filter((u) => u.id !== confirmRemoveUserId));
+      setConfirmRemoveUserId(null);
+      setConfirmRemoveText('');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to remove user.');
+    } finally {
+      setConfirmRemoveLoading(false);
     }
   }
 
@@ -295,13 +309,19 @@ export default function CompanyUsersSection() {
     }
   }
 
-  async function handleDeleteRole(roleId: string, roleName: string) {
-    if (!window.confirm(`Delete role "${roleName}"? Users assigned this role will lose its permissions.`)) return;
+  async function executeDeleteRole() {
+    if (!confirmDeleteRoleId) return;
+    setConfirmDeleteRoleLoading(true);
+    setError('');
     try {
-      await companyApi.deleteRole(company!.id, roleId);
-      setRoles((prev) => prev.filter((r) => r.id !== roleId));
+      await companyApi.deleteRole(company!.id, confirmDeleteRoleId);
+      setRoles((prev) => prev.filter((r) => r.id !== confirmDeleteRoleId));
+      setConfirmDeleteRoleId(null);
+      setConfirmDeleteRoleText('');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to delete role.');
+    } finally {
+      setConfirmDeleteRoleLoading(false);
     }
   }
 
@@ -524,7 +544,7 @@ export default function CompanyUsersSection() {
                   <td className="px-5 py-3.5">
                     {u.isOwner ? (
                       <span className="text-on-surface-variant">Owner</span>
-                    ) : canManageUsers && u.id !== user?.userId && (isOwner || !adminUserIds.has(u.id)) ? (
+                    ) : canManageRoles && u.id !== user?.userId && (isOwner || !isPeerRole(u.roleId)) ? (
                       <select
                         value={u.roleId ?? ''}
                         disabled={changingRole === u.id || !subscriptionActive}
@@ -548,7 +568,7 @@ export default function CompanyUsersSection() {
                         {isOwner && (
                           <button
                             type="button"
-                            onClick={() => { setShowTransferUserId(u.id); setTransferConfirmText(''); }}
+                            onClick={() => { setConfirmRemoveUserId(null); setConfirmDeleteRoleId(null); setShowTransferUserId(u.id); setTransferConfirmText(''); }}
                             disabled={transferring || !subscriptionActive}
                             className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-body-xs text-amber-600 transition-colors hover:bg-amber-50 disabled:opacity-40 disabled:cursor-not-allowed"
                             title="Transfer ownership"
@@ -557,10 +577,10 @@ export default function CompanyUsersSection() {
                             Transfer
                           </button>
                         )}
-                        {canManageUsers && u.id !== user?.userId && (
+                        {canManageRoles && u.id !== user?.userId && (isOwner || !isPeerRole(u.roleId)) && (
                           <button
                             type="button"
-                            onClick={() => handleRemoveUser(u.id, u.email)}
+                            onClick={() => { setShowTransferUserId(null); setConfirmDeleteRoleId(null); setConfirmRemoveUserId(u.id); setConfirmRemoveText(''); }}
                             disabled={!subscriptionActive}
                             className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-body-xs text-red-600 transition-colors hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
                             title={!subscriptionActive ? 'Requires an active subscription' : ''}
@@ -633,6 +653,63 @@ export default function CompanyUsersSection() {
               onClick={(e) => { e.preventDefault(); void executeTransferOwnership(); }}
             >
               {transferring ? 'Transferring...' : 'Transfer ownership'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Remove user confirmation */}
+      {confirmRemoveUserId && (
+        <div className="rounded-2xl border border-red-200 bg-red-50/50 p-6">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-body-md font-semibold text-red-800">Remove User</h3>
+            <button
+              type="button"
+              onClick={() => { setConfirmRemoveUserId(null); setConfirmRemoveText(''); }}
+              className="rounded-lg p-1 text-red-600 hover:bg-red-100"
+            >
+              <X size={18} />
+            </button>
+          </div>
+          <p className="mb-3 text-body-sm text-red-700">
+            Remove <span className="font-semibold">{users.find((u) => u.id === confirmRemoveUserId)?.email}</span> from the company?
+            This action cannot be undone.
+          </p>
+          <div className="mb-3">
+            <label htmlFor="removeConfirm" className="mb-1 block text-body-xs font-medium text-red-700">
+              Type <span className="font-bold">DELETE</span> to confirm
+            </label>
+            <input
+              id="removeConfirm"
+              type="text"
+              value={confirmRemoveText}
+              onChange={(e) => setConfirmRemoveText(e.target.value)}
+              placeholder="Type DELETE to confirm"
+              className="w-full rounded-xl border border-red-300 bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20"
+            />
+          </div>
+          {error && (
+            <p className="mb-3 flex items-center gap-1.5 text-body-xs text-red-700">
+              <AlertCircle size={12} />
+              {error}
+            </p>
+          )}
+          <div className="flex gap-3">
+            <Button
+              variant="outline"
+              className="flex-1"
+              disabled={confirmRemoveLoading}
+              onClick={() => { setConfirmRemoveUserId(null); setConfirmRemoveText(''); }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="outline"
+              className="flex-1 border-red-300 text-red-700 hover:bg-red-100"
+              disabled={confirmRemoveText !== 'DELETE' || confirmRemoveLoading}
+              onClick={(e) => { e.preventDefault(); void executeRemoveUser(); }}
+            >
+              {confirmRemoveLoading ? 'Removing...' : 'Remove user'}
             </Button>
           </div>
         </div>
@@ -722,20 +799,24 @@ export default function CompanyUsersSection() {
                   <p className="text-body-xs font-medium text-on-surface-variant">Permissions</p>
                   {([
                     { key: 'canViewAllDashboards' as const, label: 'View all dashboards' },
-                    { key: 'canManageUsers' as const, label: 'Manage users' },
-                    { key: 'canManageRoles' as const, label: 'Manage roles' },
+                    { key: 'canManageUsers' as const, label: 'Manage users', ownerOnly: true },
+                    { key: 'canManageRoles' as const, label: 'Manage roles', ownerOnly: true },
                     { key: 'canManageDashboards' as const, label: 'Manage dashboards' },
-                  ]).map(({ key, label }) => (
-                    <label key={key} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={newRolePerms[key]}
-                        onChange={(e) => setNewRolePerms((prev) => ({ ...prev, [key]: e.target.checked }))}
-                        className="h-4 w-4 rounded border-outline-variant text-primary focus:ring-primary/20"
-                      />
-                      <span className="text-body-sm text-on-background">{label}</span>
-                    </label>
-                  ))}
+                  ]).map(({ key, label, ownerOnly }) => {
+                    const isOwnerOnly = ownerOnly && !isOwner;
+                    return (
+                      <label key={key} className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={isOwnerOnly ? false : newRolePerms[key]}
+                          disabled={isOwnerOnly}
+                          onChange={(e) => setNewRolePerms((prev) => ({ ...prev, [key]: e.target.checked }))}
+                          className="h-4 w-4 rounded border-outline-variant text-primary focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-40"
+                        />
+                        <span className="text-body-sm text-on-background">{label}</span>
+                      </label>
+                    );
+                  })}
                 </div>
                 {createRoleError && (
                   <p className="flex items-center gap-1.5 text-body-xs text-red-600">
@@ -781,27 +862,32 @@ export default function CompanyUsersSection() {
                           type="text"
                           value={editRoleName}
                           onChange={(e) => setEditRoleName(e.target.value)}
-                          className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                          readOnly={roles.find(r => r.id === editingRoleId)?.isSystemRole}
+                          className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 read-only:cursor-not-allowed read-only:opacity-60"
                         />
                       </div>
                       <div className="space-y-2">
                         <p className="text-body-xs font-medium text-on-surface-variant">Permissions</p>
                         {([
                           { key: 'canViewAllDashboards' as const, label: 'View all dashboards' },
-                          { key: 'canManageUsers' as const, label: 'Manage users' },
-                          { key: 'canManageRoles' as const, label: 'Manage roles' },
+                          { key: 'canManageUsers' as const, label: 'Manage users', ownerOnly: true },
+                          { key: 'canManageRoles' as const, label: 'Manage roles', ownerOnly: true },
                           { key: 'canManageDashboards' as const, label: 'Manage dashboards' },
-                        ]).map(({ key, label }) => (
-                          <label key={key} className="flex items-center gap-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={editRolePerms[key]}
-                              onChange={(e) => setEditRolePerms((prev) => ({ ...prev, [key]: e.target.checked }))}
-                              className="h-4 w-4 rounded border-outline-variant text-primary focus:ring-primary/20"
-                            />
-                            <span className="text-body-sm text-on-background">{label}</span>
-                          </label>
-                        ))}
+                        ]).map(({ key, label, ownerOnly }) => {
+                          const isOwnerOnly = ownerOnly && !isOwner;
+                          return (
+                            <label key={key} className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={isOwnerOnly ? false : editRolePerms[key]}
+                                disabled={isOwnerOnly}
+                                onChange={(e) => setEditRolePerms((prev) => ({ ...prev, [key]: e.target.checked }))}
+                                className="h-4 w-4 rounded border-outline-variant text-primary focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-40"
+                              />
+                              <span className="text-body-sm text-on-background">{label}</span>
+                            </label>
+                          );
+                        })}
                       </div>
                       {editRoleError && (
                         <p className="flex items-center gap-1.5 text-body-xs text-red-600">
@@ -835,27 +921,27 @@ export default function CompanyUsersSection() {
                       <span className="text-body-xs text-on-surface-variant">{r.userCount} user{r.userCount !== 1 ? 's' : ''}</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      {!r.isSystemRole && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => startEditRole(r)}
-                            disabled={!subscriptionActive}
-                            className="rounded-lg p-1.5 text-on-surface-variant transition-colors hover:bg-surface-container hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed"
-                            title="Edit role"
-                          >
-                            <Pencil size={16} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteRole(r.id, r.name)}
-                            disabled={!subscriptionActive}
-                            className="rounded-lg p-1.5 text-on-surface-variant transition-colors hover:bg-surface-container hover:text-red-600 disabled:opacity-40 disabled:cursor-not-allowed"
-                            title="Delete role"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </>
+                      {!r.isSystemRole && (isOwner || !isPeerRole(r.id)) && (
+                        <button
+                          type="button"
+                          onClick={() => { setConfirmDeleteRoleId(null); startEditRole(r); }}
+                          disabled={!subscriptionActive}
+                          className="rounded-lg p-1.5 text-on-surface-variant transition-colors hover:bg-surface-container hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed"
+                          title="Edit role"
+                        >
+                          <Pencil size={16} />
+                        </button>
+                      )}
+                      {!r.isSystemRole && (isOwner || !isPeerRole(r.id)) && (
+                        <button
+                          type="button"
+                          onClick={() => { setEditingRoleId(null); setConfirmRemoveUserId(null); setShowTransferUserId(null); setConfirmDeleteRoleId(r.id); setConfirmDeleteRoleName(r.name); setConfirmDeleteRoleText(''); }}
+                          disabled={!subscriptionActive}
+                          className="rounded-lg p-1.5 text-on-surface-variant transition-colors hover:bg-surface-container hover:text-red-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                          title="Delete role"
+                        >
+                          <Trash2 size={16} />
+                        </button>
                       )}
                     </div>
                   </div>
@@ -863,6 +949,62 @@ export default function CompanyUsersSection() {
               ))
             )}
           </div>
+
+          {confirmDeleteRoleId && (
+            <div className="rounded-2xl border border-red-200 bg-red-50/50 p-6">
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-body-md font-semibold text-red-800">Delete Role</h3>
+                <button
+                  type="button"
+                  onClick={() => { setConfirmDeleteRoleId(null); setConfirmDeleteRoleText(''); }}
+                  className="rounded-lg p-1 text-red-600 hover:bg-red-100"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <p className="mb-3 text-body-sm text-red-700">
+                Delete role <span className="font-semibold">{confirmDeleteRoleName}</span>?
+                Users assigned this role will lose its permissions.
+              </p>
+              <div className="mb-3">
+                <label htmlFor="deleteRoleConfirm" className="mb-1 block text-body-xs font-medium text-red-700">
+                  Type <span className="font-bold">DELETE</span> to confirm
+                </label>
+                <input
+                  id="deleteRoleConfirm"
+                  type="text"
+                  value={confirmDeleteRoleText}
+                  onChange={(e) => setConfirmDeleteRoleText(e.target.value)}
+                  placeholder="Type DELETE to confirm"
+                  className="w-full rounded-xl border border-red-300 bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20"
+                />
+              </div>
+              {error && (
+                <p className="mb-3 flex items-center gap-1.5 text-body-xs text-red-700">
+                  <AlertCircle size={12} />
+                  {error}
+                </p>
+              )}
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  disabled={confirmDeleteRoleLoading}
+                  onClick={() => { setConfirmDeleteRoleId(null); setConfirmDeleteRoleText(''); }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="outline"
+                  className="flex-1 border-red-300 text-red-700 hover:bg-red-100"
+                  disabled={confirmDeleteRoleText !== 'DELETE' || confirmDeleteRoleLoading}
+                  onClick={(e) => { e.preventDefault(); void executeDeleteRole(); }}
+                >
+                  {confirmDeleteRoleLoading ? 'Deleting...' : 'Delete role'}
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
