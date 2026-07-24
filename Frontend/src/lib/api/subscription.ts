@@ -116,6 +116,13 @@ export function upgradeToCompany(data: UpgradeToCompanyRequest): Promise<CreateC
   });
 }
 
+export function confirmCheckout(sessionId: string): Promise<void> {
+  return apiFetch<void>('/api/subscriptions/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ sessionId }),
+  });
+}
+
 export function cancel(): Promise<void> {
   return apiFetch<void>('/api/subscriptions/cancel', {
     method: 'POST',

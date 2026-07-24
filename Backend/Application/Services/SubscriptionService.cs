@@ -106,11 +106,9 @@ public class SubscriptionService : ISubscriptionService
         var customerId = user.StripeCustomerId
             ?? await _paymentService.GetOrCreateCustomerAsync(userEmail, user.Id, ct);
 
-        var checkoutUrl = await _paymentService.CreateCheckoutSessionAsync(
+        return await _paymentService.CreateCheckoutSessionAsync(
             customerId, user.Id, planId, plan.Name, price, period,
             trialDays, successUrl, cancelUrl, ct);
-
-        return new CheckoutResponse(checkoutUrl);
     }
 
     public async Task<CheckoutResponse> CreateCompanyCheckoutSessionAsync(
@@ -168,11 +166,9 @@ public class SubscriptionService : ISubscriptionService
         var customerId = owner.StripeCustomerId
             ?? await _paymentService.GetOrCreateCustomerAsync(ownerEmail, owner.Id, ct);
 
-        var checkoutUrl = await _paymentService.CreateCompanyCheckoutSessionAsync(
+        return await _paymentService.CreateCompanyCheckoutSessionAsync(
             customerId, owner.Id, companyId, planId, plan.Name, price, period,
             trialDays, successUrl, cancelUrl, ct);
-
-        return new CheckoutResponse(checkoutUrl);
     }
 
     public async Task<CheckoutResponse> UpgradeToCompanyAsync(
@@ -232,11 +228,17 @@ public class SubscriptionService : ISubscriptionService
         var customerId = user.StripeCustomerId
             ?? await _paymentService.GetOrCreateCustomerAsync(upgradeEmail, user.Id, ct);
 
-        var checkoutUrl = await _paymentService.CreateCompanyCheckoutSessionAsync(
+        return await _paymentService.CreateCompanyCheckoutSessionAsync(
             customerId, user.Id, companyResponse.Id, planId, plan.Name, price, period,
             trialDays, successUrl, cancelUrl, ct);
+    }
 
-        return new CheckoutResponse(checkoutUrl);
+    public async Task ConfirmCheckoutSessionAsync(string sessionId, CancellationToken ct = default)
+    {
+        var evt = await _paymentService.RetrieveCheckoutSessionAsync(sessionId, ct)
+            ?? throw new InvalidOperationException("Checkout session not found or payment not completed.");
+
+        await HandleCheckoutCompletedAsync(evt, ct);
     }
 
     public async Task HandleStripeWebhookAsync(string body, string signature, CancellationToken ct = default)
