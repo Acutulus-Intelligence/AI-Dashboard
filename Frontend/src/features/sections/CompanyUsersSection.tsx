@@ -1,11 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Mail, X, AlertCircle, UserPlus, Clock, Trash2, Shield, Building2, CreditCard, Crown, Plus, Save, Pencil } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Mail, X, AlertCircle, UserPlus, Clock, Trash2, Shield, Building2, Crown, Plus, Save, Pencil } from 'lucide-react';
 import Button from '../components/Button';
 import { ApiError } from '../../lib/api/client';
 import * as companyApi from '../../lib/api/company';
-import * as subscriptionApi from '../../lib/api/subscription';
-import { ROUTES } from '../routes';
 import { useAuth } from '../store/useAuth';
 
 export default function CompanyUsersSection() {
@@ -17,7 +14,6 @@ export default function CompanyUsersSection() {
   const [loading, setLoading] = useState(true);
   const [noCompany, setNoCompany] = useState(false);
   const [error, setError] = useState('');
-  const [subscriptionActive, setSubscriptionActive] = useState(false);
 
   const [showInvite, setShowInvite] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -96,12 +92,6 @@ export default function CompanyUsersSection() {
       setRoles(roleList);
       setInvites(inviteList);
 
-      try {
-        const sub = await subscriptionApi.getCompanySubscription(c.id);
-        setSubscriptionActive(sub.status === 0 || sub.status === 1);
-      } catch {
-        setSubscriptionActive(false);
-      }
     } catch (err: unknown) {
       if (err instanceof ApiError) {
         setNoCompany(true);
@@ -427,27 +417,12 @@ export default function CompanyUsersSection() {
           <p className="text-body-sm text-on-surface-variant">{users.length} member{users.length !== 1 ? 's' : ''}</p>
         </div>
         {canManageUsers && (
-          <Button variant="primary" className="px-4 py-2" onClick={() => setShowInvite(true)} disabled={!subscriptionActive} title={!subscriptionActive ? 'Requires an active subscription' : ''}>
+          <Button variant="primary" className="px-4 py-2" onClick={() => setShowInvite(true)}>
             <UserPlus size={16} />
             Invite User
           </Button>
         )}
       </div>
-
-      {!subscriptionActive && (
-        <div className="flex items-center justify-between gap-4 rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 text-body-sm text-amber-800">
-          <div className="flex items-center gap-2">
-            <AlertCircle size={16} className="shrink-0" />
-            <span>Company management requires an active subscription.</span>
-          </div>
-          <Link to={ROUTES.PRICING}>
-            <Button variant="outline" className="shrink-0 border-amber-300 text-amber-800 hover:bg-amber-100">
-              <CreditCard size={14} className="mr-1" />
-              Subscribe
-            </Button>
-          </Link>
-        </div>
-      )}
 
       {/* Invite form */}
       {showInvite && canManageUsers && (
@@ -547,7 +522,7 @@ export default function CompanyUsersSection() {
                     ) : canManageRoles && u.id !== user?.userId && (isOwner || !isPeerRole(u.roleId)) ? (
                       <select
                         value={u.roleId ?? ''}
-                        disabled={changingRole === u.id || !subscriptionActive}
+                        disabled={changingRole === u.id}
                         onChange={(e) => handleChangeRole(u.id, e.target.value)}
                         className="w-full max-w-40 rounded-lg border border-outline-variant bg-surface-container-lowest px-2 py-1.5 text-body-sm text-on-background focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-40 disabled:cursor-not-allowed"
                       >
@@ -569,7 +544,7 @@ export default function CompanyUsersSection() {
                           <button
                             type="button"
                             onClick={() => { setConfirmRemoveUserId(null); setConfirmDeleteRoleId(null); setShowTransferUserId(u.id); setTransferConfirmText(''); }}
-                            disabled={transferring || !subscriptionActive}
+                            disabled={transferring}
                             className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-body-xs text-amber-600 transition-colors hover:bg-amber-50 disabled:opacity-40 disabled:cursor-not-allowed"
                             title="Transfer ownership"
                           >
@@ -581,9 +556,7 @@ export default function CompanyUsersSection() {
                           <button
                             type="button"
                             onClick={() => { setShowTransferUserId(null); setConfirmDeleteRoleId(null); setConfirmRemoveUserId(u.id); setConfirmRemoveText(''); }}
-                            disabled={!subscriptionActive}
                             className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-body-xs text-red-600 transition-colors hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                            title={!subscriptionActive ? 'Requires an active subscription' : ''}
                           >
                             <Trash2 size={14} />
                             Remove
@@ -740,9 +713,7 @@ export default function CompanyUsersSection() {
                     <button
                       type="button"
                       onClick={() => handleRevokeInvite(inv.id)}
-                      disabled={!subscriptionActive}
                       className="rounded-lg p-1.5 text-on-surface-variant transition-colors hover:bg-surface-container hover:text-red-600 disabled:opacity-40 disabled:cursor-not-allowed"
-                      title={!subscriptionActive ? 'Requires an active subscription' : ''}
                     >
                       <X size={16} />
                     </button>
@@ -925,7 +896,6 @@ export default function CompanyUsersSection() {
                         <button
                           type="button"
                           onClick={() => { setConfirmDeleteRoleId(null); startEditRole(r); }}
-                          disabled={!subscriptionActive}
                           className="rounded-lg p-1.5 text-on-surface-variant transition-colors hover:bg-surface-container hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed"
                           title="Edit role"
                         >
@@ -936,7 +906,6 @@ export default function CompanyUsersSection() {
                         <button
                           type="button"
                           onClick={() => { setEditingRoleId(null); setConfirmRemoveUserId(null); setShowTransferUserId(null); setConfirmDeleteRoleId(r.id); setConfirmDeleteRoleName(r.name); setConfirmDeleteRoleText(''); }}
-                          disabled={!subscriptionActive}
                           className="rounded-lg p-1.5 text-on-surface-variant transition-colors hover:bg-surface-container hover:text-red-600 disabled:opacity-40 disabled:cursor-not-allowed"
                           title="Delete role"
                         >

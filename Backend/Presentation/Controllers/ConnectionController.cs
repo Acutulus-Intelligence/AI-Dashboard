@@ -3,12 +3,14 @@ using Application.Interfaces;
 using Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Presentation.Middleware;
 
 namespace Presentation.Controllers;
 
 [ApiController]
 [Route("api/connections")]
 [Authorize]
+[RequireActiveSubscription]
 public class ConnectionController : ControllerBase
 {
     private readonly IExternalConnectionService _connectionService;

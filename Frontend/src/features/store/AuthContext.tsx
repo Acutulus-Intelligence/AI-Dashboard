@@ -53,6 +53,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void loadSession();
   }, [fetchUser, refreshSubscriptionStatus]);
 
+  useEffect(() => {
+    const interval = setInterval(() => {
+      void refreshSubscriptionStatus();
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, [refreshSubscriptionStatus]);
+
   const login = useCallback(async (email: string, password: string) => {
     await authApi.login({ email, password });
     await fetchUser();

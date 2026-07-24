@@ -2,6 +2,7 @@ using Application.Dtos.Request;
 using Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Presentation.Middleware;
 
 namespace Presentation.Controllers;
 
@@ -76,6 +77,7 @@ public class CompanyController : ControllerBase
     }
 
     [HttpPost("accept-invite")]
+    [AllowSubscriptionBypass]
     public async Task<IActionResult> AcceptInvite([FromBody] AcceptInviteRequest request, CancellationToken ct)
     {
         var userId = GetUserId();
@@ -158,6 +160,7 @@ public class CompanyController : ControllerBase
     }
 
     [HttpGet("~/api/invites/pending")]
+    [AllowSubscriptionBypass]
     public async Task<IActionResult> GetPendingInvites(CancellationToken ct)
     {
         var email = User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value;
@@ -169,6 +172,7 @@ public class CompanyController : ControllerBase
     }
 
     [HttpDelete("~/api/invites/{inviteId:guid}")]
+    [AllowSubscriptionBypass]
     public async Task<IActionResult> RejectInvite(Guid inviteId, CancellationToken ct)
     {
         var userId = GetUserId();
