@@ -97,7 +97,8 @@ public class SubscriptionService : ISubscriptionService
 
         var existingSubscription = await _db.UserSubscriptions
             .AsNoTracking()
-            .FirstOrDefaultAsync(s => s.UserId == userId, ct);
+            .FirstOrDefaultAsync(s => s.UserId == userId &&
+                (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial), ct);
 
         var trialDays = CalculateTrialDays(existingSubscription?.TrialEndDate);
 
@@ -185,7 +186,17 @@ public class SubscriptionService : ISubscriptionService
             throw new InvalidOperationException("Only individual users can upgrade to a company.");
 
         if (user.CompanyId is not null)
-            throw new InvalidOperationException("You already belong to a company.");
+        {
+            var companyHasActive = await _db.CompanySubscriptions
+                .AnyAsync(s => s.CompanyId == user.CompanyId &&
+                    (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial), ct);
+
+            if (companyHasActive)
+                throw new InvalidOperationException("Your company already has an active subscription.");
+
+            return await CreateCompanyCheckoutSessionAsync(
+                user.CompanyId.Value, planId, period, userId, successUrl, cancelUrl, ct);
+        }
 
         var plan = await _db.SubscriptionPlans
             .FirstOrDefaultAsync(p => p.Id == planId && p.IsActive, ct)
@@ -405,7 +416,7 @@ public class SubscriptionService : ISubscriptionService
         var now = DateTime.UtcNow;
 
         if (trialEndDate <= now)
-            return 0;
+            return 1;
 
         var remaining = (int)(trialEndDate.Value - now).TotalDays;
         return Math.Max(1, remaining);
