@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, Shield, Building2, Database, AlertCircle, CheckCircle2, XCircle, CreditCard } from 'lucide-react';
+import { ArrowLeft, Users, Shield, Building2, Database, AlertCircle, CheckCircle2, XCircle, CreditCard, Trash2, User, Crown, X } from 'lucide-react';
 import DashboardHeader from '../layouts/DashboardHeader';
 import Button from '../components/Button';
 import { ROUTES } from '../routes';
 import * as companyApi from '../../lib/api/company';
 import * as subscriptionApi from '../../lib/api/subscription';
+import { useAuth } from '../store/useAuth';
 
 function statusLabel(status: number): { text: string; color: string } {
   if (status === 0) return { text: 'Trial', color: 'text-blue-600 bg-blue-50' };
@@ -25,17 +26,33 @@ function formatDate(dateStr: string | null) {
 
 export default function AdminPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [company, setCompany] = useState<companyApi.CompanyResponse | null>(null);
   const [companySub, setCompanySub] = useState<subscriptionApi.CompanySubscription | null>(null);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
+  const [deletingCompany, setDeletingCompany] = useState(false);
   const [error, setError] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [users, setUsers] = useState<companyApi.CompanyUserResponse[]>([]);
+  const [showTransferOwner, setShowTransferOwner] = useState(false);
+  const [transferUserId, setTransferUserId] = useState('');
+  const [transferOwnerText, setTransferOwnerText] = useState('');
+  const [transferring, setTransferring] = useState(false);
 
   async function loadData() {
     setError('');
     try {
       const c = await companyApi.getMyCompany();
       setCompany(c);
+
+      try {
+        const userList = await companyApi.getCompanyUsers(c.id);
+        setUsers(userList);
+      } catch {
+        setUsers([]);
+      }
 
       try {
         const sub = await subscriptionApi.getCompanySubscription(c.id);
@@ -70,7 +87,40 @@ export default function AdminPage() {
     }
   }
 
+  async function executeDeleteCompany() {
+    if (!company) return;
+
+    setError('');
+    setDeletingCompany(true);
+    try {
+      await companyApi.deleteCompany(company.id);
+      navigate(ROUTES.DASHBOARD);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete company.');
+      setDeletingCompany(false);
+    }
+  }
+
+  async function executeTransferOwner() {
+    if (!company || !transferUserId) return;
+
+    setError('');
+    setTransferring(true);
+    try {
+      await companyApi.transferOwnership(company.id, transferUserId);
+      setShowTransferOwner(false);
+      setTransferUserId('');
+      setTransferOwnerText('');
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to transfer ownership.');
+      setTransferring(false);
+    }
+  }
+
   const status = companySub ? statusLabel(companySub.status) : null;
+  const isOwner = company && user?.userId === company.ownerId;
+  const eligibleUsers = users.filter((u) => !u.isOwner);
 
   return (
     <div className="min-h-screen bg-background">
@@ -132,13 +182,16 @@ export default function AdminPage() {
                 <p className="text-body-sm text-on-surface-variant">Manage users, roles, and permissions for your company.</p>
               </Link>
 
-              <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm transition-shadow hover:shadow-md">
+              <Link
+                to={ROUTES.PROFILE}
+                className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm transition-shadow hover:shadow-md"
+              >
                 <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                  <Shield size={24} />
+                  <User size={24} />
                 </div>
-                <h2 className="mb-2 text-body-lg font-semibold text-on-background">Security</h2>
-                <p className="text-body-sm text-on-surface-variant">Manage your account security and authentication settings.</p>
-              </div>
+                <h2 className="mb-2 text-body-lg font-semibold text-on-background">Profile</h2>
+                <p className="text-body-sm text-on-surface-variant">Update your name, email, password, and manage your account.</p>
+              </Link>
 
               <Link
                 to={ROUTES.CONNECTIONS}
@@ -150,6 +203,14 @@ export default function AdminPage() {
                 <h2 className="mb-2 text-body-lg font-semibold text-on-background">Connections</h2>
                 <p className="text-body-sm text-on-surface-variant">Connect external databases to generate AI-powered charts.</p>
               </Link>
+
+              <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm transition-shadow hover:shadow-md">
+                <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <Shield size={24} />
+                </div>
+                <h2 className="mb-2 text-body-lg font-semibold text-on-background">Security</h2>
+                <p className="text-body-sm text-on-surface-variant">Manage your account security and authentication settings.</p>
+              </div>
 
               {company ? (
                 <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm transition-shadow hover:shadow-md">
@@ -181,7 +242,7 @@ export default function AdminPage() {
                           Renews {formatDate(companySub.endDate)}
                         </p>
                       )}
-                      {(companySub.status === 0 || companySub.status === 1) && (
+                      {isOwner && (companySub.status === 0 || companySub.status === 1) && (
                         <Button
                           variant="outline"
                           className="mt-3 w-full border-red-300 text-red-600 hover:bg-red-50"
@@ -204,6 +265,155 @@ export default function AdminPage() {
                         Subscribe
                       </Button>
                     </div>
+                  )}
+
+                  {isOwner && (
+                    <>
+                      <hr className="my-4 border-outline-variant/50" />
+
+                      {/* Transfer Ownership */}
+                      {!showTransferOwner ? (
+                        eligibleUsers.length === 0 ? (
+                          <div className="mb-3 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50/50 p-3 text-body-sm text-amber-700">
+                            <Crown size={14} className="shrink-0" />
+                            <span>No other team members to transfer to. Invite users first.</span>
+                          </div>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            className="mb-3 w-full border-amber-300 text-amber-700 hover:bg-amber-50"
+                            onClick={(e) => { e.preventDefault(); setShowTransferOwner(true); setTransferUserId(''); setTransferOwnerText(''); }}
+                          >
+                            <Crown size={14} />
+                            Transfer Ownership
+                          </Button>
+                        )
+                      ) : (
+                        <div className="mb-3 space-y-3 rounded-xl border border-amber-200 bg-amber-50/50 p-4">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-body-sm font-semibold text-amber-800">Transfer Ownership</h4>
+                            <button
+                              type="button"
+                              onClick={() => { setShowTransferOwner(false); setTransferUserId(''); setTransferOwnerText(''); }}
+                              className="rounded-lg p-1 text-amber-600 hover:bg-amber-100"
+                            >
+                              <X size={16} />
+                            </button>
+                          </div>
+                          <select
+                            value={transferUserId}
+                            onChange={(e) => setTransferUserId(e.target.value)}
+                            className="w-full rounded-xl border border-amber-300 bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                          >
+                            <option value="">Select a team member</option>
+                            {users
+                              .filter((u) => !u.isOwner)
+                              .map((u) => (
+                                <option key={u.id} value={u.id}>
+                                  {u.firstName && u.lastName ? `${u.firstName} ${u.lastName}` : u.email}
+                                </option>
+                              ))}
+                          </select>
+                          {transferUserId && (
+                            <>
+                              <div>
+                                <label htmlFor="transferOwnerConfirm" className="mb-1 block text-body-xs font-medium text-amber-700">
+                                  Type <span className="font-bold">TRANSFER</span> to confirm
+                                </label>
+                                  <input
+                                    id="transferOwnerConfirm"
+                                    type="text"
+                                    value={transferOwnerText}
+                                    onChange={(e) => setTransferOwnerText(e.target.value)}
+                                    placeholder="Type TRANSFER to confirm"
+                                    className="w-full rounded-xl border border-amber-300 bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                                  />
+                              </div>
+                              <div className="flex gap-3">
+                                <Button
+                                  variant="outline"
+                                  className="flex-1"
+                                  disabled={transferring}
+                                  onClick={() => { setShowTransferOwner(false); setTransferUserId(''); setTransferOwnerText(''); }}
+                                >
+                                  Cancel
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  className="flex-1 border-amber-300 text-amber-700 hover:bg-amber-100"
+                                  disabled={transferOwnerText !== 'TRANSFER' || transferring}
+                                  onClick={(e) => { e.preventDefault(); void executeTransferOwner(); }}
+                                >
+                                  {transferring ? 'Transferring...' : 'Transfer ownership'}
+                                </Button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Delete Company */}
+                      {!showDeleteConfirm ? (
+                        <Button
+                          variant="outline"
+                          className="w-full border-red-300 text-red-600 hover:bg-red-50"
+                          onClick={(e) => { e.preventDefault(); setShowDeleteConfirm(true); }}
+                        >
+                          <Trash2 size={14} />
+                          Delete Company
+                        </Button>
+                      ) : (
+                        <div className="space-y-3">
+                          <div className="rounded-xl border border-red-300 bg-red-100/50 px-4 py-3 text-body-sm text-red-700">
+                            <p className="mb-2 font-medium">This action is permanent.</p>
+                            <p>
+                              {company?.name} and all associated data including dashboards, charts, and team member
+                              access will be permanently removed. This cannot be undone.
+                            </p>
+                          </div>
+
+                          <div>
+                            <label htmlFor="deleteCompanyConfirm" className="mb-1 block text-body-xs font-medium text-red-700">
+                              Type <span className="font-bold">DELETE</span> to confirm
+                            </label>
+                            <input
+                              id="deleteCompanyConfirm"
+                              type="text"
+                              value={deleteConfirmText}
+                              onChange={(e) => setDeleteConfirmText(e.target.value)}
+                              placeholder="Type DELETE to confirm"
+                              className="w-full rounded-xl border border-red-300 bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20"
+                            />
+                          </div>
+
+                          {error && (
+                            <p className="flex items-center gap-1.5 text-body-xs text-red-700">
+                              <AlertCircle size={12} />
+                              {error}
+                            </p>
+                          )}
+
+                          <div className="flex gap-3">
+                            <Button
+                              variant="outline"
+                              className="flex-1"
+                              disabled={deletingCompany}
+                              onClick={(e) => { e.preventDefault(); setShowDeleteConfirm(false); setDeleteConfirmText(''); setError(''); }}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              variant="outline"
+                              className="flex-1 border-red-300 text-red-600 hover:bg-red-100"
+                              disabled={deleteConfirmText !== 'DELETE' || deletingCompany}
+                              onClick={(e) => { e.preventDefault(); void executeDeleteCompany(); }}
+                            >
+                              {deletingCompany ? 'Deleting...' : 'Delete company'}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               ) : (

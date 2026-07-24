@@ -94,4 +94,16 @@ public class AuthController : ControllerBase
         await _authService.UpdateProfileAsync(Guid.Parse(userId), request, ct);
         return NoContent();
     }
+
+    [HttpDelete("account")]
+    [Authorize]
+    public async Task<IActionResult> DeleteAccount(CancellationToken ct)
+    {
+        var userId = User.FindFirst("userId")?.Value;
+        if (userId is null)
+            return Unauthorized();
+
+        await _authService.DeleteAccountAsync(Guid.Parse(userId), ct);
+        return NoContent();
+    }
 }

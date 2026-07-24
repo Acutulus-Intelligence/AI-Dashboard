@@ -97,7 +97,8 @@ public class SubscriptionService : ISubscriptionService
 
         var existingSubscription = await _db.UserSubscriptions
             .AsNoTracking()
-            .FirstOrDefaultAsync(s => s.UserId == userId, ct);
+            .FirstOrDefaultAsync(s => s.UserId == userId &&
+                (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial), ct);
 
         var trialDays = CalculateTrialDays(existingSubscription?.TrialEndDate);
 
@@ -105,11 +106,9 @@ public class SubscriptionService : ISubscriptionService
         var customerId = user.StripeCustomerId
             ?? await _paymentService.GetOrCreateCustomerAsync(userEmail, user.Id, ct);
 
-        var checkoutUrl = await _paymentService.CreateCheckoutSessionAsync(
+        return await _paymentService.CreateCheckoutSessionAsync(
             customerId, user.Id, planId, plan.Name, price, period,
             trialDays, successUrl, cancelUrl, ct);
-
-        return new CheckoutResponse(checkoutUrl);
     }
 
     public async Task<CheckoutResponse> CreateCompanyCheckoutSessionAsync(
@@ -167,11 +166,9 @@ public class SubscriptionService : ISubscriptionService
         var customerId = owner.StripeCustomerId
             ?? await _paymentService.GetOrCreateCustomerAsync(ownerEmail, owner.Id, ct);
 
-        var checkoutUrl = await _paymentService.CreateCompanyCheckoutSessionAsync(
+        return await _paymentService.CreateCompanyCheckoutSessionAsync(
             customerId, owner.Id, companyId, planId, plan.Name, price, period,
             trialDays, successUrl, cancelUrl, ct);
-
-        return new CheckoutResponse(checkoutUrl);
     }
 
     public async Task<CheckoutResponse> UpgradeToCompanyAsync(
@@ -185,7 +182,17 @@ public class SubscriptionService : ISubscriptionService
             throw new InvalidOperationException("Only individual users can upgrade to a company.");
 
         if (user.CompanyId is not null)
-            throw new InvalidOperationException("You already belong to a company.");
+        {
+            var companyHasActive = await _db.CompanySubscriptions
+                .AnyAsync(s => s.CompanyId == user.CompanyId &&
+                    (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial), ct);
+
+            if (companyHasActive)
+                throw new InvalidOperationException("Your company already has an active subscription.");
+
+            return await CreateCompanyCheckoutSessionAsync(
+                user.CompanyId.Value, planId, period, userId, successUrl, cancelUrl, ct);
+        }
 
         var plan = await _db.SubscriptionPlans
             .FirstOrDefaultAsync(p => p.Id == planId && p.IsActive, ct)
@@ -221,11 +228,17 @@ public class SubscriptionService : ISubscriptionService
         var customerId = user.StripeCustomerId
             ?? await _paymentService.GetOrCreateCustomerAsync(upgradeEmail, user.Id, ct);
 
-        var checkoutUrl = await _paymentService.CreateCompanyCheckoutSessionAsync(
+        return await _paymentService.CreateCompanyCheckoutSessionAsync(
             customerId, user.Id, companyResponse.Id, planId, plan.Name, price, period,
             trialDays, successUrl, cancelUrl, ct);
+    }
 
-        return new CheckoutResponse(checkoutUrl);
+    public async Task ConfirmCheckoutSessionAsync(string sessionId, CancellationToken ct = default)
+    {
+        var evt = await _paymentService.RetrieveCheckoutSessionAsync(sessionId, ct)
+            ?? throw new InvalidOperationException("Checkout session not found or payment not completed.");
+
+        await HandleCheckoutCompletedAsync(evt, ct);
     }
 
     public async Task HandleStripeWebhookAsync(string body, string signature, CancellationToken ct = default)
@@ -405,7 +418,7 @@ public class SubscriptionService : ISubscriptionService
         var now = DateTime.UtcNow;
 
         if (trialEndDate <= now)
-            return 0;
+            return 1;
 
         var remaining = (int)(trialEndDate.Value - now).TotalDays;
         return Math.Max(1, remaining);

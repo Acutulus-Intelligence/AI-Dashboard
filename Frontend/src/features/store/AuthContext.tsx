@@ -32,6 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         userType: Number(userInfo.userType),
         firstName: userInfo.firstName ?? null,
         lastName: userInfo.lastName ?? null,
+        companyRoleName: userInfo.companyRoleName ?? null,
       });
       return true;
     } catch {
@@ -51,6 +52,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     void loadSession();
   }, [fetchUser, refreshSubscriptionStatus]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      void refreshSubscriptionStatus();
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, [refreshSubscriptionStatus]);
 
   const login = useCallback(async (email: string, password: string) => {
     await authApi.login({ email, password });
@@ -84,6 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         hasActiveSubscription,
         isSubscriptionLoading,
         refreshSubscriptionStatus,
+        refreshUser: fetchUser,
         login,
         register,
         logout,

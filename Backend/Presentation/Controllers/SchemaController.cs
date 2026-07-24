@@ -3,12 +3,14 @@ using Application.DTos.Response;
 using Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Presentation.Middleware;
 
 namespace Presentation.Controllers;
 
 [ApiController]
 [Route("api/connections/{connectionId:guid}/tables")]
 [Authorize]
+[RequireActiveSubscription]
 public class SchemaController : ControllerBase
 {
     private readonly ISchemaInspector _schemaInspector;

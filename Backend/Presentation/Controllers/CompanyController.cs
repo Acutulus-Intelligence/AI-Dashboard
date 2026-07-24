@@ -2,6 +2,7 @@ using Application.Dtos.Request;
 using Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Presentation.Middleware;
 
 namespace Presentation.Controllers;
 
@@ -11,10 +12,12 @@ namespace Presentation.Controllers;
 public class CompanyController : ControllerBase
 {
     private readonly ICompanyService _companyService;
+    private readonly ISubscriptionService _subscriptionService;
 
-    public CompanyController(ICompanyService companyService)
+    public CompanyController(ICompanyService companyService, ISubscriptionService subscriptionService)
     {
         _companyService = companyService;
+        _subscriptionService = subscriptionService;
     }
 
     [HttpPost]
@@ -74,10 +77,21 @@ public class CompanyController : ControllerBase
     }
 
     [HttpPost("accept-invite")]
+    [AllowSubscriptionBypass]
     public async Task<IActionResult> AcceptInvite([FromBody] AcceptInviteRequest request, CancellationToken ct)
     {
         var userId = GetUserId();
         await _companyService.AcceptInviteByIdAsync(request.InviteId, userId, ct);
+
+        try
+        {
+            await _subscriptionService.CancelUserSubscriptionAsync(userId, ct);
+        }
+        catch
+        {
+            // User may not have an individual subscription — that's fine.
+        }
+
         return NoContent();
     }
 
@@ -146,6 +160,7 @@ public class CompanyController : ControllerBase
     }
 
     [HttpGet("~/api/invites/pending")]
+    [AllowSubscriptionBypass]
     public async Task<IActionResult> GetPendingInvites(CancellationToken ct)
     {
         var email = User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value;
@@ -157,6 +172,7 @@ public class CompanyController : ControllerBase
     }
 
     [HttpDelete("~/api/invites/{inviteId:guid}")]
+    [AllowSubscriptionBypass]
     public async Task<IActionResult> RejectInvite(Guid inviteId, CancellationToken ct)
     {
         var userId = GetUserId();

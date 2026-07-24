@@ -5,7 +5,7 @@ namespace Application.Interfaces;
 
 public interface IPaymentService
 {
-    Task<string> CreateCheckoutSessionAsync(
+    Task<CheckoutResponse> CreateCheckoutSessionAsync(
         string customerId,
         Guid userId,
         Guid planId,
@@ -17,7 +17,7 @@ public interface IPaymentService
         string cancelUrl,
         CancellationToken ct = default);
 
-    Task<string> CreateCompanyCheckoutSessionAsync(
+    Task<CheckoutResponse> CreateCompanyCheckoutSessionAsync(
         string customerId,
         Guid userId,
         Guid companyId,
@@ -29,6 +29,8 @@ public interface IPaymentService
         string successUrl,
         string cancelUrl,
         CancellationToken ct = default);
+
+    Task<PaymentWebhookEvent?> RetrieveCheckoutSessionAsync(string sessionId, CancellationToken ct = default);
 
     Task<PaymentWebhookEvent> HandleWebhookAsync(string body, string signature);
 

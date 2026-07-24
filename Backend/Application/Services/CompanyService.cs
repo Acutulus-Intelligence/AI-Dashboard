@@ -55,20 +55,7 @@ public class CompanyService : ICompanyService
             AllowedTables = []
         };
 
-        var adminRole = new CompanyRole
-        {
-            Id = Guid.NewGuid(),
-            CompanyId = company.Id,
-            Name = "Admin",
-            IsSystemRole = true,
-            CanViewAllDashboards = true,
-            CanManageUsers = true,
-            CanManageRoles = true,
-            CanManageDashboards = true,
-            AllowedTables = []
-        };
-
-        _db.CompanyRoles.AddRange(ownerRole, adminRole);
+        _db.CompanyRoles.Add(ownerRole);
         owner.CompanyRoleId = ownerRole.Id;
 
         await _db.SaveChangesAsync(ct);
@@ -110,7 +97,7 @@ public class CompanyService : ICompanyService
 
     public async Task UpdateUserRoleAsync(Guid companyId, Guid targetUserId, Guid roleId, Guid actorId, CancellationToken ct = default)
     {
-        var (company, _) = await EnsureCanManageUsersAsync(companyId, actorId, ct);
+        var (company, actor) = await EnsureCanManageUsersAsync(companyId, actorId, ct);
 
         if (targetUserId == company.OwnerId)
             throw new InvalidOperationException("Cannot change the owner's role.");
@@ -118,6 +105,15 @@ public class CompanyService : ICompanyService
         var user = await _db.Users
             .FirstOrDefaultAsync(u => u.Id == targetUserId && u.CompanyId == companyId, ct)
             ?? throw new KeyNotFoundException("User not found in this company.");
+
+        if (actorId != company.OwnerId && user.CompanyRoleId is not null)
+        {
+            var targetRole = await _db.CompanyRoles.FindAsync([user.CompanyRoleId.Value], ct);
+            if (targetRole is not null &&
+                targetRole.CanManageUsers == actor.CompanyRole!.CanManageUsers &&
+                targetRole.CanManageRoles == actor.CompanyRole!.CanManageRoles)
+                throw new UnauthorizedAccessException("Cannot change the role of a user with the same permissions as you.");
+        }
 
         var role = await _db.CompanyRoles
             .FirstOrDefaultAsync(r => r.Id == roleId && r.CompanyId == companyId, ct)
@@ -143,16 +139,12 @@ public class CompanyService : ICompanyService
             .FirstOrDefaultAsync(u => u.Id == newOwnerId && u.CompanyId == companyId, ct)
             ?? throw new KeyNotFoundException("New owner must be a member of this company.");
 
-        var adminRole = await _db.CompanyRoles
-            .FirstOrDefaultAsync(r => r.CompanyId == companyId && r.Name == "Admin" && r.IsSystemRole, ct)
-            ?? throw new InvalidOperationException("Admin role not found.");
-
         var oldOwner = await _db.Users.FindAsync([currentOwnerId], ct);
 
         company.OwnerId = newOwnerId;
 
         if (oldOwner is not null)
-            oldOwner.CompanyRoleId = adminRole.Id;
+            oldOwner.CompanyRoleId = null;
 
         var ownerRole = await _db.CompanyRoles
             .FirstOrDefaultAsync(r => r.CompanyId == companyId && r.Name == "Owner" && r.IsSystemRole, ct);
@@ -165,7 +157,7 @@ public class CompanyService : ICompanyService
 
     public async Task<string> InviteUserAsync(Guid companyId, string email, Guid roleId, Guid actorId, CancellationToken ct = default)
     {
-        var (_, _) = await EnsureCanManageUsersAsync(companyId, actorId, ct);
+        var (company, _) = await EnsureCanManageUsersAsync(companyId, actorId, ct);
 
         var role = await _db.CompanyRoles
             .FirstOrDefaultAsync(r => r.Id == roleId && r.CompanyId == companyId, ct)
@@ -175,7 +167,7 @@ public class CompanyService : ICompanyService
             throw new InvalidOperationException("Cannot invite users as Owner.");
 
         var existingUser = await _db.Users.FirstOrDefaultAsync(u =>
-            u.Email != null && u.Email.Equals(email, StringComparison.OrdinalIgnoreCase), ct);
+            u.Email != null && u.Email.ToLower() == email.ToLower(), ct);
         if (existingUser?.CompanyId == companyId)
             throw new ConflictException("User is already a member of this company.", "already_member");
 
@@ -256,6 +248,7 @@ public class CompanyService : ICompanyService
         var invites = await _db.CompanyInvites
             .AsNoTracking()
             .Include(i => i.Role)
+            .Include(i => i.Company)
             .Where(i => i.CompanyId == companyId)
             .OrderByDescending(i => i.CreatedAt)
             .Select(i => new CompanyInviteResponse(
@@ -266,7 +259,8 @@ public class CompanyService : ICompanyService
                 i.CreatedAt,
                 i.ExpiresAt,
                 i.ExpiresAt <= DateTime.UtcNow,
-                i.IsAccepted
+                i.IsAccepted,
+                i.Company.Name
             ))
             .ToListAsync(ct);
 
@@ -278,6 +272,7 @@ public class CompanyService : ICompanyService
         var invites = await _db.CompanyInvites
             .AsNoTracking()
             .Include(i => i.Role)
+            .Include(i => i.Company)
             .Where(i => i.Email.ToLower() == email.ToLower() && !i.IsAccepted && i.ExpiresAt > DateTime.UtcNow)
             .OrderByDescending(i => i.CreatedAt)
             .Select(i => new CompanyInviteResponse(
@@ -288,7 +283,8 @@ public class CompanyService : ICompanyService
                 i.CreatedAt,
                 i.ExpiresAt,
                 false,
-                false
+                false,
+                i.Company.Name
             ))
             .ToListAsync(ct);
 
@@ -370,7 +366,7 @@ public class CompanyService : ICompanyService
 
     public async Task RemoveUserAsync(Guid companyId, Guid userIdToRemove, Guid actorId, CancellationToken ct = default)
     {
-        var (company, _) = await EnsureCanManageUsersAsync(companyId, actorId, ct);
+        var (company, actor) = await EnsureCanManageUsersAsync(companyId, actorId, ct);
 
         if (userIdToRemove == company.OwnerId)
             throw new InvalidOperationException("Cannot remove the company owner. Transfer ownership first.");
@@ -378,6 +374,15 @@ public class CompanyService : ICompanyService
         var user = await _db.Users
             .FirstOrDefaultAsync(u => u.Id == userIdToRemove && u.CompanyId == companyId, ct)
             ?? throw new KeyNotFoundException("User not found in this company.");
+
+        if (actorId != company.OwnerId && user.CompanyRoleId is not null)
+        {
+            var targetRole = await _db.CompanyRoles.FindAsync([user.CompanyRoleId.Value], ct);
+            if (targetRole is not null &&
+                targetRole.CanManageUsers == actor.CompanyRole!.CanManageUsers &&
+                targetRole.CanManageRoles == actor.CompanyRole!.CanManageRoles)
+                throw new UnauthorizedAccessException("Cannot remove a user with the same permissions as you.");
+        }
 
         user.CompanyId = null;
         user.CompanyRoleId = null;
@@ -411,7 +416,10 @@ public class CompanyService : ICompanyService
 
     public async Task<CompanyRoleResponse> CreateRoleAsync(Guid companyId, CreateRoleRequest request, Guid actorId, CancellationToken ct = default)
     {
-        var (_, _) = await EnsureCanManageRolesAsync(companyId, actorId, ct);
+        var (company, _) = await EnsureCanManageRolesAsync(companyId, actorId, ct);
+
+        if (actorId != company.OwnerId && (request.CanManageUsers || request.CanManageRoles))
+            throw new InvalidOperationException("Only the owner can grant user management or role management permissions.");
 
         var role = new CompanyRole
         {
@@ -449,12 +457,26 @@ public class CompanyService : ICompanyService
             .FirstOrDefaultAsync(r => r.Id == roleId, ct)
             ?? throw new KeyNotFoundException("Role not found.");
 
-        var (_, _) = await EnsureCanManageRolesAsync(role.CompanyId, actorId, ct);
+        var (_, actor) = await EnsureCanManageRolesAsync(role.CompanyId, actorId, ct);
 
         if (role.IsSystemRole)
             throw new InvalidOperationException("Cannot modify system roles.");
 
+        if (actorId != role.Company.OwnerId && (request.CanManageUsers || request.CanManageRoles))
+            throw new InvalidOperationException("Only the owner can grant user management or role management permissions.");
+
+        if (actorId != role.Company.OwnerId && actor.CompanyRole is not null)
+        {
+            if (roleId == actor.CompanyRole.Id)
+                throw new InvalidOperationException("Cannot edit your own role's permissions.");
+
+            if (role.CanManageUsers == actor.CompanyRole.CanManageUsers &&
+                role.CanManageRoles == actor.CompanyRole.CanManageRoles)
+                throw new InvalidOperationException("Cannot edit a role with the same permissions as yours.");
+        }
+
         role.Name = request.Name;
+
         role.CanViewAllDashboards = request.CanViewAllDashboards;
         role.CanManageUsers = request.CanManageUsers;
         role.CanManageRoles = request.CanManageRoles;
@@ -553,24 +575,9 @@ public class CompanyService : ICompanyService
 
     private async Task EnsureCanViewCompanyAsync(Guid companyId, Guid userId, CancellationToken ct)
     {
-        var company = await _db.Companies
-            .AsNoTracking()
-            .FirstOrDefaultAsync(c => c.Id == companyId, ct)
-            ?? throw new KeyNotFoundException("Company not found.");
-
-        var user = await _db.Users
-            .Include(u => u.CompanyRole)
-            .FirstOrDefaultAsync(u => u.Id == userId && u.CompanyId == companyId, ct);
-
-        if (user is null)
+        var isMember = await _db.Users.AnyAsync(u => u.Id == userId && u.CompanyId == companyId, ct);
+        if (!isMember)
             throw new UnauthorizedAccessException("You are not a member of this company.");
-
-        var isOwner = user.Id == company.OwnerId;
-        var isAdmin = user.CompanyRole is { IsSystemRole: true }
-            && (user.CompanyRole.Name == "Owner" || user.CompanyRole.Name == "Admin");
-
-        if (!isOwner && !isAdmin)
-            throw new UnauthorizedAccessException("Only the company owner and admins can view company information.");
     }
 
     private async Task EnsureMemberAsync(Guid companyId, Guid userId, CancellationToken ct)

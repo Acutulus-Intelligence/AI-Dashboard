@@ -6,6 +6,7 @@ using Application.Interfaces;
 using Domain.Enums;
 using Domain.Models;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 
 namespace Application.Services;
 
@@ -15,17 +16,20 @@ public class AuthService : IAuthService
     private readonly ITokenService _tokenService;
     private readonly IRefreshTokenService _refreshTokenService;
     private readonly ICompanyService _companyService;
+    private readonly IApplicationDbContext _db;
 
     public AuthService(
         UserManager<User> userManager,
         ITokenService tokenService,
         IRefreshTokenService refreshTokenService,
-        ICompanyService companyService)
+        ICompanyService companyService,
+        IApplicationDbContext db)
     {
         _userManager = userManager;
         _tokenService = tokenService;
         _refreshTokenService = refreshTokenService;
         _companyService = companyService;
+        _db = db;
     }
 
     public async Task<AuthResult> RegisterAsync(RegisterRequest request, CancellationToken ct = default)
@@ -147,14 +151,73 @@ public class AuthService : IAuthService
 
         var roles = await _userManager.GetRolesAsync(user);
 
+        string? companyRoleName = null;
+        if (user.CompanyRoleId is not null)
+        {
+            var role = await _db.CompanyRoles.FindAsync([user.CompanyRoleId], ct);
+            companyRoleName = role?.Name;
+        }
+
         return new UserMeResponse(
             user.Id,
             user.Email ?? string.Empty,
             roles.ToList(),
             user.UserType,
             user.FirstName,
-            user.LastName
+            user.LastName,
+            companyRoleName
         );
+    }
+
+    public async Task DeleteAccountAsync(Guid userId, CancellationToken ct = default)
+    {
+        var user = await _userManager.FindByIdAsync(userId.ToString())
+            ?? throw new UnauthorizedAccessException("User not found.");
+
+        var ownedCompany = await _db.Companies.FirstOrDefaultAsync(c => c.OwnerId == userId, ct);
+        if (ownedCompany is not null)
+            throw new InvalidOperationException(
+                "You must transfer company ownership before deleting your account.");
+
+        var dashboards = await _db.Dashboards
+            .Include(d => d.Widgets)
+            .Where(d => d.UserId == userId)
+            .ToListAsync(ct);
+
+        foreach (var dashboard in dashboards)
+        {
+            _db.DashboardWidgets.RemoveRange(dashboard.Widgets);
+        }
+        _db.Dashboards.RemoveRange(dashboards);
+
+        var charts = await _db.SavedCharts
+            .Where(c => c.UserId == userId)
+            .ToListAsync(ct);
+        _db.SavedCharts.RemoveRange(charts);
+
+        var connections = await _db.ExternalConnections
+            .Where(c => c.UserId == userId)
+            .ToListAsync(ct);
+        _db.ExternalConnections.RemoveRange(connections);
+
+        var refreshTokens = await _db.RefreshTokens
+            .Where(t => t.UserId == userId)
+            .ToListAsync(ct);
+        _db.RefreshTokens.RemoveRange(refreshTokens);
+
+        var userSubscription = await _db.UserSubscriptions
+            .FirstOrDefaultAsync(s => s.UserId == userId, ct);
+        if (userSubscription is not null)
+            _db.UserSubscriptions.Remove(userSubscription);
+
+        user.CompanyId = null;
+        user.CompanyRoleId = null;
+
+        await _db.SaveChangesAsync(ct);
+
+        var result = await _userManager.DeleteAsync(user);
+        if (!result.Succeeded)
+            throw new InvalidOperationException("Failed to delete account. Please try again.");
     }
 
     private async Task<AuthResult> GenerateAuthResultAsync(User user, IList<string> roles)
