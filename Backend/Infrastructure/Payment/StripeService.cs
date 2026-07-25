@@ -161,7 +161,8 @@ public class StripeService : IPaymentService
             "checkout.session.completed",
             session.Metadata,
             session.SubscriptionId,
-            session.CustomerId
+            session.CustomerId,
+            null
         );
     }
 
@@ -181,7 +182,8 @@ public class StripeService : IPaymentService
                     stripeEvent.Type,
                     session.Metadata,
                     session.SubscriptionId,
-                    session.CustomerId
+                    session.CustomerId,
+                    null
                 );
             }
 
@@ -248,6 +250,37 @@ public class StripeService : IPaymentService
     {
         var service = new SubscriptionService(StripeClient);
         await service.CancelAsync(stripeSubscriptionId, cancellationToken: ct);
+    }
+
+    public async Task<string?> GetPaymentMethodFingerprintAsync(string paymentMethodId, CancellationToken ct = default)
+    {
+        var service = new PaymentMethodService(StripeClient);
+        var pm = await service.GetAsync(paymentMethodId, cancellationToken: ct);
+        return pm.Card?.Fingerprint;
+    }
+
+    public async Task<string?> GetPaymentMethodFingerprintBySubscriptionAsync(string stripeSubscriptionId, CancellationToken ct = default)
+    {
+        var options = new SubscriptionGetOptions
+        {
+            Expand = ["default_payment_method"]
+        };
+
+        var service = new SubscriptionService(StripeClient);
+        var subscription = await service.GetAsync(stripeSubscriptionId, options, cancellationToken: ct);
+
+        return subscription.DefaultPaymentMethod?.Card?.Fingerprint;
+    }
+
+    public async Task EndTrialImmediatelyAsync(string stripeSubscriptionId, CancellationToken ct = default)
+    {
+        var options = new SubscriptionUpdateOptions
+        {
+            TrialEnd = DateTime.UtcNow
+        };
+
+        var service = new SubscriptionService(StripeClient);
+        await service.UpdateAsync(stripeSubscriptionId, options, cancellationToken: ct);
     }
 
     public async Task<string> GetOrCreateCustomerAsync(string email, Guid userId, CancellationToken ct = default)

@@ -24,7 +24,7 @@ export default function CompanyUsersSection() {
   const [changingRole, setChangingRole] = useState<string | null>(null);
 
   const [showTransferUserId, setShowTransferUserId] = useState<string | null>(null);
-  const [transferConfirmText, setTransferConfirmText] = useState('');
+  const [transferPassword, setTransferPassword] = useState('');
   const [transferring, setTransferring] = useState(false);
 
   const [showCreateRole, setShowCreateRole] = useState(false);
@@ -185,9 +185,9 @@ export default function CompanyUsersSection() {
     setTransferring(true);
     setError('');
     try {
-      await companyApi.transferOwnership(company!.id, showTransferUserId);
+      await companyApi.transferOwnership(company!.id, showTransferUserId, transferPassword);
       setShowTransferUserId(null);
-      setTransferConfirmText('');
+      setTransferPassword('');
       await loadData();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to transfer ownership.');
@@ -543,7 +543,7 @@ export default function CompanyUsersSection() {
                         {isOwner && (
                           <button
                             type="button"
-                            onClick={() => { setConfirmRemoveUserId(null); setConfirmDeleteRoleId(null); setShowTransferUserId(u.id); setTransferConfirmText(''); }}
+                            onClick={() => { setConfirmRemoveUserId(null); setConfirmDeleteRoleId(null); setShowTransferUserId(u.id); setTransferPassword(''); }}
                             disabled={transferring}
                             className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-body-xs text-amber-600 transition-colors hover:bg-amber-50 disabled:opacity-40 disabled:cursor-not-allowed"
                             title="Transfer ownership"
@@ -581,7 +581,7 @@ export default function CompanyUsersSection() {
             </h3>
             <button
               type="button"
-              onClick={() => { setShowTransferUserId(null); setTransferConfirmText(''); }}
+              onClick={() => { setShowTransferUserId(null); setTransferPassword(''); }}
               className="rounded-lg p-1 text-amber-600 hover:bg-amber-100"
             >
               <X size={18} />
@@ -592,15 +592,15 @@ export default function CompanyUsersSection() {
             You will lose owner privileges and become a regular member.
           </p>
           <div className="mb-3">
-            <label htmlFor="transferConfirm" className="mb-1 block text-body-xs font-medium text-amber-700">
-              Type <span className="font-bold">TRANSFER</span> to confirm
+            <label htmlFor="transferPassword" className="mb-1 block text-body-xs font-medium text-amber-700">
+              Enter your password to confirm
             </label>
             <input
-              id="transferConfirm"
-              type="text"
-              value={transferConfirmText}
-              onChange={(e) => setTransferConfirmText(e.target.value)}
-              placeholder="Type TRANSFER to confirm"
+              id="transferPassword"
+              type="password"
+              value={transferPassword}
+              onChange={(e) => setTransferPassword(e.target.value)}
+              placeholder="Enter your password"
               className="w-full rounded-xl border border-amber-300 bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
             />
           </div>
@@ -615,14 +615,14 @@ export default function CompanyUsersSection() {
               variant="outline"
               className="flex-1"
               disabled={transferring}
-              onClick={() => { setShowTransferUserId(null); setTransferConfirmText(''); }}
+              onClick={() => { setShowTransferUserId(null); setTransferPassword(''); }}
             >
               Cancel
             </Button>
             <Button
               variant="outline"
               className="flex-1 border-amber-300 text-amber-700 hover:bg-amber-100"
-              disabled={transferConfirmText !== 'TRANSFER' || transferring}
+              disabled={!transferPassword || transferring}
               onClick={(e) => { e.preventDefault(); void executeTransferOwnership(); }}
             >
               {transferring ? 'Transferring...' : 'Transfer ownership'}

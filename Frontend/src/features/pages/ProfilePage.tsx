@@ -29,7 +29,7 @@ export default function ProfilePage() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deletePassword, setDeletePassword] = useState('');
 
   async function handleUpdateProfile(e: FormEvent) {
     e.preventDefault();
@@ -100,7 +100,7 @@ export default function ProfilePage() {
     setDeleteError('');
     setDeleting(true);
     try {
-      await authApi.deleteAccount();
+      await authApi.deleteAccount(deletePassword);
       await logout();
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : 'Failed to delete account.');
@@ -269,15 +269,15 @@ export default function ProfilePage() {
                   </div>
 
                   <div>
-                    <label htmlFor="deleteConfirm" className="mb-1 block text-body-xs font-medium text-red-700">
-                      Type <span className="font-bold">DELETE</span> to confirm
+                    <label htmlFor="deletePassword" className="mb-1 block text-body-xs font-medium text-red-700">
+                      Enter your password to confirm
                     </label>
                     <input
-                      id="deleteConfirm"
-                      type="text"
-                      value={deleteConfirmText}
-                      onChange={(e) => setDeleteConfirmText(e.target.value)}
-                      placeholder="Type DELETE to confirm"
+                      id="deletePassword"
+                      type="password"
+                      value={deletePassword}
+                      onChange={(e) => setDeletePassword(e.target.value)}
+                      placeholder="Enter your password"
                       className="w-full rounded-xl border border-red-300 bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20"
                     />
                   </div>
@@ -294,14 +294,14 @@ export default function ProfilePage() {
                       variant="outline"
                       className="flex-1"
                       disabled={deleting}
-                      onClick={(e) => { e.preventDefault(); setShowDeleteConfirm(false); setDeleteConfirmText(''); setDeleteError(''); }}
+                      onClick={(e) => { e.preventDefault(); setShowDeleteConfirm(false); setDeletePassword(''); setDeleteError(''); }}
                     >
                       Cancel
                     </Button>
                     <Button
                       variant="outline"
                       className="flex-1 border-red-300 text-red-600 hover:bg-red-100"
-                      disabled={deleteConfirmText !== 'DELETE' || deleting}
+                      disabled={!deletePassword || deleting}
                       onClick={(e) => { e.preventDefault(); void executeDelete(); }}
                     >
                       {deleting ? 'Deleting...' : 'Delete my account'}

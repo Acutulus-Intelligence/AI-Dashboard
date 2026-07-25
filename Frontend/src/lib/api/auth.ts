@@ -85,8 +85,9 @@ export function updateProfile(data: UpdateProfileRequest): Promise<void> {
   });
 }
 
-export function deleteAccount(): Promise<void> {
+export function deleteAccount(currentPassword: string): Promise<void> {
   return apiFetch<void>('/api/auth/account', {
     method: 'DELETE',
+    body: JSON.stringify({ currentPassword }),
   });
 }

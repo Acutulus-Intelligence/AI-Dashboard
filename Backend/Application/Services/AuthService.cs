@@ -16,6 +16,7 @@ public class AuthService : IAuthService
     private readonly ITokenService _tokenService;
     private readonly IRefreshTokenService _refreshTokenService;
     private readonly ICompanyService _companyService;
+    private readonly IPaymentService _paymentService;
     private readonly IApplicationDbContext _db;
 
     public AuthService(
@@ -23,12 +24,14 @@ public class AuthService : IAuthService
         ITokenService tokenService,
         IRefreshTokenService refreshTokenService,
         ICompanyService companyService,
+        IPaymentService paymentService,
         IApplicationDbContext db)
     {
         _userManager = userManager;
         _tokenService = tokenService;
         _refreshTokenService = refreshTokenService;
         _companyService = companyService;
+        _paymentService = paymentService;
         _db = db;
     }
 
@@ -169,10 +172,13 @@ public class AuthService : IAuthService
         );
     }
 
-    public async Task DeleteAccountAsync(Guid userId, CancellationToken ct = default)
+    public async Task DeleteAccountAsync(Guid userId, DeleteAccountRequest request, CancellationToken ct = default)
     {
         var user = await _userManager.FindByIdAsync(userId.ToString())
             ?? throw new UnauthorizedAccessException("User not found.");
+
+        if (!await _userManager.CheckPasswordAsync(user, request.CurrentPassword))
+            throw new UnauthorizedAccessException("Current password is incorrect.");
 
         var ownedCompany = await _db.Companies.FirstOrDefaultAsync(c => c.OwnerId == userId, ct);
         if (ownedCompany is not null)
@@ -208,7 +214,12 @@ public class AuthService : IAuthService
         var userSubscription = await _db.UserSubscriptions
             .FirstOrDefaultAsync(s => s.UserId == userId, ct);
         if (userSubscription is not null)
+        {
+            if (userSubscription.StripeSubscriptionId is not null)
+                await _paymentService.CancelSubscriptionImmediatelyAsync(
+                    userSubscription.StripeSubscriptionId, ct);
             _db.UserSubscriptions.Remove(userSubscription);
+        }
 
         user.CompanyId = null;
         user.CompanyRoleId = null;

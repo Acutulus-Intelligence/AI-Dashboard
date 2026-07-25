@@ -60,11 +60,11 @@ public class CompanyController : ControllerBase
         return NoContent();
     }
 
-    [HttpPost("{id:guid}/transfer-ownership/{userId:guid}")]
-    public async Task<IActionResult> TransferOwnership(Guid id, Guid userId, CancellationToken ct)
+    [HttpPost("{id:guid}/transfer-ownership")]
+    public async Task<IActionResult> TransferOwnership(Guid id, [FromBody] TransferOwnershipRequest request, CancellationToken ct)
     {
         var currentOwnerId = GetUserId();
-        await _companyService.TransferOwnershipAsync(id, userId, currentOwnerId, ct);
+        await _companyService.TransferOwnershipAsync(id, currentOwnerId, request, ct);
         return NoContent();
     }
 
@@ -136,10 +136,10 @@ public class CompanyController : ControllerBase
     }
 
     [HttpDelete("{id:guid}")]
-    public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+    public async Task<IActionResult> Delete(Guid id, [FromBody] DeleteCompanyRequest request, CancellationToken ct)
     {
         var actorId = GetUserId();
-        await _companyService.DeleteAsync(id, actorId, ct);
+        await _companyService.DeleteAsync(id, actorId, request, ct);
         return NoContent();
     }
 

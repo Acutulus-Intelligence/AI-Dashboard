@@ -97,13 +97,13 @@ public class AuthController : ControllerBase
 
     [HttpDelete("account")]
     [Authorize]
-    public async Task<IActionResult> DeleteAccount(CancellationToken ct)
+    public async Task<IActionResult> DeleteAccount([FromBody] DeleteAccountRequest request, CancellationToken ct)
     {
         var userId = User.FindFirst("userId")?.Value;
         if (userId is null)
             return Unauthorized();
 
-        await _authService.DeleteAccountAsync(Guid.Parse(userId), ct);
+        await _authService.DeleteAccountAsync(Guid.Parse(userId), request, ct);
         return NoContent();
     }
 }

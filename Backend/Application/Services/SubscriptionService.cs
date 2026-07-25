@@ -459,6 +459,9 @@ public class SubscriptionService : ISubscriptionService
             await _db.CompanySubscriptions.AnyAsync(s => s.StripeSubscriptionId == stripeSubscriptionId, ct))
             return;
 
+        UserSubscription? userSubRef = null;
+        CompanySubscription? companySubRef = null;
+
         if (isCompany)
         {
             if (!evt.Metadata.TryGetValue("companyId", out var companyIdRaw) ||
@@ -476,11 +479,12 @@ public class SubscriptionService : ISubscriptionService
                 existing.Status = SubscriptionStatus.Trial;
                 existing.StripeSubscriptionId = stripeSubscriptionId;
                 existing.TrialEndDate ??= now.AddDays(trialDays);
+                companySubRef = existing;
             }
             else
             {
                 var plan = await _db.SubscriptionPlans.FindAsync([planId], ct);
-                _db.CompanySubscriptions.Add(new CompanySubscription
+                companySubRef = new CompanySubscription
                 {
                     Id = Guid.NewGuid(),
                     CompanyId = companyId,
@@ -495,7 +499,8 @@ public class SubscriptionService : ISubscriptionService
                     Status = SubscriptionStatus.Trial,
                     StripeSubscriptionId = stripeSubscriptionId,
                     TrialEndDate = now.AddDays(trialDays)
-                });
+                };
+                _db.CompanySubscriptions.Add(companySubRef);
             }
         }
         else
@@ -512,11 +517,12 @@ public class SubscriptionService : ISubscriptionService
                 existing.Status = SubscriptionStatus.Trial;
                 existing.StripeSubscriptionId = stripeSubscriptionId;
                 existing.TrialEndDate ??= now.AddDays(trialDays);
+                userSubRef = existing;
             }
             else
             {
                 var plan = await _db.SubscriptionPlans.FindAsync([planId], ct);
-                _db.UserSubscriptions.Add(new UserSubscription
+                userSubRef = new UserSubscription
                 {
                     Id = Guid.NewGuid(),
                     UserId = userId,
@@ -530,7 +536,8 @@ public class SubscriptionService : ISubscriptionService
                     Status = SubscriptionStatus.Trial,
                     StripeSubscriptionId = stripeSubscriptionId,
                     TrialEndDate = now.AddDays(trialDays)
-                });
+                };
+                _db.UserSubscriptions.Add(userSubRef);
             }
         }
 
@@ -539,6 +546,36 @@ public class SubscriptionService : ISubscriptionService
             var plan = await _db.SubscriptionPlans.FindAsync([planId], ct);
             if (plan is not null && user.UserType != plan.UserType)
                 user.UserType = plan.UserType;
+        }
+
+        // Track card fingerprint to prevent trial abuse across accounts
+        if (evt.StripeSubscriptionId is not null)
+        {
+            var fingerprint = await _paymentService.GetPaymentMethodFingerprintBySubscriptionAsync(evt.StripeSubscriptionId, ct);
+
+            if (fingerprint is not null)
+            {
+                var duplicateFingerprint = await _db.CardFingerprints
+                    .AnyAsync(f => f.Fingerprint == fingerprint && f.UserId != userId, ct);
+
+                _db.CardFingerprints.Add(new CardFingerprint
+                {
+                    Id = Guid.NewGuid(),
+                    Fingerprint = fingerprint,
+                    UserId = userId,
+                    StripePaymentMethodId = evt.StripeSubscriptionId
+                });
+
+                if (duplicateFingerprint)
+                {
+                    await _paymentService.EndTrialImmediatelyAsync(evt.StripeSubscriptionId, ct);
+
+                    if (companySubRef is not null)
+                        companySubRef.Status = SubscriptionStatus.Active;
+                    else if (userSubRef is not null)
+                        userSubRef.Status = SubscriptionStatus.Active;
+                }
+            }
         }
 
         await _db.SaveChangesAsync(ct);

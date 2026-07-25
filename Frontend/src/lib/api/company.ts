@@ -124,9 +124,10 @@ export function removeUser(companyId: string, userId: string): Promise<void> {
   });
 }
 
-export function transferOwnership(companyId: string, userId: string): Promise<void> {
-  return apiFetch<void>(`/api/companies/${companyId}/transfer-ownership/${userId}`, {
+export function transferOwnership(companyId: string, newOwnerId: string, currentPassword: string): Promise<void> {
+  return apiFetch<void>(`/api/companies/${companyId}/transfer-ownership`, {
     method: 'POST',
+    body: JSON.stringify({ newOwnerId, currentPassword }),
   });
 }
 
@@ -188,8 +189,9 @@ export function rejectInvite(inviteId: string): Promise<void> {
   });
 }
 
-export function deleteCompany(companyId: string): Promise<void> {
+export function deleteCompany(companyId: string, currentPassword: string): Promise<void> {
   return apiFetch<void>(`/api/companies/${companyId}`, {
     method: 'DELETE',
+    body: JSON.stringify({ currentPassword }),
   });
 }

@@ -4,6 +4,7 @@ using Application.Dtos.Response;
 using Application.Interfaces;
 using Domain.Enums;
 using Domain.Models;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
 namespace Application.Services;
@@ -11,10 +12,14 @@ namespace Application.Services;
 public class CompanyService : ICompanyService
 {
     private readonly IApplicationDbContext _db;
+    private readonly UserManager<User> _userManager;
+    private readonly IPaymentService _paymentService;
 
-    public CompanyService(IApplicationDbContext db)
+    public CompanyService(IApplicationDbContext db, UserManager<User> userManager, IPaymentService paymentService)
     {
         _db = db;
+        _userManager = userManager;
+        _paymentService = paymentService;
     }
 
     public async Task<CompanyResponse> CreateAsync(Guid ownerId, string name, CancellationToken ct = default)
@@ -126,7 +131,7 @@ public class CompanyService : ICompanyService
         await _db.SaveChangesAsync(ct);
     }
 
-    public async Task TransferOwnershipAsync(Guid companyId, Guid newOwnerId, Guid currentOwnerId, CancellationToken ct = default)
+    public async Task TransferOwnershipAsync(Guid companyId, Guid currentOwnerId, TransferOwnershipRequest request, CancellationToken ct = default)
     {
         var company = await _db.Companies
             .FirstOrDefaultAsync(c => c.Id == companyId, ct)
@@ -135,13 +140,20 @@ public class CompanyService : ICompanyService
         if (company.OwnerId != currentOwnerId)
             throw new UnauthorizedAccessException("Only the current owner can transfer ownership.");
 
+        var owner = await _userManager.FindByIdAsync(currentOwnerId.ToString());
+        if (owner is null)
+            throw new UnauthorizedAccessException("Owner not found.");
+
+        if (!await _userManager.CheckPasswordAsync(owner, request.CurrentPassword))
+            throw new UnauthorizedAccessException("Current password is incorrect.");
+
         var newOwner = await _db.Users
-            .FirstOrDefaultAsync(u => u.Id == newOwnerId && u.CompanyId == companyId, ct)
+            .FirstOrDefaultAsync(u => u.Id == request.NewOwnerId && u.CompanyId == companyId, ct)
             ?? throw new KeyNotFoundException("New owner must be a member of this company.");
 
         var oldOwner = await _db.Users.FindAsync([currentOwnerId], ct);
 
-        company.OwnerId = newOwnerId;
+        company.OwnerId = request.NewOwnerId;
 
         if (oldOwner is not null)
             oldOwner.CompanyRoleId = null;
@@ -304,7 +316,7 @@ public class CompanyService : ICompanyService
         return await GetByIdAsync(user.CompanyId.Value, userId, ct);
     }
 
-    public async Task DeleteAsync(Guid companyId, Guid actorId, CancellationToken ct = default)
+    public async Task DeleteAsync(Guid companyId, Guid actorId, DeleteCompanyRequest request, CancellationToken ct = default)
     {
         var company = await _db.Companies
             .Include(c => c.CompanyRoles)
@@ -313,6 +325,19 @@ public class CompanyService : ICompanyService
 
         if (company.OwnerId != actorId)
             throw new UnauthorizedAccessException("Only the company owner can delete the company.");
+
+        var owner = await _userManager.FindByIdAsync(actorId.ToString());
+        if (owner is null)
+            throw new UnauthorizedAccessException("Owner not found.");
+
+        if (!await _userManager.CheckPasswordAsync(owner, request.CurrentPassword))
+            throw new UnauthorizedAccessException("Current password is incorrect.");
+
+        var companySub = await _db.CompanySubscriptions
+            .FirstOrDefaultAsync(s => s.CompanyId == companyId, ct);
+        if (companySub?.StripeSubscriptionId is not null)
+            await _paymentService.CancelSubscriptionImmediatelyAsync(
+                companySub.StripeSubscriptionId, ct);
 
         var users = await _db.Users
             .Where(u => u.CompanyId == companyId)

@@ -34,11 +34,11 @@ export default function AdminPage() {
   const [deletingCompany, setDeletingCompany] = useState(false);
   const [error, setError] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deletePassword, setDeletePassword] = useState('');
   const [users, setUsers] = useState<companyApi.CompanyUserResponse[]>([]);
   const [showTransferOwner, setShowTransferOwner] = useState(false);
   const [transferUserId, setTransferUserId] = useState('');
-  const [transferOwnerText, setTransferOwnerText] = useState('');
+  const [transferPassword, setTransferPassword] = useState('');
   const [transferring, setTransferring] = useState(false);
 
   async function loadData() {
@@ -93,7 +93,7 @@ export default function AdminPage() {
     setError('');
     setDeletingCompany(true);
     try {
-      await companyApi.deleteCompany(company.id);
+      await companyApi.deleteCompany(company.id, deletePassword);
       navigate(ROUTES.DASHBOARD);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete company.');
@@ -107,10 +107,10 @@ export default function AdminPage() {
     setError('');
     setTransferring(true);
     try {
-      await companyApi.transferOwnership(company.id, transferUserId);
+      await companyApi.transferOwnership(company.id, transferUserId, transferPassword);
       setShowTransferOwner(false);
       setTransferUserId('');
-      setTransferOwnerText('');
+      setTransferPassword('');
       await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to transfer ownership.');
@@ -282,7 +282,7 @@ export default function AdminPage() {
                           <Button
                             variant="outline"
                             className="mb-3 w-full border-amber-300 text-amber-700 hover:bg-amber-50"
-                            onClick={(e) => { e.preventDefault(); setShowTransferOwner(true); setTransferUserId(''); setTransferOwnerText(''); }}
+                            onClick={(e) => { e.preventDefault(); setShowTransferOwner(true); setTransferUserId(''); setTransferPassword(''); }}
                           >
                             <Crown size={14} />
                             Transfer Ownership
@@ -294,7 +294,7 @@ export default function AdminPage() {
                             <h4 className="text-body-sm font-semibold text-amber-800">Transfer Ownership</h4>
                             <button
                               type="button"
-                              onClick={() => { setShowTransferOwner(false); setTransferUserId(''); setTransferOwnerText(''); }}
+                              onClick={() => { setShowTransferOwner(false); setTransferUserId(''); setTransferPassword(''); }}
                               className="rounded-lg p-1 text-amber-600 hover:bg-amber-100"
                             >
                               <X size={16} />
@@ -317,15 +317,15 @@ export default function AdminPage() {
                           {transferUserId && (
                             <>
                               <div>
-                                <label htmlFor="transferOwnerConfirm" className="mb-1 block text-body-xs font-medium text-amber-700">
-                                  Type <span className="font-bold">TRANSFER</span> to confirm
+                                <label htmlFor="transferPassword" className="mb-1 block text-body-xs font-medium text-amber-700">
+                                  Enter your password to confirm
                                 </label>
                                   <input
-                                    id="transferOwnerConfirm"
-                                    type="text"
-                                    value={transferOwnerText}
-                                    onChange={(e) => setTransferOwnerText(e.target.value)}
-                                    placeholder="Type TRANSFER to confirm"
+                                    id="transferPassword"
+                                    type="password"
+                                    value={transferPassword}
+                                    onChange={(e) => setTransferPassword(e.target.value)}
+                                    placeholder="Enter your password"
                                     className="w-full rounded-xl border border-amber-300 bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
                                   />
                               </div>
@@ -334,14 +334,14 @@ export default function AdminPage() {
                                   variant="outline"
                                   className="flex-1"
                                   disabled={transferring}
-                                  onClick={() => { setShowTransferOwner(false); setTransferUserId(''); setTransferOwnerText(''); }}
+                                  onClick={() => { setShowTransferOwner(false); setTransferUserId(''); setTransferPassword(''); }}
                                 >
                                   Cancel
                                 </Button>
                                 <Button
                                   variant="outline"
                                   className="flex-1 border-amber-300 text-amber-700 hover:bg-amber-100"
-                                  disabled={transferOwnerText !== 'TRANSFER' || transferring}
+                                  disabled={!transferPassword || transferring}
                                   onClick={(e) => { e.preventDefault(); void executeTransferOwner(); }}
                                 >
                                   {transferring ? 'Transferring...' : 'Transfer ownership'}
@@ -373,15 +373,15 @@ export default function AdminPage() {
                           </div>
 
                           <div>
-                            <label htmlFor="deleteCompanyConfirm" className="mb-1 block text-body-xs font-medium text-red-700">
-                              Type <span className="font-bold">DELETE</span> to confirm
+                            <label htmlFor="deleteCompanyPassword" className="mb-1 block text-body-xs font-medium text-red-700">
+                              Enter your password to confirm
                             </label>
                             <input
-                              id="deleteCompanyConfirm"
-                              type="text"
-                              value={deleteConfirmText}
-                              onChange={(e) => setDeleteConfirmText(e.target.value)}
-                              placeholder="Type DELETE to confirm"
+                              id="deleteCompanyPassword"
+                              type="password"
+                              value={deletePassword}
+                              onChange={(e) => setDeletePassword(e.target.value)}
+                              placeholder="Enter your password"
                               className="w-full rounded-xl border border-red-300 bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20"
                             />
                           </div>
@@ -398,14 +398,14 @@ export default function AdminPage() {
                               variant="outline"
                               className="flex-1"
                               disabled={deletingCompany}
-                              onClick={(e) => { e.preventDefault(); setShowDeleteConfirm(false); setDeleteConfirmText(''); setError(''); }}
+                              onClick={(e) => { e.preventDefault(); setShowDeleteConfirm(false); setDeletePassword(''); setError(''); }}
                             >
                               Cancel
                             </Button>
                             <Button
                               variant="outline"
                               className="flex-1 border-red-300 text-red-600 hover:bg-red-100"
-                              disabled={deleteConfirmText !== 'DELETE' || deletingCompany}
+                              disabled={!deletePassword || deletingCompany}
                               onClick={(e) => { e.preventDefault(); void executeDeleteCompany(); }}
                             >
                               {deletingCompany ? 'Deleting...' : 'Delete company'}
