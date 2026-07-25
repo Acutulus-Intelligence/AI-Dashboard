@@ -57,6 +57,15 @@ function parseErrorBody(body: Record<string, unknown>): {
   return { message, code, fieldErrors };
 }
 
+/** Auth endpoints where 401 means bad credentials / auth failure, not an expired session. */
+function isCredentialAuthPath(path: string): boolean {
+  return (
+    path.startsWith('/api/auth/login') ||
+    path.startsWith('/api/auth/register') ||
+    path.startsWith('/api/auth/refresh')
+  );
+}
+
 export async function apiFetch<T>(
   path: string,
   options: RequestInit = {},
@@ -75,7 +84,7 @@ export async function apiFetch<T>(
     credentials: 'include',
   });
 
-  if (res.status === 401) {
+  if (res.status === 401 && !isCredentialAuthPath(path)) {
     const refreshed = await tryRefresh();
     if (refreshed) {
       res = await fetch(`${API_BASE_URL}${path}`, {
