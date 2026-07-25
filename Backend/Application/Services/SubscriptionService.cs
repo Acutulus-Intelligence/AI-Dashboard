@@ -97,14 +97,21 @@ public class SubscriptionService : ISubscriptionService
 
         var existingSubscription = await _db.UserSubscriptions
             .AsNoTracking()
-            .FirstOrDefaultAsync(s => s.UserId == userId &&
-                (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial), ct);
+            .OrderByDescending(s => s.StartDate)
+            .FirstOrDefaultAsync(s => s.UserId == userId, ct);
 
         var trialDays = CalculateTrialDays(existingSubscription?.TrialEndDate);
 
         var userEmail = user.Email ?? throw new InvalidOperationException("User email is required for payment processing.");
-        var customerId = user.StripeCustomerId
-            ?? await _paymentService.GetOrCreateCustomerAsync(userEmail, user.Id, ct);
+        var customerId = user.StripeCustomerId is not null
+            ? await _paymentService.EnsureCustomerExistsAsync(user.StripeCustomerId, userEmail, user.Id, ct)
+            : await _paymentService.GetOrCreateCustomerAsync(userEmail, user.Id, ct);
+
+        if (customerId != user.StripeCustomerId)
+        {
+            user.StripeCustomerId = customerId;
+            await _db.SaveChangesAsync(ct);
+        }
 
         return await _paymentService.CreateCheckoutSessionAsync(
             customerId, user.Id, planId, plan.Name, price, period,
@@ -163,8 +170,15 @@ public class SubscriptionService : ISubscriptionService
         var trialDays = CalculateTrialDays(existingSubscription?.TrialEndDate);
 
         var ownerEmail = owner.Email ?? throw new InvalidOperationException("Owner email is required for payment processing.");
-        var customerId = owner.StripeCustomerId
-            ?? await _paymentService.GetOrCreateCustomerAsync(ownerEmail, owner.Id, ct);
+        var customerId = owner.StripeCustomerId is not null
+            ? await _paymentService.EnsureCustomerExistsAsync(owner.StripeCustomerId, ownerEmail, owner.Id, ct)
+            : await _paymentService.GetOrCreateCustomerAsync(ownerEmail, owner.Id, ct);
+
+        if (customerId != owner.StripeCustomerId)
+        {
+            owner.StripeCustomerId = customerId;
+            await _db.SaveChangesAsync(ct);
+        }
 
         return await _paymentService.CreateCompanyCheckoutSessionAsync(
             customerId, owner.Id, companyId, planId, plan.Name, price, period,
@@ -225,8 +239,15 @@ public class SubscriptionService : ISubscriptionService
         var trialDays = CalculateTrialDays(null);
 
         var upgradeEmail = user.Email ?? throw new InvalidOperationException("User email is required for payment processing.");
-        var customerId = user.StripeCustomerId
-            ?? await _paymentService.GetOrCreateCustomerAsync(upgradeEmail, user.Id, ct);
+        var customerId = user.StripeCustomerId is not null
+            ? await _paymentService.EnsureCustomerExistsAsync(user.StripeCustomerId, upgradeEmail, user.Id, ct)
+            : await _paymentService.GetOrCreateCustomerAsync(upgradeEmail, user.Id, ct);
+
+        if (customerId != user.StripeCustomerId)
+        {
+            user.StripeCustomerId = customerId;
+            await _db.SaveChangesAsync(ct);
+        }
 
         return await _paymentService.CreateCompanyCheckoutSessionAsync(
             customerId, user.Id, companyResponse.Id, planId, plan.Name, price, period,
@@ -570,10 +591,20 @@ public class SubscriptionService : ISubscriptionService
                 {
                     await _paymentService.EndTrialImmediatelyAsync(evt.StripeSubscriptionId, ct);
 
+                    var renewalDate = DateTime.UtcNow.AddMonths(1);
+                    if (billingPeriod == BillingPeriod.Yearly)
+                        renewalDate = DateTime.UtcNow.AddYears(1);
+
                     if (companySubRef is not null)
+                    {
                         companySubRef.Status = SubscriptionStatus.Active;
+                        companySubRef.EndDate = renewalDate;
+                    }
                     else if (userSubRef is not null)
+                    {
                         userSubRef.Status = SubscriptionStatus.Active;
+                        userSubRef.EndDate = renewalDate;
+                    }
                 }
             }
         }

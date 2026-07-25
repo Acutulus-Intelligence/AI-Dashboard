@@ -306,4 +306,20 @@ public class StripeService : IPaymentService
 
         return customer.Id;
     }
+
+    public async Task<string> EnsureCustomerExistsAsync(string customerId, string email, Guid userId, CancellationToken ct = default)
+    {
+        try
+        {
+            var customerService = new CustomerService(StripeClient);
+            var customer = await customerService.GetAsync(customerId, cancellationToken: ct);
+            if (customer.Deleted == true)
+                return await GetOrCreateCustomerAsync(email, userId, ct);
+            return customerId;
+        }
+        catch (StripeException ex) when (ex.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return await GetOrCreateCustomerAsync(email, userId, ct);
+        }
+    }
 }
