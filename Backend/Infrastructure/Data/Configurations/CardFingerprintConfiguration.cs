@@ -17,6 +17,6 @@ public class CardFingerprintConfiguration : IEntityTypeConfiguration<CardFingerp
         builder.HasOne(cf => cf.User)
             .WithMany()
             .HasForeignKey(cf => cf.UserId)
-            .OnDelete(DeleteBehavior.Cascade);
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }
