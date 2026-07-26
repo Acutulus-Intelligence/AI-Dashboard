@@ -13,6 +13,7 @@ public class CardFingerprintConfiguration : IEntityTypeConfiguration<CardFingerp
         builder.HasKey(cf => cf.Id);
 
         builder.HasIndex(cf => cf.Fingerprint);
+        builder.HasIndex(cf => cf.EmailHash);
 
         builder.HasOne(cf => cf.User)
             .WithMany()

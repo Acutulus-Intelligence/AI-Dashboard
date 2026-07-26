@@ -47,6 +47,9 @@ namespace Infrastructure.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("EmailHash")
+                        .HasColumnType("text");
+
                     b.Property<string>("Fingerprint")
                         .IsRequired()
                         .HasColumnType("text");
@@ -55,10 +58,15 @@ namespace Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<DateTime?>("TrialEndDate")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid?>("UserId")
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("EmailHash");
 
                     b.HasIndex("Fingerprint");
 

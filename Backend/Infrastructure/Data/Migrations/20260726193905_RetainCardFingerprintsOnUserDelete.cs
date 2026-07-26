@@ -8,8 +8,8 @@ namespace Infrastructure.Data.Migrations
     /// <inheritdoc />
     public partial class RetainCardFingerprintsOnUserDelete : Migration
     {
-        /// <inheritdoc />
-        protected override void Up(MigrationBuilder migrationBuilder)
+    /// <inheritdoc />
+    protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropForeignKey(
                 name: "FK_CardFingerprints_AspNetUsers_UserId",
@@ -22,6 +22,23 @@ namespace Infrastructure.Data.Migrations
                 nullable: true,
                 oldClrType: typeof(Guid),
                 oldType: "uuid");
+
+            migrationBuilder.AddColumn<string>(
+                name: "EmailHash",
+                table: "CardFingerprints",
+                type: "text",
+                nullable: true);
+
+            migrationBuilder.AddColumn<DateTime>(
+                name: "TrialEndDate",
+                table: "CardFingerprints",
+                type: "timestamp with time zone",
+                nullable: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_CardFingerprints_EmailHash",
+                table: "CardFingerprints",
+                column: "EmailHash");
 
             migrationBuilder.AddForeignKey(
                 name: "FK_CardFingerprints_AspNetUsers_UserId",
@@ -37,6 +54,18 @@ namespace Infrastructure.Data.Migrations
         {
             migrationBuilder.DropForeignKey(
                 name: "FK_CardFingerprints_AspNetUsers_UserId",
+                table: "CardFingerprints");
+
+            migrationBuilder.DropIndex(
+                name: "IX_CardFingerprints_EmailHash",
+                table: "CardFingerprints");
+
+            migrationBuilder.DropColumn(
+                name: "EmailHash",
+                table: "CardFingerprints");
+
+            migrationBuilder.DropColumn(
+                name: "TrialEndDate",
                 table: "CardFingerprints");
 
             migrationBuilder.AlterColumn<Guid>(

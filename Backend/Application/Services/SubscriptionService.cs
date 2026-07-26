@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Application.Dtos.Response;
 using Application.Interfaces;
 using Domain.Enums;
@@ -445,6 +447,13 @@ public class SubscriptionService : ISubscriptionService
         return Math.Max(1, remaining);
     }
 
+    private static string HashEmail(string email)
+    {
+        var normalized = email.Trim().ToLowerInvariant();
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
+        return Convert.ToHexStringLower(bytes);
+    }
+
     private async Task HandleCheckoutCompletedAsync(PaymentWebhookEvent evt, CancellationToken ct)
     {
         if (!evt.Metadata.TryGetValue("userId", out var userIdRaw) ||
@@ -576,34 +585,67 @@ public class SubscriptionService : ISubscriptionService
 
             if (fingerprint is not null)
             {
-                var duplicateFingerprint = await _db.CardFingerprints
-                    .AnyAsync(f => f.Fingerprint == fingerprint && (f.UserId == null || f.UserId != userId), ct);
+                var trialEndDate = userSubRef?.TrialEndDate ?? companySubRef?.TrialEndDate;
 
                 _db.CardFingerprints.Add(new CardFingerprint
                 {
                     Id = Guid.NewGuid(),
                     Fingerprint = fingerprint,
                     UserId = userId,
+                    EmailHash = user?.Email is not null ? HashEmail(user.Email) : null,
+                    TrialEndDate = trialEndDate,
                     StripePaymentMethodId = evt.StripeSubscriptionId
                 });
 
-                if (duplicateFingerprint)
+                var matchingFingerprints = await _db.CardFingerprints
+                    .Where(f => f.Fingerprint == fingerprint && (f.UserId == null || f.UserId != userId))
+                    .ToListAsync(ct);
+
+                if (matchingFingerprints.Count > 0)
                 {
-                    await _paymentService.EndTrialImmediatelyAsync(evt.StripeSubscriptionId, ct);
+                    var userEmailHash = user?.Email is not null ? HashEmail(user.Email) : null;
+                    var samePersonRecord = userEmailHash is not null
+                        ? matchingFingerprints.Find(f => f.UserId == null && f.EmailHash == userEmailHash)
+                        : null;
 
-                    var renewalDate = DateTime.UtcNow.AddMonths(1);
-                    if (billingPeriod == BillingPeriod.Yearly)
-                        renewalDate = DateTime.UtcNow.AddYears(1);
-
-                    if (companySubRef is not null)
+                    if (samePersonRecord is not null && samePersonRecord.TrialEndDate > DateTime.UtcNow)
                     {
-                        companySubRef.Status = SubscriptionStatus.Active;
-                        companySubRef.EndDate = renewalDate;
+                        // Same person returning with active trial — resume remaining days
+                        await _paymentService.UpdateSubscriptionTrialEndAsync(
+                            stripeSubscriptionId, samePersonRecord.TrialEndDate.Value, ct);
+
+                        if (userSubRef is not null)
+                        {
+                            userSubRef.TrialEndDate = samePersonRecord.TrialEndDate;
+                            userSubRef.EndDate = samePersonRecord.TrialEndDate;
+                        }
+                        else if (companySubRef is not null)
+                        {
+                            companySubRef.TrialEndDate = samePersonRecord.TrialEndDate;
+                            companySubRef.EndDate = samePersonRecord.TrialEndDate;
+                        }
                     }
-                    else if (userSubRef is not null)
+                    else
                     {
-                        userSubRef.Status = SubscriptionStatus.Active;
-                        userSubRef.EndDate = renewalDate;
+                        // Different person OR same person with expired trial — end trial
+                        await _paymentService.EndTrialImmediatelyAsync(evt.StripeSubscriptionId, ct);
+
+                        var renewalDate = DateTime.UtcNow.AddMonths(1);
+                        if (billingPeriod == BillingPeriod.Yearly)
+                            renewalDate = DateTime.UtcNow.AddYears(1);
+
+                        if (companySubRef is not null)
+                        {
+                            companySubRef.Status = SubscriptionStatus.Active;
+                            companySubRef.EndDate = renewalDate;
+                            companySubRef.TrialEndDate = null;
+                        }
+                        else if (userSubRef is not null)
+                        {
+                            userSubRef.Status = SubscriptionStatus.Active;
+                            userSubRef.EndDate = renewalDate;
+                            userSubRef.TrialEndDate = null;
+                        }
                     }
                 }
             }

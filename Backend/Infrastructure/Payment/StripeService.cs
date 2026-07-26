@@ -283,6 +283,17 @@ public class StripeService : IPaymentService
         await service.UpdateAsync(stripeSubscriptionId, options, cancellationToken: ct);
     }
 
+    public async Task UpdateSubscriptionTrialEndAsync(string stripeSubscriptionId, DateTime trialEnd, CancellationToken ct = default)
+    {
+        var options = new SubscriptionUpdateOptions
+        {
+            TrialEnd = trialEnd
+        };
+
+        var service = new SubscriptionService(StripeClient);
+        await service.UpdateAsync(stripeSubscriptionId, options, cancellationToken: ct);
+    }
+
     public async Task<string> GetOrCreateCustomerAsync(string email, Guid userId, CancellationToken ct = default)
     {
         var customerService = new CustomerService(StripeClient);

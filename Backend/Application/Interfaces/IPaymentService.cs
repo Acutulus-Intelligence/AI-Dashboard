@@ -47,4 +47,6 @@ public interface IPaymentService
     Task<string?> GetPaymentMethodFingerprintBySubscriptionAsync(string stripeSubscriptionId, CancellationToken ct = default);
 
     Task EndTrialImmediatelyAsync(string stripeSubscriptionId, CancellationToken ct = default);
+
+    Task UpdateSubscriptionTrialEndAsync(string stripeSubscriptionId, DateTime trialEnd, CancellationToken ct = default);
 }
