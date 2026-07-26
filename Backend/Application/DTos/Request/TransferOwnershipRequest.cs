@@ -1,4 +1,3 @@
 namespace Application.Dtos.Request;
 
-public sealed record TransferOwnershipRequest(
-    Guid NewOwnerId);
+public sealed record TransferOwnershipRequest(Guid NewOwnerId, string CurrentPassword);

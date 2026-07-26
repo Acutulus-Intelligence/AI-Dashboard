@@ -2,6 +2,7 @@ using Application.Dtos.Request;
 using Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Presentation.Middleware;
 
 namespace Presentation.Controllers;
 
@@ -11,10 +12,12 @@ namespace Presentation.Controllers;
 public class CompanyController : ControllerBase
 {
     private readonly ICompanyService _companyService;
+    private readonly ISubscriptionService _subscriptionService;
 
-    public CompanyController(ICompanyService companyService)
+    public CompanyController(ICompanyService companyService, ISubscriptionService subscriptionService)
     {
         _companyService = companyService;
+        _subscriptionService = subscriptionService;
     }
 
     [HttpPost]
@@ -57,11 +60,11 @@ public class CompanyController : ControllerBase
         return NoContent();
     }
 
-    [HttpPost("{id:guid}/transfer-ownership/{userId:guid}")]
-    public async Task<IActionResult> TransferOwnership(Guid id, Guid userId, CancellationToken ct)
+    [HttpPost("{id:guid}/transfer-ownership")]
+    public async Task<IActionResult> TransferOwnership(Guid id, [FromBody] TransferOwnershipRequest request, CancellationToken ct)
     {
         var currentOwnerId = GetUserId();
-        await _companyService.TransferOwnershipAsync(id, userId, currentOwnerId, ct);
+        await _companyService.TransferOwnershipAsync(id, currentOwnerId, request, ct);
         return NoContent();
     }
 
@@ -74,10 +77,21 @@ public class CompanyController : ControllerBase
     }
 
     [HttpPost("accept-invite")]
+    [AllowSubscriptionBypass]
     public async Task<IActionResult> AcceptInvite([FromBody] AcceptInviteRequest request, CancellationToken ct)
     {
         var userId = GetUserId();
         await _companyService.AcceptInviteByIdAsync(request.InviteId, userId, ct);
+
+        try
+        {
+            await _subscriptionService.CancelUserSubscriptionAsync(userId, ct);
+        }
+        catch
+        {
+            // User may not have an individual subscription — that's fine.
+        }
+
         return NoContent();
     }
 
@@ -122,10 +136,10 @@ public class CompanyController : ControllerBase
     }
 
     [HttpDelete("{id:guid}")]
-    public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
+    public async Task<IActionResult> Delete(Guid id, [FromBody] DeleteCompanyRequest request, CancellationToken ct)
     {
         var actorId = GetUserId();
-        await _companyService.DeleteAsync(id, actorId, ct);
+        await _companyService.DeleteAsync(id, actorId, request, ct);
         return NoContent();
     }
 
@@ -146,6 +160,7 @@ public class CompanyController : ControllerBase
     }
 
     [HttpGet("~/api/invites/pending")]
+    [AllowSubscriptionBypass]
     public async Task<IActionResult> GetPendingInvites(CancellationToken ct)
     {
         var email = User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value;
@@ -157,6 +172,7 @@ public class CompanyController : ControllerBase
     }
 
     [HttpDelete("~/api/invites/{inviteId:guid}")]
+    [AllowSubscriptionBypass]
     public async Task<IActionResult> RejectInvite(Guid inviteId, CancellationToken ct)
     {
         var userId = GetUserId();

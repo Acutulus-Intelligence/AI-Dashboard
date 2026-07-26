@@ -38,6 +38,43 @@ namespace Infrastructure.Data.Migrations
                     b.ToTable("DashboardUser");
                 });
 
+            modelBuilder.Entity("Domain.Models.CardFingerprint", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EmailHash")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("StripePaymentMethodId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("TrialEndDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmailHash");
+
+                    b.HasIndex("Fingerprint");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("CardFingerprints", (string)null);
+                });
+
             modelBuilder.Entity("Domain.Models.Company", b =>
                 {
                     b.Property<Guid>("Id")
@@ -757,6 +794,16 @@ namespace Infrastructure.Data.Migrations
                         .HasForeignKey("UsersId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Domain.Models.CardFingerprint", b =>
+                {
+                    b.HasOne("Domain.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Domain.Models.Company", b =>

@@ -5,7 +5,7 @@ namespace Application.Interfaces;
 
 public interface IPaymentService
 {
-    Task<string> CreateCheckoutSessionAsync(
+    Task<CheckoutResponse> CreateCheckoutSessionAsync(
         string customerId,
         Guid userId,
         Guid planId,
@@ -17,7 +17,7 @@ public interface IPaymentService
         string cancelUrl,
         CancellationToken ct = default);
 
-    Task<string> CreateCompanyCheckoutSessionAsync(
+    Task<CheckoutResponse> CreateCompanyCheckoutSessionAsync(
         string customerId,
         Guid userId,
         Guid companyId,
@@ -30,6 +30,8 @@ public interface IPaymentService
         string cancelUrl,
         CancellationToken ct = default);
 
+    Task<PaymentWebhookEvent?> RetrieveCheckoutSessionAsync(string sessionId, CancellationToken ct = default);
+
     Task<PaymentWebhookEvent> HandleWebhookAsync(string body, string signature);
 
     Task CancelSubscriptionAtPeriodEndAsync(string stripeSubscriptionId, CancellationToken ct = default);
@@ -37,4 +39,14 @@ public interface IPaymentService
     Task CancelSubscriptionImmediatelyAsync(string stripeSubscriptionId, CancellationToken ct = default);
 
     Task<string> GetOrCreateCustomerAsync(string email, Guid userId, CancellationToken ct = default);
+
+    Task<string> EnsureCustomerExistsAsync(string customerId, string email, Guid userId, CancellationToken ct = default);
+
+    Task<string?> GetPaymentMethodFingerprintAsync(string paymentMethodId, CancellationToken ct = default);
+
+    Task<string?> GetPaymentMethodFingerprintBySubscriptionAsync(string stripeSubscriptionId, CancellationToken ct = default);
+
+    Task EndTrialImmediatelyAsync(string stripeSubscriptionId, CancellationToken ct = default);
+
+    Task UpdateSubscriptionTrialEndAsync(string stripeSubscriptionId, DateTime trialEnd, CancellationToken ct = default);
 }

@@ -19,6 +19,7 @@ const PaymentSuccessPage = lazy(() => import('./features/pages/PaymentSuccessPag
 const PaymentCancelPage = lazy(() => import('./features/pages/PaymentCancelPage'));
 const CompanyCreatePage = lazy(() => import('./features/pages/CompanyCreatePage'));
 const SettingsPage = lazy(() => import('./features/pages/SettingsPage'));
+const ProfilePage = lazy(() => import('./features/pages/ProfilePage'));
 const SubscriptionPage = lazy(() => import('./features/pages/SubscriptionPage'));
 
 function PageLoader() {
@@ -65,6 +66,14 @@ export default function Router() {
             element={
               <ProtectedRoute requireSubscription={false}>
                 <LazyPage><SettingsPage /></LazyPage>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path={ROUTES.PROFILE}
+            element={
+              <ProtectedRoute requireSubscription={false}>
+                <LazyPage><ProfilePage /></LazyPage>
               </ProtectedRoute>
             }
           />

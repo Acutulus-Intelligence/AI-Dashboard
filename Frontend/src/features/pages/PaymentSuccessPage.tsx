@@ -4,46 +4,75 @@ import { CheckCircle2, RefreshCw } from 'lucide-react';
 import Button from '../components/Button';
 import { ROUTES } from '../routes';
 import { useAuth } from '../store/useAuth';
+import { confirmCheckout } from '../../lib/api/subscription';
 
 export default function PaymentSuccessPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { refreshSubscriptionStatus, logout } = useAuth();
   const [timedOut, setTimedOut] = useState(false);
+  const [retryTrigger, setRetryTrigger] = useState(0);
   const pollingRef = useRef(true);
   const isUpgrade = searchParams.get('upgrade') === 'true';
+  const sessionId = searchParams.get('session_id');
 
   useEffect(() => {
-    if (!pollingRef.current) return;
+    pollingRef.current = true;
 
     let elapsed = 0;
+    let interval: ReturnType<typeof setInterval> | undefined;
 
-    const interval = window.setInterval(async () => {
-      elapsed += 2000;
-      const isActive = await refreshSubscriptionStatus();
-
-      if (isActive) {
-        window.clearInterval(interval);
-        if (isUpgrade) {
-          await logout();
-        } else {
-          navigate(ROUTES.DASHBOARD, { replace: true });
+    (async () => {
+      if (sessionId) {
+        try {
+          await confirmCheckout(sessionId);
+          const isActive = await refreshSubscriptionStatus();
+          if (isActive) {
+            if (isUpgrade) {
+              await logout();
+            } else {
+              navigate(ROUTES.DASHBOARD, { replace: true });
+            }
+            return;
+          }
+        } catch {
+          /* confirm failed, fall through to polling */
         }
       }
 
-      if (elapsed >= 30000) {
-        window.clearInterval(interval);
-        pollingRef.current = false;
-        setTimedOut(true);
-      }
-    }, 3000);
+      interval = window.setInterval(async () => {
+        elapsed += 3000;
+        const isActive = await refreshSubscriptionStatus();
 
-    return () => window.clearInterval(interval);
-  }, [navigate, refreshSubscriptionStatus]);
+        if (isActive) {
+          window.clearInterval(interval);
+          pollingRef.current = false;
+          if (isUpgrade) {
+            await logout();
+          } else {
+            navigate(ROUTES.DASHBOARD, { replace: true });
+          }
+        }
+
+        if (elapsed >= 30000) {
+          window.clearInterval(interval);
+          pollingRef.current = false;
+          setTimedOut(true);
+        }
+      }, 3000);
+    })();
+
+    return () => {
+      if (interval !== undefined) {
+        window.clearInterval(interval);
+      }
+    };
+  }, [navigate, refreshSubscriptionStatus, isUpgrade, sessionId, retryTrigger]);
 
   function handleRetry() {
     pollingRef.current = true;
     setTimedOut(false);
+    setRetryTrigger((c) => c + 1);
   }
 
   return (

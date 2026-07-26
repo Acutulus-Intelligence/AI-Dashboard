@@ -2,12 +2,14 @@ using Application.DTos.Request;
 using Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Presentation.Middleware;
 
 namespace Presentation.Controllers;
 
 [ApiController]
 [Route("api/graphs")]
 [Authorize]
+[RequireActiveSubscription]
 public class GraphController : ControllerBase
 {
     private readonly IGraphGenerationService _graphService;

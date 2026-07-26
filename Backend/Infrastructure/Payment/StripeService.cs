@@ -21,7 +21,13 @@ public class StripeService : IPaymentService
 
     private StripeClient StripeClient => _stripeClient ??= new StripeClient(_secretKey);
 
-    public async Task<string> CreateCheckoutSessionAsync(
+    private static string AppendSessionIdTemplate(string url)
+    {
+        var separator = url.Contains('?') ? '&' : '?';
+        return $"{url}{separator}session_id={{CHECKOUT_SESSION_ID}}";
+    }
+
+    public async Task<CheckoutResponse> CreateCheckoutSessionAsync(
         string customerId,
         Guid userId,
         Guid planId,
@@ -46,7 +52,7 @@ public class StripeService : IPaymentService
         {
             Customer = customerId,
             Mode = "subscription",
-            SuccessUrl = successUrl,
+            SuccessUrl = AppendSessionIdTemplate(successUrl),
             CancelUrl = cancelUrl,
             Metadata = metadata,
             SubscriptionData = new SessionSubscriptionDataOptions
@@ -78,10 +84,10 @@ public class StripeService : IPaymentService
 
         var service = new SessionService(StripeClient);
         var session = await service.CreateAsync(options, cancellationToken: ct);
-        return session.Url;
+        return new CheckoutResponse(session.Url, session.Id);
     }
 
-    public async Task<string> CreateCompanyCheckoutSessionAsync(
+    public async Task<CheckoutResponse> CreateCompanyCheckoutSessionAsync(
         string customerId,
         Guid userId,
         Guid companyId,
@@ -108,7 +114,7 @@ public class StripeService : IPaymentService
         {
             Customer = customerId,
             Mode = "subscription",
-            SuccessUrl = successUrl,
+            SuccessUrl = AppendSessionIdTemplate(successUrl),
             CancelUrl = cancelUrl,
             Metadata = metadata,
             SubscriptionData = new SessionSubscriptionDataOptions
@@ -140,7 +146,24 @@ public class StripeService : IPaymentService
 
         var service = new SessionService(StripeClient);
         var session = await service.CreateAsync(options, cancellationToken: ct);
-        return session.Url;
+        return new CheckoutResponse(session.Url, session.Id);
+    }
+
+    public async Task<PaymentWebhookEvent?> RetrieveCheckoutSessionAsync(string sessionId, CancellationToken ct = default)
+    {
+        var service = new SessionService(StripeClient);
+        var session = await service.GetAsync(sessionId, cancellationToken: ct);
+
+        if (session.PaymentStatus != "paid" && session.PaymentStatus != "no_payment_required")
+            return null;
+
+        return new PaymentWebhookEvent(
+            "checkout.session.completed",
+            session.Metadata,
+            session.SubscriptionId,
+            session.CustomerId,
+            null
+        );
     }
 
     public async Task<PaymentWebhookEvent> HandleWebhookAsync(string body, string signature)
@@ -159,7 +182,8 @@ public class StripeService : IPaymentService
                     stripeEvent.Type,
                     session.Metadata,
                     session.SubscriptionId,
-                    session.CustomerId
+                    session.CustomerId,
+                    null
                 );
             }
 
@@ -228,6 +252,48 @@ public class StripeService : IPaymentService
         await service.CancelAsync(stripeSubscriptionId, cancellationToken: ct);
     }
 
+    public async Task<string?> GetPaymentMethodFingerprintAsync(string paymentMethodId, CancellationToken ct = default)
+    {
+        var service = new PaymentMethodService(StripeClient);
+        var pm = await service.GetAsync(paymentMethodId, cancellationToken: ct);
+        return pm.Card?.Fingerprint;
+    }
+
+    public async Task<string?> GetPaymentMethodFingerprintBySubscriptionAsync(string stripeSubscriptionId, CancellationToken ct = default)
+    {
+        var options = new SubscriptionGetOptions
+        {
+            Expand = ["default_payment_method"]
+        };
+
+        var service = new SubscriptionService(StripeClient);
+        var subscription = await service.GetAsync(stripeSubscriptionId, options, cancellationToken: ct);
+
+        return subscription.DefaultPaymentMethod?.Card?.Fingerprint;
+    }
+
+    public async Task EndTrialImmediatelyAsync(string stripeSubscriptionId, CancellationToken ct = default)
+    {
+        var options = new SubscriptionUpdateOptions
+        {
+            TrialEnd = DateTime.UtcNow
+        };
+
+        var service = new SubscriptionService(StripeClient);
+        await service.UpdateAsync(stripeSubscriptionId, options, cancellationToken: ct);
+    }
+
+    public async Task UpdateSubscriptionTrialEndAsync(string stripeSubscriptionId, DateTime trialEnd, CancellationToken ct = default)
+    {
+        var options = new SubscriptionUpdateOptions
+        {
+            TrialEnd = trialEnd
+        };
+
+        var service = new SubscriptionService(StripeClient);
+        await service.UpdateAsync(stripeSubscriptionId, options, cancellationToken: ct);
+    }
+
     public async Task<string> GetOrCreateCustomerAsync(string email, Guid userId, CancellationToken ct = default)
     {
         var customerService = new CustomerService(StripeClient);
@@ -250,5 +316,21 @@ public class StripeService : IPaymentService
         }, cancellationToken: ct);
 
         return customer.Id;
+    }
+
+    public async Task<string> EnsureCustomerExistsAsync(string customerId, string email, Guid userId, CancellationToken ct = default)
+    {
+        try
+        {
+            var customerService = new CustomerService(StripeClient);
+            var customer = await customerService.GetAsync(customerId, cancellationToken: ct);
+            if (customer.Deleted == true)
+                return await GetOrCreateCustomerAsync(email, userId, ct);
+            return customerId;
+        }
+        catch (StripeException ex) when (ex.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return await GetOrCreateCustomerAsync(email, userId, ct);
+        }
     }
 }

@@ -10,6 +10,7 @@ public interface ISubscriptionService
     Task<CheckoutResponse> CreateUserCheckoutSessionAsync(Guid userId, Guid planId, BillingPeriod period, string successUrl, string cancelUrl, CancellationToken ct = default);
     Task<CheckoutResponse> CreateCompanyCheckoutSessionAsync(Guid companyId, Guid planId, BillingPeriod period, Guid actorId, string successUrl, string cancelUrl, CancellationToken ct = default);
     Task<CheckoutResponse> UpgradeToCompanyAsync(Guid userId, string companyName, Guid planId, BillingPeriod period, string successUrl, string cancelUrl, CancellationToken ct = default);
+    Task ConfirmCheckoutSessionAsync(string sessionId, CancellationToken ct = default);
     Task HandleStripeWebhookAsync(string body, string signature, CancellationToken ct = default);
     Task<bool> HasActiveSubscriptionAsync(Guid userId, CancellationToken ct = default);
     Task<bool> CompanyHasActiveSubscriptionAsync(Guid companyId, CancellationToken ct = default);

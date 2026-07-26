@@ -73,6 +73,14 @@ public class SubscriptionController : ControllerBase
         return Ok();
     }
 
+    [HttpPost("confirm")]
+    [Authorize]
+    public async Task<IActionResult> ConfirmCheckout([FromBody] ConfirmCheckoutRequest request, CancellationToken ct)
+    {
+        await _subscriptionService.ConfirmCheckoutSessionAsync(request.SessionId, ct);
+        return Ok();
+    }
+
     [HttpGet("has-active")]
     [Authorize]
     public async Task<IActionResult> HasActive(CancellationToken ct)

@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { AlertCircle, ArrowLeft, Building2, CheckCircle2, CreditCard, Database, XCircle } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { AlertCircle, ArrowLeft, Building2, CheckCircle2, CreditCard, Database, Mailbox, User, XCircle } from 'lucide-react';
 import Button from '../components/Button';
 import DashboardHeader from '../layouts/DashboardHeader';
 import { ROUTES } from '../routes';
 import * as subscriptionApi from '../../lib/api/subscription';
+import * as companyApi from '../../lib/api/company';
 import { useAuth } from '../store/useAuth';
 
 function formatDate(dateStr: string | null) {
@@ -24,11 +25,16 @@ function statusLabel(status: number | string): { text: string; color: string } {
 }
 
 export default function SettingsPage() {
+  const { user, refreshUser } = useAuth();
+  const navigate = useNavigate();
   const [subscription, setSubscription] = useState<subscriptionApi.UserSubscription | null>(null);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState('');
-  const { user } = useAuth();
+  const [invites, setInvites] = useState<companyApi.CompanyInviteResponse[]>([]);
+  const [invitesLoading, setInvitesLoading] = useState(true);
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
 
   async function loadSubscription() {
     setError('');
@@ -42,9 +48,52 @@ export default function SettingsPage() {
     }
   }
 
+  async function loadInvites() {
+    try {
+      const data = await companyApi.getPendingInvites();
+      setInvites(data);
+    } catch {
+      setInvites([]);
+    } finally {
+      setInvitesLoading(false);
+    }
+  }
+
+  async function handleAccept(inviteId: string) {
+    setError('');
+    setAcceptingId(inviteId);
+    try {
+      await companyApi.acceptInvite({ inviteId });
+      await refreshUser();
+      navigate(ROUTES.DASHBOARD);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to accept invite.');
+      setAcceptingId(null);
+    }
+  }
+
+  async function handleReject(inviteId: string) {
+    setError('');
+    setRejectingId(inviteId);
+    try {
+      await companyApi.rejectInvite(inviteId);
+      setInvites((prev) => prev.filter((i) => i.id !== inviteId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reject invite.');
+    } finally {
+      setRejectingId(null);
+    }
+  }
+
   useEffect(() => {
     void loadSubscription();
   }, []);
+
+  useEffect(() => {
+    if (user?.userType === 0) {
+      void loadInvites();
+    }
+  }, [user?.userType]);
 
   async function handleCancel() {
     if (!window.confirm('Are you sure you want to cancel your subscription? Your dashboard access will be revoked.')) return;
@@ -95,6 +144,20 @@ export default function SettingsPage() {
             </div>
           ) : (
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {/* Profile */}
+              <Link
+                to={ROUTES.PROFILE}
+                className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm transition-shadow hover:shadow-md"
+              >
+                <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <User size={24} />
+                </div>
+                <h2 className="mb-2 text-body-lg font-semibold text-on-background">Profile</h2>
+                <p className="text-body-sm text-on-surface-variant">
+                  Update your name, email, password, and manage your account.
+                </p>
+              </Link>
+
               {subscription ? (
                 <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm transition-shadow hover:shadow-md">
                   <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -188,6 +251,55 @@ export default function SettingsPage() {
                       <Button variant="outline" className="w-full">Create company</Button>
                     </Link>
                   </div>
+                </div>
+              )}
+
+              {user?.userType === 0 && (
+                <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm transition-shadow hover:shadow-md">
+                  <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                    <Mailbox size={24} />
+                  </div>
+                  <h2 className="mb-2 text-body-lg font-semibold text-on-background">Invites</h2>
+
+                  {invitesLoading ? (
+                    <div className="flex justify-center py-4">
+                      <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                    </div>
+                  ) : invites.length === 0 ? (
+                    <p className="text-body-sm text-on-surface-variant">No pending invites.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {invites.map((invite) => (
+                        <div key={invite.id} className="rounded-xl border border-outline-variant/60 bg-surface-container-lowest p-3">
+                          <div className="mb-1 flex items-center justify-between">
+                            <span className="text-body-sm font-medium text-on-background">{invite.companyName}</span>
+                            <span className="text-label-xs text-on-surface-variant">
+                              {new Date(invite.expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </span>
+                          </div>
+                          <p className="text-body-xs text-on-surface-variant">Role: {invite.roleName ?? 'Member'}</p>
+                          <div className="mt-2 flex gap-2">
+                            <Button
+                              variant="outline"
+                              className="flex-1 border-primary/30 text-primary hover:bg-primary/5"
+                              disabled={acceptingId === invite.id || rejectingId === invite.id}
+                              onClick={(e) => { e.preventDefault(); void handleAccept(invite.id); }}
+                            >
+                              {acceptingId === invite.id ? 'Accepting...' : 'Accept'}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              className="flex-1 border-red-300 text-red-600 hover:bg-red-50"
+                              disabled={acceptingId === invite.id || rejectingId === invite.id}
+                              onClick={(e) => { e.preventDefault(); void handleReject(invite.id); }}
+                            >
+                              {rejectingId === invite.id ? 'Rejecting...' : 'Reject'}
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

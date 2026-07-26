@@ -8,4 +8,5 @@ public sealed record CompanyInviteResponse(
     DateTime CreatedAt,
     DateTime ExpiresAt,
     bool IsExpired,
-    bool IsAccepted);
+    bool IsAccepted,
+    string CompanyName);
