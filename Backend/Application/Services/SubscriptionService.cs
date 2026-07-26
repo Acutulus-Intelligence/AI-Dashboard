@@ -102,9 +102,8 @@ public class SubscriptionService : ISubscriptionService
             .OrderByDescending(s => s.StartDate)
             .FirstOrDefaultAsync(s => s.UserId == userId, ct);
 
-        var trialDays = CalculateTrialDays(existingSubscription?.TrialEndDate);
-
         var userEmail = user.Email ?? throw new InvalidOperationException("User email is required for payment processing.");
+        var trialDays = await ResolveTrialDaysAsync(userId, userEmail, existingSubscription?.TrialEndDate, ct);
         var customerId = user.StripeCustomerId is not null
             ? await _paymentService.EnsureCustomerExistsAsync(user.StripeCustomerId, userEmail, user.Id, ct)
             : await _paymentService.GetOrCreateCustomerAsync(userEmail, user.Id, ct);
@@ -169,9 +168,17 @@ public class SubscriptionService : ISubscriptionService
             .AsNoTracking()
             .FirstOrDefaultAsync(s => s.CompanyId == companyId, ct);
 
-        var trialDays = CalculateTrialDays(existingSubscription?.TrialEndDate);
+        var existingUserSubscription = await _db.UserSubscriptions
+            .AsNoTracking()
+            .OrderByDescending(s => s.StartDate)
+            .FirstOrDefaultAsync(s => s.UserId == actorId, ct);
 
         var ownerEmail = owner.Email ?? throw new InvalidOperationException("Owner email is required for payment processing.");
+        var trialDays = await ResolveTrialDaysAsync(
+            actorId,
+            ownerEmail,
+            existingSubscription?.TrialEndDate ?? existingUserSubscription?.TrialEndDate,
+            ct);
         var customerId = owner.StripeCustomerId is not null
             ? await _paymentService.EnsureCustomerExistsAsync(owner.StripeCustomerId, ownerEmail, owner.Id, ct)
             : await _paymentService.GetOrCreateCustomerAsync(ownerEmail, owner.Id, ct);
@@ -222,6 +229,11 @@ public class SubscriptionService : ISubscriptionService
         var existingSubscription = await _db.UserSubscriptions
             .FirstOrDefaultAsync(s => s.UserId == userId && (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial), ct);
 
+        var historicalSubscription = await _db.UserSubscriptions
+            .AsNoTracking()
+            .OrderByDescending(s => s.StartDate)
+            .FirstOrDefaultAsync(s => s.UserId == userId, ct);
+
         var now = DateTime.UtcNow;
 
         if (existingSubscription is not null)
@@ -238,9 +250,12 @@ public class SubscriptionService : ISubscriptionService
 
         var price = period == BillingPeriod.Monthly ? plan.MonthlyPrice : plan.YearlyPrice;
 
-        var trialDays = CalculateTrialDays(null);
-
         var upgradeEmail = user.Email ?? throw new InvalidOperationException("User email is required for payment processing.");
+        var trialDays = await ResolveTrialDaysAsync(
+            userId,
+            upgradeEmail,
+            existingSubscription?.TrialEndDate ?? historicalSubscription?.TrialEndDate,
+            ct);
         var customerId = user.StripeCustomerId is not null
             ? await _paymentService.EnsureCustomerExistsAsync(user.StripeCustomerId, upgradeEmail, user.Id, ct)
             : await _paymentService.GetOrCreateCustomerAsync(upgradeEmail, user.Id, ct);
@@ -447,11 +462,52 @@ public class SubscriptionService : ISubscriptionService
         return Math.Max(1, remaining);
     }
 
+    /// <summary>
+    /// Most restrictive trial length from subscription history and durable card/email fingerprints.
+    /// A null fingerprint TrialEndDate means the trial was already consumed/ended.
+    /// </summary>
+    private async Task<int> ResolveTrialDaysAsync(
+        Guid userId,
+        string? email,
+        DateTime? subscriptionTrialEndDate,
+        CancellationToken ct)
+    {
+        var fromSubscription = CalculateTrialDays(subscriptionTrialEndDate);
+
+        var emailHash = email is not null ? HashEmail(email) : null;
+        var fingerprintEnds = await _db.CardFingerprints
+            .AsNoTracking()
+            .Where(f => f.UserId == userId || (emailHash != null && f.EmailHash == emailHash))
+            .Select(f => f.TrialEndDate)
+            .ToListAsync(ct);
+
+        if (fingerprintEnds.Count == 0)
+            return fromSubscription;
+
+        // Explicit null = trial already ended/consumed for this person
+        if (fingerprintEnds.Any(d => d is null))
+            return 1;
+
+        var earliest = fingerprintEnds.Min();
+        return Math.Min(fromSubscription, CalculateTrialDays(earliest));
+    }
+
     private static string HashEmail(string email)
     {
         var normalized = email.Trim().ToLowerInvariant();
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
         return Convert.ToHexStringLower(bytes);
+    }
+
+    private async Task MarkTrialFingerprintsConsumedAsync(Guid userId, string? email, CancellationToken ct)
+    {
+        var emailHash = email is not null ? HashEmail(email) : null;
+        var records = await _db.CardFingerprints
+            .Where(f => f.UserId == userId || (emailHash != null && f.EmailHash == emailHash))
+            .ToListAsync(ct);
+
+        foreach (var record in records)
+            record.TrialEndDate = null;
     }
 
     private async Task HandleCheckoutCompletedAsync(PaymentWebhookEvent evt, CancellationToken ct)
@@ -578,58 +634,65 @@ public class SubscriptionService : ISubscriptionService
                 user.UserType = plan.UserType;
         }
 
-        // Track card fingerprint to prevent trial abuse across accounts
+        // Track card fingerprint to prevent trial abuse across accounts.
+        // Match existing rows BEFORE insert, correct the subscription, then persist
+        // only the corrected TrialEndDate (never store the pre-correction full trial).
         if (evt.StripeSubscriptionId is not null)
         {
             var fingerprint = await _paymentService.GetPaymentMethodFingerprintBySubscriptionAsync(evt.StripeSubscriptionId, ct);
 
             if (fingerprint is not null)
             {
-                var trialEndDate = userSubRef?.TrialEndDate ?? companySubRef?.TrialEndDate;
-
-                _db.CardFingerprints.Add(new CardFingerprint
-                {
-                    Id = Guid.NewGuid(),
-                    Fingerprint = fingerprint,
-                    UserId = userId,
-                    EmailHash = user?.Email is not null ? HashEmail(user.Email) : null,
-                    TrialEndDate = trialEndDate,
-                    StripePaymentMethodId = evt.StripeSubscriptionId
-                });
-
+                var userEmailHash = user?.Email is not null ? HashEmail(user.Email) : null;
                 var matchingFingerprints = await _db.CardFingerprints
                     .Where(f => f.Fingerprint == fingerprint)
                     .ToListAsync(ct);
 
+                var samePersonRecords = matchingFingerprints
+                    .Where(f => f.UserId == userId
+                        || (userEmailHash is not null && f.UserId == null && f.EmailHash == userEmailHash))
+                    .ToList();
+
+                DateTime? correctedTrialEndDate = userSubRef?.TrialEndDate ?? companySubRef?.TrialEndDate;
+
                 if (matchingFingerprints.Count > 0)
                 {
-                    var userEmailHash = user?.Email is not null ? HashEmail(user.Email) : null;
-                    var samePersonRecord = matchingFingerprints.Find(f => f.UserId == userId)
-                        ?? (userEmailHash is not null
-                            ? matchingFingerprints.Find(f => f.UserId == null && f.EmailHash == userEmailHash)
-                            : null);
+                    var datedEnds = samePersonRecords
+                        .Where(f => f.TrialEndDate is not null)
+                        .Select(f => f.TrialEndDate!.Value)
+                        .ToList();
+                    var earliestSamePersonEnd = datedEnds.Count > 0 ? datedEnds.Min() : (DateTime?)null;
+                    var trialAlreadyConsumed = samePersonRecords.Any(f => f.TrialEndDate is null);
+                    var canResume = samePersonRecords.Count > 0
+                        && !trialAlreadyConsumed
+                        && earliestSamePersonEnd is not null
+                        && earliestSamePersonEnd > DateTime.UtcNow;
 
-                    if (samePersonRecord is not null && samePersonRecord.TrialEndDate > DateTime.UtcNow)
+                    if (canResume)
                     {
-                        // Same person returning with active trial — resume remaining days
+                        // Same person returning with active trial — resume earliest remaining end
                         await _paymentService.UpdateSubscriptionTrialEndAsync(
-                            stripeSubscriptionId, samePersonRecord.TrialEndDate.Value, ct);
+                            stripeSubscriptionId, earliestSamePersonEnd.Value, ct);
+
+                        correctedTrialEndDate = earliestSamePersonEnd;
 
                         if (userSubRef is not null)
                         {
-                            userSubRef.TrialEndDate = samePersonRecord.TrialEndDate;
-                            userSubRef.EndDate = samePersonRecord.TrialEndDate;
+                            userSubRef.TrialEndDate = earliestSamePersonEnd;
+                            userSubRef.EndDate = earliestSamePersonEnd;
                         }
                         else if (companySubRef is not null)
                         {
-                            companySubRef.TrialEndDate = samePersonRecord.TrialEndDate;
-                            companySubRef.EndDate = samePersonRecord.TrialEndDate;
+                            companySubRef.TrialEndDate = earliestSamePersonEnd;
+                            companySubRef.EndDate = earliestSamePersonEnd;
                         }
                     }
                     else
                     {
-                        // Different person OR same person with expired trial — end trial
+                        // Different person, consumed trial, or expired trial — end immediately
                         await _paymentService.EndTrialImmediatelyAsync(evt.StripeSubscriptionId, ct);
+
+                        correctedTrialEndDate = null;
 
                         var renewalDate = DateTime.UtcNow.AddMonths(1);
                         if (billingPeriod == BillingPeriod.Yearly)
@@ -648,6 +711,30 @@ public class SubscriptionService : ISubscriptionService
                             userSubRef.TrialEndDate = null;
                         }
                     }
+
+                    // Keep all same-person fingerprint evidence consistent (no poisoned full dates)
+                    foreach (var record in samePersonRecords)
+                        record.TrialEndDate = correctedTrialEndDate;
+                }
+
+                var existingForUser = matchingFingerprints.Find(f => f.UserId == userId);
+                if (existingForUser is not null)
+                {
+                    existingForUser.TrialEndDate = correctedTrialEndDate;
+                    existingForUser.EmailHash = userEmailHash ?? existingForUser.EmailHash;
+                    existingForUser.StripePaymentMethodId = evt.StripeSubscriptionId;
+                }
+                else
+                {
+                    _db.CardFingerprints.Add(new CardFingerprint
+                    {
+                        Id = Guid.NewGuid(),
+                        Fingerprint = fingerprint,
+                        UserId = userId,
+                        EmailHash = userEmailHash,
+                        TrialEndDate = correctedTrialEndDate,
+                        StripePaymentMethodId = evt.StripeSubscriptionId
+                    });
                 }
             }
         }
@@ -667,12 +754,25 @@ public class SubscriptionService : ISubscriptionService
 
         if (userSub is not null)
         {
-            if (userSub.Status == SubscriptionStatus.Trial)
+            var wasTrial = userSub.Status == SubscriptionStatus.Trial;
+            if (wasTrial)
+            {
                 userSub.Status = SubscriptionStatus.Active;
+                userSub.TrialEndDate = null;
+            }
 
             userSub.EndDate = userSub.BillingPeriod == BillingPeriod.Monthly
                 ? now.AddMonths(1)
                 : now.AddYears(1);
+
+            if (wasTrial)
+            {
+                var email = await _db.Users.AsNoTracking()
+                    .Where(u => u.Id == userSub.UserId)
+                    .Select(u => u.Email)
+                    .FirstOrDefaultAsync(ct);
+                await MarkTrialFingerprintsConsumedAsync(userSub.UserId, email, ct);
+            }
 
             await _db.SaveChangesAsync(ct);
             return;
@@ -683,12 +783,33 @@ public class SubscriptionService : ISubscriptionService
 
         if (companySub is not null)
         {
-            if (companySub.Status == SubscriptionStatus.Trial)
+            var wasTrial = companySub.Status == SubscriptionStatus.Trial;
+            if (wasTrial)
+            {
                 companySub.Status = SubscriptionStatus.Active;
+                companySub.TrialEndDate = null;
+            }
 
             companySub.EndDate = companySub.BillingPeriod == BillingPeriod.Monthly
                 ? now.AddMonths(1)
                 : now.AddYears(1);
+
+            if (wasTrial)
+            {
+                var owner = await _db.Companies.AsNoTracking()
+                    .Where(c => c.Id == companySub.CompanyId)
+                    .Select(c => new { c.OwnerId })
+                    .FirstOrDefaultAsync(ct);
+
+                if (owner is not null)
+                {
+                    var email = await _db.Users.AsNoTracking()
+                        .Where(u => u.Id == owner.OwnerId)
+                        .Select(u => u.Email)
+                        .FirstOrDefaultAsync(ct);
+                    await MarkTrialFingerprintsConsumedAsync(owner.OwnerId, email, ct);
+                }
+            }
 
             await _db.SaveChangesAsync(ct);
         }
