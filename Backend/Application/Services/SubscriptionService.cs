@@ -598,15 +598,16 @@ public class SubscriptionService : ISubscriptionService
                 });
 
                 var matchingFingerprints = await _db.CardFingerprints
-                    .Where(f => f.Fingerprint == fingerprint && (f.UserId == null || f.UserId != userId))
+                    .Where(f => f.Fingerprint == fingerprint)
                     .ToListAsync(ct);
 
                 if (matchingFingerprints.Count > 0)
                 {
                     var userEmailHash = user?.Email is not null ? HashEmail(user.Email) : null;
-                    var samePersonRecord = userEmailHash is not null
-                        ? matchingFingerprints.Find(f => f.UserId == null && f.EmailHash == userEmailHash)
-                        : null;
+                    var samePersonRecord = matchingFingerprints.Find(f => f.UserId == userId)
+                        ?? (userEmailHash is not null
+                            ? matchingFingerprints.Find(f => f.UserId == null && f.EmailHash == userEmailHash)
+                            : null);
 
                     if (samePersonRecord is not null && samePersonRecord.TrialEndDate > DateTime.UtcNow)
                     {
