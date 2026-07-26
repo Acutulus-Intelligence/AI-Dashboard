@@ -49,7 +49,18 @@ Dependency direction: **Domain ← Application ← Infrastructure ← Presentati
 Useful scripts:
 
 - Frontend: `npm run dev`, `npm run build`, `npm run lint` (`Frontend/package.json`)
-- Backend: `dotnet restore` / `dotnet build` on `Backend/Presentation.slnx` (see `.github/workflows/`)
+- Backend: `dotnet restore` / `dotnet build` / `dotnet test` on `Backend/Presentation.slnx` (see `.github/workflows/`)
+
+### Backend tests
+
+Route-level integration tests live in `Backend/tests/Presentation.IntegrationTests/`.
+They use Testcontainers (Docker required) and cover Auth, Company, Subscription, Admin, and product APIs (connections/schema/graphs/charts/dashboards). Stripe and OpenRouter are faked in the test host.
+
+```bash
+dotnet test Backend/Presentation.slnx
+# or
+dotnet test Backend/tests/Presentation.IntegrationTests
+```
 
 ## Config (do not commit secrets)
 
@@ -68,8 +79,7 @@ Never commit real keys, connection strings, or JWT/encryption secrets.
 
 - Controllers for connections, schema, charts, graphs, and dashboards use `[Authorize]` plus `[RequireActiveSubscription]`. Registration/login work without Stripe; those product flows need an active subscription (and OpenRouter for AI generation).
 - Seeded admin user is created in `Backend/Infrastructure/Data/SeedData.cs` on first boot.
-- There may be no backend test projects yet; `dotnet test` can report zero tests.
-- Frontend CI builds with `npm run build`; `npm run lint` may report existing hook-rule findings.
+- Backend integration tests require Docker (Testcontainers). Frontend CI builds with `npm run build`; `npm run lint` may report existing hook-rule findings.
 
 ## Project skills
 
