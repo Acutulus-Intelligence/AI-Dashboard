@@ -577,7 +577,7 @@ public class SubscriptionService : ISubscriptionService
             if (fingerprint is not null)
             {
                 var duplicateFingerprint = await _db.CardFingerprints
-                    .AnyAsync(f => f.Fingerprint == fingerprint && f.UserId != userId, ct);
+                    .AnyAsync(f => f.Fingerprint == fingerprint && (f.UserId == null || f.UserId != userId), ct);
 
                 _db.CardFingerprints.Add(new CardFingerprint
                 {
