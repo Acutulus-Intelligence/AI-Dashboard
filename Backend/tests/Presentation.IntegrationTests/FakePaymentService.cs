@@ -108,4 +108,10 @@ public sealed class FakePaymentService : IPaymentService
 
     public Task EndTrialImmediatelyAsync(string stripeSubscriptionId, CancellationToken ct = default)
         => Task.CompletedTask;
+
+    public Task UpdateSubscriptionTrialEndAsync(
+        string stripeSubscriptionId,
+        DateTime trialEnd,
+        CancellationToken ct = default)
+        => Task.CompletedTask;
 }
