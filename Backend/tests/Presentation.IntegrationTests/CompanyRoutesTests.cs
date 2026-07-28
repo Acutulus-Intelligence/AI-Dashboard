@@ -1,8 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Application.Dtos.Request;
-using Application.Dtos.Response;
+using Application.DTos.Request;
+using Application.DTos.Response;
 using FluentAssertions;
 
 namespace Presentation.IntegrationTests;

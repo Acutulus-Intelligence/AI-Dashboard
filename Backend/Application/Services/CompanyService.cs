@@ -1,6 +1,6 @@
 using Application.Common.Exceptions;
-using Application.Dtos.Request;
-using Application.Dtos.Response;
+using Application.DTos.Request;
+using Application.DTos.Response;
 using Application.Interfaces;
 using Domain.Charts;
 using Domain.Enums;

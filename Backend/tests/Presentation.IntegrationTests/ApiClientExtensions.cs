@@ -1,6 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
-using Application.Dtos.Request;
+using Application.DTos.Request;
 using Domain.Enums;
 using Domain.Models;
 using Infrastructure.Data;

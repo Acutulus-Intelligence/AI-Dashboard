@@ -1,4 +1,4 @@
-namespace Application.Dtos;
+namespace Application.DTos;
 
 public sealed record AuthResult(
     string AccessToken,

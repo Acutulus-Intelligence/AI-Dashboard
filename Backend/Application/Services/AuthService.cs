@@ -1,7 +1,7 @@
 using Application.Common.Exceptions;
-using Application.Dtos;
-using Application.Dtos.Request;
-using Application.Dtos.Response;
+using Application.DTos;
+using Application.DTos.Request;
+using Application.DTos.Response;
 using Application.Interfaces;
 using Domain.Enums;
 using Domain.Models;

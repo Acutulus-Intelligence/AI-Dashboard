@@ -1,4 +1,4 @@
-namespace Application.Dtos.Request;
+namespace Application.DTos.Request;
 
 public sealed record ChangePasswordRequest(
     string CurrentPassword,
