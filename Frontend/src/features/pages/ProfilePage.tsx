@@ -1,318 +1,364 @@
-import { useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
-import { AlertCircle, ArrowLeft, CheckCircle2, Lock, Trash2, User } from 'lucide-react';
-import Button from '../components/Button';
-import DashboardHeader from '../layouts/DashboardHeader';
-import { ROUTES } from '../routes';
-import * as authApi from '../../lib/api/auth';
+import { useState } from 'react';
+import { useForm, useWatch } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { toast } from 'sonner';
+import { Loader2, TriangleAlert } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form';
+import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import AppShell from '../layouts/AppShell';
+import PasswordRequirements from '../components/PasswordRequirements';
 import { useAuth } from '../store/useAuth';
+import * as authApi from '../../lib/api/auth';
+import {
+  accountSchema,
+  deleteAccountSchema,
+  passwordSchema,
+  type AccountFormValues,
+  type DeleteAccountFormValues,
+  type PasswordFormValues,
+} from '../validation/profileForms';
 
-export default function ProfilePage() {
-  const { user, logout } = useAuth();
-  const isCompany = user?.userType === 1;
-  const backRoute = isCompany ? ROUTES.ADMIN : ROUTES.SETTINGS;
+function errorMessage(err: unknown, fallback: string) {
+  return err instanceof Error ? err.message : fallback;
+}
 
-  const [profileFirstName, setProfileFirstName] = useState(user?.firstName ?? '');
-  const [profileLastName, setProfileLastName] = useState(user?.lastName ?? '');
-  const [profileEmail, setProfileEmail] = useState(user?.email ?? '');
-  const [profileSaving, setProfileSaving] = useState(false);
-  const [profileSuccess, setProfileSuccess] = useState(false);
-  const [profileError, setProfileError] = useState('');
+function AccountTab() {
+  const { user, refreshUser } = useAuth();
 
-  const [pwCurrent, setPwCurrent] = useState('');
-  const [pwNew, setPwNew] = useState('');
-  const [pwConfirm, setPwConfirm] = useState('');
-  const [pwSaving, setPwSaving] = useState(false);
-  const [pwSuccess, setPwSuccess] = useState(false);
-  const [pwError, setPwError] = useState('');
+  const form = useForm<AccountFormValues>({
+    resolver: zodResolver(accountSchema),
+    defaultValues: {
+      firstName: user?.firstName ?? '',
+      lastName: user?.lastName ?? '',
+      email: user?.email ?? '',
+    },
+  });
 
-  const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState('');
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [deletePassword, setDeletePassword] = useState('');
-
-  async function handleUpdateProfile(e: FormEvent) {
-    e.preventDefault();
-    setProfileError('');
-    setProfileSuccess(false);
-
-    if (!profileFirstName.trim() || !profileLastName.trim()) {
-      setProfileError('First name and last name are required.');
-      return;
-    }
-
-    setProfileSaving(true);
+  async function onSubmit(values: AccountFormValues) {
     try {
       await authApi.updateProfile({
-        firstName: profileFirstName.trim(),
-        lastName: profileLastName.trim(),
-        email: profileEmail.trim() !== user?.email ? profileEmail.trim() || undefined : undefined,
+        firstName: values.firstName,
+        lastName: values.lastName,
+        email: values.email !== user?.email ? values.email : undefined,
       });
-      setProfileSuccess(true);
-      setTimeout(() => setProfileSuccess(false), 3000);
+      await refreshUser();
+      form.reset(values);
+      toast.success('Profile updated.');
     } catch (err) {
-      setProfileError(err instanceof Error ? err.message : 'Failed to update profile.');
-    } finally {
-      setProfileSaving(false);
-    }
-  }
-
-  async function handleChangePassword(e: FormEvent) {
-    e.preventDefault();
-    setPwError('');
-    setPwSuccess(false);
-
-    if (!pwCurrent || !pwNew || !pwConfirm) {
-      setPwError('All password fields are required.');
-      return;
-    }
-
-    if (pwNew !== pwConfirm) {
-      setPwError('New passwords do not match.');
-      return;
-    }
-
-    if (pwNew.length < 6) {
-      setPwError('New password must be at least 6 characters.');
-      return;
-    }
-
-    setPwSaving(true);
-    try {
-      await authApi.changePassword({
-        currentPassword: pwCurrent,
-        newPassword: pwNew,
-        confirmNewPassword: pwConfirm,
-      });
-      setPwSuccess(true);
-      setPwCurrent('');
-      setPwNew('');
-      setPwConfirm('');
-      setTimeout(() => setPwSuccess(false), 3000);
-    } catch (err) {
-      setPwError(err instanceof Error ? err.message : 'Failed to change password.');
-    } finally {
-      setPwSaving(false);
-    }
-  }
-
-  async function executeDelete() {
-    setDeleteError('');
-    setDeleting(true);
-    try {
-      await authApi.deleteAccount(deletePassword);
-      await logout();
-    } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : 'Failed to delete account.');
-      setDeleting(false);
+      toast.error(errorMessage(err, 'Failed to update profile.'));
     }
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <DashboardHeader
-        onToggleNavbar={() => {}}
-        onNewChart={() => {}}
-        onNewDashboard={() => {}}
-      />
-      <main className="pt-16">
-        <div className="mx-auto max-w-container-max px-gutter py-8">
-          <div className="mb-6 flex items-center gap-3 border-b border-outline-variant/40 pb-3">
-            <Link
-              to={backRoute}
-              className="inline-flex items-center justify-center rounded-lg p-1.5 text-on-surface-variant transition-colors hover:bg-surface-container"
-            >
-              <ArrowLeft size={18} />
-            </Link>
-            <h1 className="text-headline-md font-bold text-on-background">Profile</h1>
-          </div>
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)}>
+        <Card>
+          <CardHeader>
+            <CardTitle>Account</CardTitle>
+            <CardDescription>
+              Your name and email as they appear across the workspace.
+            </CardDescription>
+          </CardHeader>
 
-          <div className="grid gap-6 md:grid-cols-2">
-            {/* Profile Info */}
-            <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm">
-              <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <User size={24} />
-              </div>
-              <h2 className="mb-3 text-body-lg font-semibold text-on-background">Profile Information</h2>
-              <form onSubmit={handleUpdateProfile} className="space-y-3">
-                <div>
-                  <label htmlFor="profileFirstName" className="mb-1 block text-body-xs font-medium text-on-surface-variant">First name</label>
-                  <input
-                    id="profileFirstName"
-                    type="text"
-                    value={profileFirstName}
-                    onChange={(e) => setProfileFirstName(e.target.value)}
-                    className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="profileLastName" className="mb-1 block text-body-xs font-medium text-on-surface-variant">Last name</label>
-                  <input
-                    id="profileLastName"
-                    type="text"
-                    value={profileLastName}
-                    onChange={(e) => setProfileLastName(e.target.value)}
-                    className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="profileEmail" className="mb-1 block text-body-xs font-medium text-on-surface-variant">Email</label>
-                  <input
-                    id="profileEmail"
-                    type="email"
-                    value={profileEmail}
-                    onChange={(e) => setProfileEmail(e.target.value)}
-                    className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  />
-                </div>
-                {profileError && (
-                  <p className="flex items-center gap-1.5 text-body-xs text-red-600">
-                    <AlertCircle size={12} />
-                    {profileError}
-                  </p>
+          <CardContent className="grid gap-4 sm:max-w-lg">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="firstName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>First name</FormLabel>
+                    <FormControl>
+                      <Input autoComplete="given-name" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
                 )}
-                {profileSuccess && (
-                  <p className="flex items-center gap-1.5 text-body-xs text-green-600">
-                    <CheckCircle2 size={12} />
-                    Profile updated successfully.
-                  </p>
+              />
+              <FormField
+                control={form.control}
+                name="lastName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Last name</FormLabel>
+                    <FormControl>
+                      <Input autoComplete="family-name" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
                 )}
-                <Button type="submit" variant="primary" className="w-full" disabled={profileSaving}>
-                  {profileSaving ? 'Saving...' : 'Save Profile'}
-                </Button>
-              </form>
+              />
             </div>
 
-            {/* Change Password */}
-            <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm">
-              <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <Lock size={24} />
-              </div>
-              <h2 className="mb-3 text-body-lg font-semibold text-on-background">Change Password</h2>
-              <form onSubmit={handleChangePassword} className="space-y-3">
-                <div>
-                  <label htmlFor="pwCurrent" className="mb-1 block text-body-xs font-medium text-on-surface-variant">Current password</label>
-                  <input
-                    id="pwCurrent"
-                    type="password"
-                    value={pwCurrent}
-                    onChange={(e) => setPwCurrent(e.target.value)}
-                    className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="pwNew" className="mb-1 block text-body-xs font-medium text-on-surface-variant">New password</label>
-                  <input
-                    id="pwNew"
-                    type="password"
-                    value={pwNew}
-                    onChange={(e) => setPwNew(e.target.value)}
-                    className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="pwConfirm" className="mb-1 block text-body-xs font-medium text-on-surface-variant">Confirm new password</label>
-                  <input
-                    id="pwConfirm"
-                    type="password"
-                    value={pwConfirm}
-                    onChange={(e) => setPwConfirm(e.target.value)}
-                    className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  />
-                </div>
-                {pwError && (
-                  <p className="flex items-center gap-1.5 text-body-xs text-red-600">
-                    <AlertCircle size={12} />
-                    {pwError}
-                  </p>
-                )}
-                {pwSuccess && (
-                  <p className="flex items-center gap-1.5 text-body-xs text-green-600">
-                    <CheckCircle2 size={12} />
-                    Password changed successfully.
-                  </p>
-                )}
-                <Button type="submit" variant="primary" className="w-full" disabled={pwSaving}>
-                  {pwSaving ? 'Changing...' : 'Change Password'}
-                </Button>
-              </form>
-            </div>
-
-            {/* Danger Zone */}
-            <div className="rounded-2xl border border-red-200 bg-red-50/50 p-6 shadow-sm">
-              <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-red-100 text-red-600">
-                <Trash2 size={24} />
-              </div>
-              <h2 className="mb-2 text-body-lg font-semibold text-red-700">Danger Zone</h2>
-
-              {!showDeleteConfirm ? (
-                <>
-                  <p className="mb-4 text-body-sm text-red-600">
-                    Permanently delete your account and all associated data. This cannot be undone.
-                  </p>
-                  <Button
-                    variant="outline"
-                    className="w-full border-red-300 text-red-600 hover:bg-red-100"
-                    onClick={(e) => { e.preventDefault(); setShowDeleteConfirm(true); }}
-                  >
-                    Delete Account
-                  </Button>
-                </>
-              ) : (
-                <div className="space-y-3">
-                  <div className="rounded-xl border border-red-300 bg-red-100/50 px-4 py-3 text-body-sm text-red-700">
-                    <p className="mb-2 font-medium">This action is permanent.</p>
-                    <p>
-                      All your data including dashboards, charts, and connections will be permanently removed.
-                      This cannot be undone.
-                    </p>
-                  </div>
-
-                  <div>
-                    <label htmlFor="deletePassword" className="mb-1 block text-body-xs font-medium text-red-700">
-                      Enter your password to confirm
-                    </label>
-                    <input
-                      id="deletePassword"
-                      type="password"
-                      value={deletePassword}
-                      onChange={(e) => setDeletePassword(e.target.value)}
-                      placeholder="Enter your password"
-                      className="w-full rounded-xl border border-red-300 bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20"
-                    />
-                  </div>
-
-                  {deleteError && (
-                    <p className="flex items-center gap-1.5 text-body-xs text-red-700">
-                      <AlertCircle size={12} />
-                      {deleteError}
-                    </p>
-                  )}
-
-                  <div className="flex gap-3">
-                    <Button
-                      variant="outline"
-                      className="flex-1"
-                      disabled={deleting}
-                      onClick={(e) => { e.preventDefault(); setShowDeleteConfirm(false); setDeletePassword(''); setDeleteError(''); }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="flex-1 border-red-300 text-red-600 hover:bg-red-100"
-                      disabled={!deletePassword || deleting}
-                      onClick={(e) => { e.preventDefault(); void executeDelete(); }}
-                    >
-                      {deleting ? 'Deleting...' : 'Delete my account'}
-                    </Button>
-                  </div>
-                </div>
+            <FormField
+              control={form.control}
+              name="email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Email</FormLabel>
+                  <FormControl>
+                    <Input type="email" autoComplete="email" {...field} />
+                  </FormControl>
+                  <FormDescription>Used to sign in and receive notifications.</FormDescription>
+                  <FormMessage />
+                </FormItem>
               )}
-            </div>
-          </div>
-        </div>
-      </main>
-    </div>
+            />
+          </CardContent>
+
+          <CardFooter className="gap-2">
+            <Button type="submit" disabled={form.formState.isSubmitting || !form.formState.isDirty}>
+              {form.formState.isSubmitting && <Loader2 className="animate-spin" />}
+              Save changes
+            </Button>
+            {form.formState.isDirty && (
+              <Button type="button" variant="ghost" onClick={() => form.reset()}>
+                Discard
+              </Button>
+            )}
+          </CardFooter>
+        </Card>
+      </form>
+    </Form>
+  );
+}
+
+function SecurityTab() {
+  const form = useForm<PasswordFormValues>({
+    resolver: zodResolver(passwordSchema),
+    defaultValues: { currentPassword: '', newPassword: '', confirmNewPassword: '' },
+  });
+
+  const newPassword = useWatch({ control: form.control, name: 'newPassword' });
+
+  async function onSubmit(values: PasswordFormValues) {
+    try {
+      await authApi.changePassword(values);
+      form.reset();
+      toast.success('Password changed.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Failed to change password.'));
+    }
+  }
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)}>
+        <Card>
+          <CardHeader>
+            <CardTitle>Password</CardTitle>
+            <CardDescription>
+              Choose a strong password you do not use anywhere else.
+            </CardDescription>
+          </CardHeader>
+
+          <CardContent className="grid gap-4 sm:max-w-lg">
+            <FormField
+              control={form.control}
+              name="currentPassword"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Current password</FormLabel>
+                  <FormControl>
+                    <Input type="password" autoComplete="current-password" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="newPassword"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>New password</FormLabel>
+                  <FormControl>
+                    <Input type="password" autoComplete="new-password" {...field} />
+                  </FormControl>
+                  <PasswordRequirements password={newPassword} />
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="confirmNewPassword"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Confirm new password</FormLabel>
+                  <FormControl>
+                    <Input type="password" autoComplete="new-password" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </CardContent>
+
+          <CardFooter>
+            <Button type="submit" disabled={form.formState.isSubmitting}>
+              {form.formState.isSubmitting && <Loader2 className="animate-spin" />}
+              Change password
+            </Button>
+          </CardFooter>
+        </Card>
+      </form>
+    </Form>
+  );
+}
+
+function DangerZoneTab() {
+  const { logout } = useAuth();
+  const [open, setOpen] = useState(false);
+
+  const form = useForm<DeleteAccountFormValues>({
+    resolver: zodResolver(deleteAccountSchema),
+    defaultValues: { currentPassword: '' },
+  });
+
+  async function onSubmit(values: DeleteAccountFormValues) {
+    try {
+      await authApi.deleteAccount(values.currentPassword);
+      setOpen(false);
+      await logout();
+    } catch (err) {
+      form.setError('currentPassword', {
+        message: errorMessage(err, 'Failed to delete account.'),
+      });
+    }
+  }
+
+  return (
+    <Card className="border-destructive/40">
+      <CardHeader>
+        <CardTitle className="text-destructive">Delete account</CardTitle>
+        <CardDescription>
+          Permanently removes your account along with every dashboard, chart and database
+          connection you own.
+        </CardDescription>
+      </CardHeader>
+
+      <CardContent>
+        <Alert variant="destructive">
+          <TriangleAlert />
+          <AlertTitle>This cannot be undone</AlertTitle>
+          <AlertDescription>
+            Once deleted, your data cannot be recovered by you or by support.
+          </AlertDescription>
+        </Alert>
+      </CardContent>
+
+      <CardFooter>
+        <AlertDialog
+          open={open}
+          onOpenChange={(next) => {
+            setOpen(next);
+            if (!next) form.reset();
+          }}
+        >
+          <AlertDialogTrigger asChild>
+            <Button variant="destructive">Delete my account</Button>
+          </AlertDialogTrigger>
+
+          <AlertDialogContent>
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4">
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete your account?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Confirm with your password. This permanently deletes your account and all
+                    associated data.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+
+                <FormField
+                  control={form.control}
+                  name="currentPassword"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Password</FormLabel>
+                      <FormControl>
+                        <Input type="password" autoComplete="current-password" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <AlertDialogFooter>
+                  <AlertDialogCancel type="button">Cancel</AlertDialogCancel>
+                  {/* A plain submit button, not AlertDialogAction, so a failed
+                      delete keeps the dialog open to show the error. */}
+                  <Button type="submit" variant="destructive" disabled={form.formState.isSubmitting}>
+                    {form.formState.isSubmitting && <Loader2 className="animate-spin" />}
+                    Delete permanently
+                  </Button>
+                </AlertDialogFooter>
+              </form>
+            </Form>
+          </AlertDialogContent>
+        </AlertDialog>
+      </CardFooter>
+    </Card>
+  );
+}
+
+export default function ProfilePage() {
+  return (
+    <AppShell breadcrumbs={[{ label: 'Profile' }]}>
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Profile</h1>
+        <p className="text-muted-foreground text-sm">
+          Manage your personal details, password and account.
+        </p>
+      </div>
+
+      <Tabs defaultValue="account" className="gap-6">
+        <TabsList>
+          <TabsTrigger value="account">Account</TabsTrigger>
+          <TabsTrigger value="security">Security</TabsTrigger>
+          <TabsTrigger value="danger">Danger zone</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="account">
+          <AccountTab />
+        </TabsContent>
+        <TabsContent value="security">
+          <SecurityTab />
+        </TabsContent>
+        <TabsContent value="danger">
+          <DangerZoneTab />
+        </TabsContent>
+      </Tabs>
+    </AppShell>
   );
 }

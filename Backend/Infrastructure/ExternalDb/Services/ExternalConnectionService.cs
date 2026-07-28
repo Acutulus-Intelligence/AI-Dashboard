@@ -29,6 +29,8 @@ public class ExternalConnectionService : IExternalConnectionService
 
     public async Task<ConnectionResponse> CreateAsync(Guid userId, CreateConnectionRequest request, CancellationToken ct = default)
     {
+        await EnsureCompanyOwnerOrIndividualAsync(userId, ct);
+
         if (HostBlocklist.IsBlocked(request.Host, _settings.BlockedHosts))
             throw new ArgumentException("This host is not allowed.");
 
@@ -72,6 +74,8 @@ public class ExternalConnectionService : IExternalConnectionService
 
     public async Task DeleteAsync(Guid id, Guid userId, CancellationToken ct = default)
     {
+        await EnsureCompanyOwnerOrIndividualAsync(userId, ct);
+
         var connection = await _db.ExternalConnections
             .FirstOrDefaultAsync(ec => ec.Id == id && ec.UserId == userId, ct)
             ?? throw new KeyNotFoundException("Connection not found.");
@@ -103,6 +107,16 @@ public class ExternalConnectionService : IExternalConnectionService
             await _db.SaveChangesAsync(ct);
             return false;
         }
+    }
+
+    private async Task EnsureCompanyOwnerOrIndividualAsync(Guid userId, CancellationToken ct)
+    {
+        var user = await _db.Users.FindAsync([userId], ct)
+            ?? throw new UnauthorizedAccessException("User not found.");
+        if (user.UserType != UserType.Company) return;
+        var company = await _db.Companies.FindAsync([user.CompanyId], ct);
+        if (company is null || user.Id != company.OwnerId)
+            throw new UnauthorizedAccessException("Only the company owner can manage connections.");
     }
 
     private static string BuildConnectionString(CreateConnectionRequest request)

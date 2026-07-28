@@ -1,4 +1,4 @@
-using Application.Dtos.Response;
+using Application.DTos.Response;
 using Domain.Enums;
 
 namespace Application.Interfaces;

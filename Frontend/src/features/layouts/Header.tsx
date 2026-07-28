@@ -29,7 +29,7 @@ export default function Header() {
     <>
       <header
         className={`fixed top-0 z-50 w-full border-b border-outline-variant bg-surface/85 backdrop-blur-md transition-shadow ${
-          hasScrolled ? 'shadow-sm' : ''
+          hasScrolled ? 'shadow-xs' : ''
         }`}
       >
         <div className="mx-auto flex h-16 w-full max-w-container-max items-center justify-between gap-4 px-gutter">
@@ -44,7 +44,7 @@ export default function Header() {
                   key={item.label}
                   className={`text-body-md transition-opacity hover:text-primary ${
                     index === 0
-                      ? 'border-b-2 border-secondary pb-1 font-semibold text-secondary'
+                      ? 'border-b-2 border-brand pb-1 font-semibold text-brand'
                       : 'text-on-surface-variant'
                   }`}
                   to={item.to}

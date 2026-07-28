@@ -1,4 +1,5 @@
 import { apiFetch } from './client';
+import type { ChartStyleConfig } from '../../features/charts/types';
 
 export interface SaveChartRequest {
   title: string;
@@ -10,6 +11,13 @@ export interface SaveChartRequest {
   sqlQuery: string;
   connectionId: string | null;
   tableName: string | null;
+  styleConfig?: ChartStyleConfig | null;
+}
+
+export interface UpdateChartRequest {
+  title: string;
+  chartType: string;
+  styleConfig?: ChartStyleConfig | null;
 }
 
 export interface ChartResponse {
@@ -31,6 +39,7 @@ export interface ChartDetailResponse {
   connectionId: string | null;
   tableName: string | null;
   createdAt: string;
+  styleConfig?: ChartStyleConfig | null;
 }
 
 export interface ChartConfigResponse {
@@ -42,11 +51,60 @@ export interface ChartConfigResponse {
   groupBy: string | null;
   sqlQuery: string;
   queryResult: Record<string, unknown>[];
+  styleConfig?: ChartStyleConfig | null;
+}
+
+export interface CatalogParamOption {
+  value: string;
+  label: string;
+}
+
+export interface CatalogParamSpec {
+  kind: 'boolean' | 'number' | 'select' | 0 | 1 | 2;
+  key: string;
+  label: string;
+  default: unknown;
+  min?: number | null;
+  max?: number | null;
+  step?: number | null;
+  options?: CatalogParamOption[] | null;
+  help?: string | null;
+}
+
+export interface CatalogVariantSpec {
+  id: string;
+  label: string;
+  description: string;
+}
+
+export interface CatalogTypeSpec {
+  id: string;
+  label: string;
+  description: string;
+  variants: CatalogVariantSpec[];
+  params: CatalogParamSpec[];
+}
+
+export interface CatalogPaletteSpec {
+  id: string;
+  label: string;
+}
+
+export interface ChartCatalogResponse {
+  types: CatalogTypeSpec[];
+  palettes: CatalogPaletteSpec[];
 }
 
 export function saveChart(data: SaveChartRequest): Promise<ChartResponse> {
   return apiFetch<ChartResponse>('/api/charts', {
     method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export function updateChart(id: string, data: UpdateChartRequest): Promise<ChartDetailResponse> {
+  return apiFetch<ChartDetailResponse>(`/api/charts/${id}`, {
+    method: 'PUT',
     body: JSON.stringify(data),
   });
 }
@@ -57,6 +115,10 @@ export function getCharts(): Promise<ChartResponse[]> {
 
 export function getChart(id: string): Promise<ChartDetailResponse> {
   return apiFetch<ChartDetailResponse>(`/api/charts/${id}`);
+}
+
+export function getChartCatalog(): Promise<ChartCatalogResponse> {
+  return apiFetch<ChartCatalogResponse>('/api/charts/catalog');
 }
 
 export function deleteChart(id: string): Promise<void> {

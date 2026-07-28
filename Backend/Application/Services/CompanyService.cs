@@ -1,7 +1,8 @@
 using Application.Common.Exceptions;
-using Application.Dtos.Request;
-using Application.Dtos.Response;
+using Application.DTos.Request;
+using Application.DTos.Response;
 using Application.Interfaces;
+using Domain.Charts;
 using Domain.Enums;
 using Domain.Models;
 using Microsoft.AspNetCore.Identity;
@@ -314,6 +315,124 @@ public class CompanyService : ICompanyService
             throw new InvalidOperationException("You are not a member of any company.");
 
         return await GetByIdAsync(user.CompanyId.Value, userId, ct);
+    }
+
+    public async Task<CompanyStyleResponse> GetMyStyleAsync(Guid userId, CancellationToken ct = default)
+    {
+        var company = await GetMembershipCompanyAsync(userId, ct);
+        return new CompanyStyleResponse(CompanyStyleSanitizer.ResolveColors(company.StyleConfig));
+    }
+
+    public async Task<CompanyStyleResponse> UpdateMyStyleAsync(
+        Guid userId, UpdateCompanyStyleRequest request, CancellationToken ct = default)
+    {
+        var user = await _db.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == userId, ct)
+            ?? throw new KeyNotFoundException("User not found.");
+
+        if (user.CompanyId is null)
+            throw new InvalidOperationException("You are not a member of any company.");
+
+        var company = await _db.Companies
+            .FirstOrDefaultAsync(c => c.Id == user.CompanyId.Value, ct)
+            ?? throw new KeyNotFoundException("Company not found.");
+
+        if (company.OwnerId != userId)
+            throw new UnauthorizedAccessException("Only the company owner can update style settings.");
+
+        var previousColors = CompanyStyleSanitizer.ResolveColors(company.StyleConfig);
+
+        var sanitized = CompanyStyleSanitizer.Sanitize(new CompanyStyleConfig { Colors = request.Colors });
+        if (sanitized?.Colors is null || sanitized.Colors.Count == 0)
+            throw new InvalidOperationException("At least one valid colour is required.");
+
+        var nextColors = sanitized.Colors;
+        await RemapRemovedChartColorsAsync(company.Id, previousColors, nextColors, ct);
+
+        company.StyleConfig = sanitized;
+        await _db.SaveChangesAsync(ct);
+
+        return new CompanyStyleResponse(CompanyStyleSanitizer.ResolveColors(company.StyleConfig));
+    }
+
+    /// <summary>
+    /// Charts that still reference a removed company swatch fall back to the first
+    /// remaining palette colour (the only colour when one is left).
+    /// </summary>
+    private async Task RemapRemovedChartColorsAsync(
+        Guid companyId,
+        List<string> previousColors,
+        List<string> nextColors,
+        CancellationToken ct)
+    {
+        var removed = previousColors
+            .Where(old => !nextColors.Exists(n =>
+                string.Equals(n, old, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        if (removed.Count == 0) return;
+
+        var fallback = nextColors[0];
+        var memberIds = _db.Users
+            .Where(u => u.CompanyId == companyId)
+            .Select(u => u.Id);
+
+        var charts = await _db.SavedCharts
+            .Where(sc => memberIds.Contains(sc.UserId) && sc.StyleConfig != null)
+            .ToListAsync(ct);
+
+        foreach (var chart in charts)
+        {
+            var style = chart.StyleConfig;
+            if (style?.Colors is null || style.Colors.Count == 0) continue;
+
+            var rewritten = false;
+            var colors = style.Colors.ToList();
+            for (var i = 0; i < colors.Count; i++)
+            {
+                var current = colors[i];
+                if (string.IsNullOrWhiteSpace(current)) continue;
+                if (!removed.Exists(r => string.Equals(r, current, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                colors[i] = fallback;
+                rewritten = true;
+            }
+
+            if (!rewritten) continue;
+
+            // Reassign so the jsonb value converter detects the change.
+            chart.StyleConfig = new ChartStyleConfig
+            {
+                Variant = style.Variant,
+                Palette = style.Palette,
+                Colors = colors,
+                Params = style.Params,
+                ValuePrefix = style.ValuePrefix,
+                ValueSuffix = style.ValueSuffix,
+                Info = style.Info,
+                Decimals = style.Decimals,
+                DecimalMode = style.DecimalMode,
+            };
+            chart.UpdatedAt = DateTime.UtcNow;
+        }
+    }
+
+    private async Task<Company> GetMembershipCompanyAsync(Guid userId, CancellationToken ct)
+    {
+        var user = await _db.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == userId, ct)
+            ?? throw new KeyNotFoundException("User not found.");
+
+        if (user.CompanyId is null)
+            throw new InvalidOperationException("You are not a member of any company.");
+
+        return await _db.Companies
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Id == user.CompanyId.Value, ct)
+            ?? throw new KeyNotFoundException("Company not found.");
     }
 
     public async Task DeleteAsync(Guid companyId, Guid actorId, DeleteCompanyRequest request, CancellationToken ct = default)

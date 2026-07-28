@@ -1,3 +1,3 @@
-namespace Application.Dtos.Request;
+namespace Application.DTos.Request;
 
 public sealed record ConfirmCheckoutRequest(string SessionId);

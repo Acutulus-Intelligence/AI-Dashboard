@@ -46,7 +46,7 @@ export default function LoginPage() {
       <Header />
       <main className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 pt-16">
       <div className="w-full max-w-md">
-        <div className="rounded-2xl border border-outline-variant bg-surface p-8 shadow-sm">
+        <div className="rounded-2xl border border-outline-variant bg-surface p-8 shadow-xs">
           <div className="mb-8 text-center">
             <h1 className="text-headline-lg font-bold text-on-background">Welcome back</h1>
             <p className="mt-2 text-body-md text-on-surface-variant">Sign in to your account</p>
@@ -71,7 +71,7 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
                 autoComplete="email"
-                className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-4 py-3 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-4 py-3 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-hidden focus:ring-2 focus:ring-primary/20"
               />
             </div>
 
@@ -87,7 +87,7 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter your password"
                   autoComplete="current-password"
-                  className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-4 py-3 pr-11 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-4 py-3 pr-11 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-hidden focus:ring-2 focus:ring-primary/20"
                 />
                 <button
                   type="button"

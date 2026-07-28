@@ -13,7 +13,7 @@ import {
 } from '../validation/registerForm';
 
 function fieldClass(hasError: boolean) {
-  return `w-full rounded-xl border bg-surface-container-lowest px-4 py-3 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 ${
+  return `w-full rounded-xl border bg-surface-container-lowest px-4 py-3 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:outline-hidden focus:ring-2 ${
     hasError
       ? 'border-red-400 focus:border-red-400 focus:ring-red-200'
       : 'border-outline-variant focus:border-primary focus:ring-primary/20'
@@ -79,7 +79,7 @@ export default function RegisterPage() {
     <div className="min-h-screen bg-background text-on-background">
       <main className="flex min-h-screen justify-center px-4 py-8">
         <div className="w-full max-w-lg">
-          <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm md:p-8">
+          <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-xs md:p-8">
             <div className="mb-6">
               <Link
                 to={ROUTES.PRICING}

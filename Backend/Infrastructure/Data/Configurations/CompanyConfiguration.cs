@@ -1,3 +1,5 @@
+using System.Text.Json;
+using Domain.Charts;
 using Domain.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -6,6 +8,12 @@ namespace Infrastructure.Data.Configurations;
 
 public class CompanyConfiguration : IEntityTypeConfiguration<Company>
 {
+    private static readonly JsonSerializerOptions StyleConfigJson = new()
+    {
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+        PropertyNameCaseInsensitive = true,
+    };
+
     public void Configure(EntityTypeBuilder<Company> builder)
     {
         builder.ToTable("Companies");
@@ -20,6 +28,12 @@ public class CompanyConfiguration : IEntityTypeConfiguration<Company>
 
         builder.Property(c => c.Roles)
             .HasColumnType("text[]");
+
+        builder.Property(c => c.StyleConfig)
+            .HasColumnType("jsonb")
+            .HasConversion(
+                v => v == null ? null : JsonSerializer.Serialize(v, StyleConfigJson),
+                v => v == null ? null : JsonSerializer.Deserialize<CompanyStyleConfig>(v, StyleConfigJson));
 
         builder.Property(c => c.RowVersion)
             .IsRowVersion();

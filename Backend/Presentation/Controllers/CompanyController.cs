@@ -1,4 +1,4 @@
-using Application.Dtos.Request;
+using Application.DTos.Request;
 using Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -33,6 +33,22 @@ public class CompanyController : ControllerBase
     {
         var userId = GetUserId();
         var response = await _companyService.GetMyCompanyAsync(userId, ct);
+        return Ok(response);
+    }
+
+    [HttpGet("me/style")]
+    public async Task<IActionResult> GetMyStyle(CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var response = await _companyService.GetMyStyleAsync(userId, ct);
+        return Ok(response);
+    }
+
+    [HttpPut("me/style")]
+    public async Task<IActionResult> UpdateMyStyle([FromBody] UpdateCompanyStyleRequest request, CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var response = await _companyService.UpdateMyStyleAsync(userId, request, ct);
         return Ok(response);
     }
 

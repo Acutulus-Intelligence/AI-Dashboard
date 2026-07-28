@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using Application.Dtos.Response;
+using Application.DTos.Response;
 using Application.Interfaces;
 using Domain.Enums;
 

@@ -170,6 +170,7 @@ if (!app.Environment.IsDevelopment())
 app.UseCors("Frontend");
 
 app.UseAuthentication();
+app.UseMiddleware<UserExistsMiddleware>();
 app.UseAuthorization();
 
 app.MapControllers();

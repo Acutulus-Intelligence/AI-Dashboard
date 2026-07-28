@@ -73,7 +73,7 @@ export default function CompanyCreatePage() {
       <div className="mx-auto max-w-4xl">
         <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-8">
           <div className="mb-6 flex items-center gap-3">
-            <Building2 className="size-7 text-secondary" aria-hidden="true" />
+            <Building2 className="size-7 text-brand" aria-hidden="true" />
             <div>
               <h1 className="text-headline-lg font-semibold">Create company workspace</h1>
               <p className="text-body-md text-on-surface-variant">
@@ -108,7 +108,7 @@ export default function CompanyCreatePage() {
                   value={companyName}
                   onChange={(e) => setCompanyName(e.target.value)}
                   placeholder="Acme Inc."
-                  className="w-full rounded-xl border border-outline-variant bg-surface px-4 py-3 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  className="w-full rounded-xl border border-outline-variant bg-surface px-4 py-3 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-hidden focus:ring-2 focus:ring-primary/20"
                 />
               </div>
               <Button type="submit" disabled={loading}>

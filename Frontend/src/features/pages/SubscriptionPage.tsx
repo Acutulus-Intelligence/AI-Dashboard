@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertCircle, ArrowLeft, Building2, CheckCircle2, CreditCard, XCircle } from 'lucide-react';
+import { AlertCircle, Building2, CheckCircle2, CreditCard, XCircle } from 'lucide-react';
 import Button from '../components/Button';
-import DashboardHeader from '../layouts/DashboardHeader';
+import ConfirmDialog from '../components/ConfirmDialog';
+import AppShell from '../layouts/AppShell';
 import { ROUTES } from '../routes';
 import * as subscriptionApi from '../../lib/api/subscription';
 
@@ -27,6 +28,7 @@ export default function SubscriptionPage() {
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState('');
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
 
   async function loadSubscription() {
     setError('');
@@ -45,13 +47,12 @@ export default function SubscriptionPage() {
   }, []);
 
   async function handleCancel() {
-    if (!window.confirm('Are you sure you want to cancel your subscription? Your dashboard access will be revoked.')) return;
-
     setCancelling(true);
     setError('');
     try {
       await subscriptionApi.cancel();
       await loadSubscription();
+      setCancelConfirmOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not cancel subscription.');
     } finally {
@@ -62,23 +63,13 @@ export default function SubscriptionPage() {
   const status = subscription ? statusLabel(subscription.status) : null;
 
   return (
-    <div className="min-h-screen bg-background">
-      <DashboardHeader
-        onToggleNavbar={() => {}}
-        onNewChart={() => {}}
-        onNewDashboard={() => {}}
-      />
-      <main className="pt-16">
-        <div className="mx-auto max-w-container-max px-gutter py-8">
-          <div className="mb-6 flex items-center gap-3 border-b border-outline-variant/40 pb-3">
-            <Link
-              to={ROUTES.DASHBOARD}
-              className="inline-flex items-center justify-center rounded-lg p-1.5 text-on-surface-variant transition-colors hover:bg-surface-container"
-            >
-              <ArrowLeft size={18} />
-            </Link>
-            <h1 className="text-headline-md font-bold text-on-background">My Subscription</h1>
-          </div>
+    <AppShell breadcrumbs={[{ label: 'Subscription' }]}>
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">My subscription</h1>
+        <p className="text-muted-foreground text-sm">
+          Review your plan, billing period and payment status.
+        </p>
+      </div>
 
           {error && (
             <div className="mb-6 flex items-center gap-2 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-body-sm text-red-700">
@@ -186,7 +177,7 @@ export default function SubscriptionPage() {
                         variant="outline"
                         className="w-full border-red-300 text-red-600 hover:bg-red-50"
                         disabled={cancelling}
-                        onClick={handleCancel}
+                        onClick={() => setCancelConfirmOpen(true)}
                       >
                         {cancelling ? 'Cancelling...' : 'Cancel subscription'}
                       </Button>
@@ -196,8 +187,19 @@ export default function SubscriptionPage() {
               </div>
             </div>
           )}
-        </div>
-      </main>
-    </div>
+
+      <ConfirmDialog
+        open={cancelConfirmOpen}
+        onOpenChange={(open) => {
+          if (!cancelling) setCancelConfirmOpen(open);
+        }}
+        title="Cancel subscription?"
+        description="Your dashboard access will be revoked. You can resubscribe later."
+        confirmLabel="Cancel subscription"
+        variant="destructive"
+        loading={cancelling}
+        onConfirm={handleCancel}
+      />
+    </AppShell>
   );
 }

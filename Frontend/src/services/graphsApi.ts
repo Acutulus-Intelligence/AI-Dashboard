@@ -9,6 +9,7 @@ export interface ChartConfigResponse {
   groupBy: string | null;
   sqlQuery: string;
   queryResult: Record<string, unknown>[];
+  styleConfig?: import('../features/charts/types').ChartStyleConfig | null;
 }
 
 export interface GenerateChartRequest {

@@ -45,7 +45,7 @@ export default function PlanCards({
             key={plan.id}
             className={`flex h-full flex-col rounded-xl border bg-surface-container-lowest p-6 transition-all hover:border-cyan-action ${
               highlighted
-                ? 'border-secondary/20 border-l-2 border-[#06b6d4] shadow-[inset_0_0_15px_rgba(6,182,212,0.1)]'
+                ? 'border-brand/20 border-l-2 border-cyan-action shadow-[inset_0_0_15px_rgba(6,182,212,0.1)]'
                 : 'border-outline-variant'
             }`}
           >
@@ -68,15 +68,15 @@ export default function PlanCards({
 
             <ul className="mb-6 flex-1 space-y-3 text-body-sm text-on-background">
               <li className="flex items-start gap-2">
-                <Check size={17} className="mt-0.5 shrink-0 text-secondary" aria-hidden="true" />
+                <Check size={17} className="mt-0.5 shrink-0 text-brand" aria-hidden="true" />
                 <span>{formatLimit(plan.maxAiQueriesPerMonth, 'Unlimited')} AI queries per month</span>
               </li>
               <li className="flex items-start gap-2">
-                <Check size={17} className="mt-0.5 shrink-0 text-secondary" aria-hidden="true" />
+                <Check size={17} className="mt-0.5 shrink-0 text-brand" aria-hidden="true" />
                 <span>{formatLimit(plan.maxDashboards, 'Unlimited')} dashboards</span>
               </li>
               <li className="flex items-start gap-2">
-                <Check size={17} className="mt-0.5 shrink-0 text-secondary" aria-hidden="true" />
+                <Check size={17} className="mt-0.5 shrink-0 text-brand" aria-hidden="true" />
                 <span>{formatLimit(plan.maxUsers, 'Single workspace')} users</span>
               </li>
             </ul>

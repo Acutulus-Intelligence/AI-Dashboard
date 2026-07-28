@@ -1,7 +1,7 @@
 using Application.Common.Exceptions;
-using Application.Dtos;
-using Application.Dtos.Request;
-using Application.Dtos.Response;
+using Application.DTos;
+using Application.DTos.Request;
+using Application.DTos.Response;
 using Application.Interfaces;
 using Domain.Enums;
 using Domain.Models;
@@ -223,6 +223,9 @@ public class AuthService : IAuthService
 
         user.CompanyId = null;
         user.CompanyRoleId = null;
+
+        // Invalidate all in-flight JWTs before removing the user.
+        await _userManager.UpdateSecurityStampAsync(user);
 
         await _db.SaveChangesAsync(ct);
 

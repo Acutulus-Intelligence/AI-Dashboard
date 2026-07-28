@@ -1,5 +1,5 @@
-using Application.Dtos.Request;
-using Application.Dtos.Response;
+using Application.DTos.Request;
+using Application.DTos.Response;
 using Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;

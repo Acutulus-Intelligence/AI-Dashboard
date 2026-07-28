@@ -37,7 +37,7 @@ function AlignButton({
       className={
         'rounded p-1 transition-colors '
         + (active
-          ? 'bg-secondary/15 text-secondary'
+          ? 'bg-brand/15 text-brand'
           : 'text-on-surface-variant hover:bg-surface-container-high hover:text-on-background')
       }
     >

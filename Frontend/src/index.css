@@ -1,16 +1,277 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
 
-/* Ensure dragged widget stays above everything */
+@custom-variant dark (&:is(.dark *));
+
+/* ---------------------------------------------------------------------------
+   shadcn design tokens
+   --------------------------------------------------------------------------- */
+@theme inline {
+  --font-heading: var(--font-sans);
+  --font-sans: Inter, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+  --color-chart-7: var(--chart-7);
+  --color-chart-8: var(--chart-8);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* -------------------------------------------------------------------------
+     Legacy Material-style tokens.
+     Aliased onto the shadcn variables above so the pages that have not been
+     rebuilt yet inherit dark mode for free. Remove an alias once its last
+     consumer is migrated.
+     ------------------------------------------------------------------------- */
+  --color-surface: var(--card);
+  --color-surface-bright: var(--card);
+  --color-surface-container-lowest: var(--card);
+  --color-surface-container-low: var(--muted);
+  --color-surface-container: var(--accent);
+  --color-surface-container-high: var(--secondary);
+  --color-surface-container-highest: var(--secondary);
+  --color-surface-dim: var(--border);
+  --color-surface-variant: var(--muted);
+  --color-on-background: var(--foreground);
+  --color-on-surface: var(--foreground);
+  --color-on-surface-variant: var(--muted-foreground);
+  --color-on-primary: var(--primary-foreground);
+  --color-outline: var(--muted-foreground);
+  --color-outline-variant: var(--border);
+  --color-error: var(--destructive);
+
+  /* Brand colours. Fixed hues that keep their identity in both themes. */
+  --color-brand: var(--brand);
+  --color-on-brand: var(--brand-foreground);
+  --color-brand-container: var(--brand-container);
+  --color-on-brand-container: var(--on-brand-container);
+  --color-primary-container: var(--brand-strong);
+  --color-on-primary-container: var(--on-brand-container);
+  --color-tertiary: var(--tertiary);
+  --color-cyan-action: var(--cyan-action);
+
+  --spacing-container-max: 1440px;
+  --spacing-gutter: 24px;
+
+  --text-body-xs: 12px;
+  --text-body-xs--line-height: 16px;
+  --text-body-xs--font-weight: 400;
+  --text-body-sm: 14px;
+  --text-body-sm--line-height: 20px;
+  --text-body-sm--font-weight: 400;
+  --text-body-md: 16px;
+  --text-body-md--line-height: 24px;
+  --text-body-md--font-weight: 400;
+  --text-body-lg: 18px;
+  --text-body-lg--line-height: 28px;
+  --text-body-lg--font-weight: 400;
+  --text-label-caps: 12px;
+  --text-label-caps--line-height: 16px;
+  --text-label-caps--letter-spacing: 0.05em;
+  --text-label-caps--font-weight: 500;
+  --text-data-point: 14px;
+  --text-data-point--line-height: 14px;
+  --text-data-point--font-weight: 600;
+  --text-headline-md: 24px;
+  --text-headline-md--line-height: 32px;
+  --text-headline-md--font-weight: 600;
+  --text-headline-lg: 32px;
+  --text-headline-lg--line-height: 40px;
+  --text-headline-lg--font-weight: 600;
+  --text-display-lg: 48px;
+  --text-display-lg--line-height: 56px;
+  --text-display-lg--font-weight: 700;
+
+  --shadow-ambient: 0 10px 40px -10px rgb(15 23 42 / 0.1);
+  --shadow-action: 0 18px 35px -18px rgb(6 182 212 / 0.7);
+}
+
+:root {
+  --radius: 0.625rem;
+
+  --background: oklch(0.985 0.002 247);
+  --foreground: oklch(0.21 0.006 247);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.006 247);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.006 247);
+  --primary: oklch(0.21 0.006 247);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.967 0.003 247);
+  --secondary-foreground: oklch(0.21 0.006 247);
+  --muted: oklch(0.967 0.003 247);
+  --muted-foreground: oklch(0.5 0.014 254);
+  --accent: oklch(0.947 0.005 247);
+  --accent-foreground: oklch(0.21 0.006 247);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.912 0.006 255);
+  --input: oklch(0.912 0.006 255);
+  --ring: oklch(0.55 0.09 220);
+
+  /* Brand */
+  --brand: oklch(0.47 0.087 220);
+  --brand-foreground: oklch(0.99 0 0);
+  --brand-container: oklch(0.85 0.11 213);
+  --on-brand-container: oklch(0.32 0.06 220);
+  --brand-strong: oklch(0.26 0.045 265);
+  --tertiary: oklch(0.61 0.19 262);
+  --cyan-action: oklch(0.71 0.13 213);
+
+  /* Charts */
+  --chart-1: oklch(0.55 0.11 220);
+  --chart-2: oklch(0.65 0.16 45);
+  --chart-3: oklch(0.6 0.14 155);
+  --chart-4: oklch(0.58 0.2 300);
+  --chart-5: oklch(0.68 0.17 85);
+  --chart-6: oklch(0.55 0.19 15);
+  --chart-7: oklch(0.62 0.13 190);
+  --chart-8: oklch(0.5 0.15 275);
+
+  /* Sidebar */
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: oklch(0.21 0.006 247);
+  --sidebar-primary: oklch(0.47 0.087 220);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.967 0.003 247);
+  --sidebar-accent-foreground: oklch(0.21 0.006 247);
+  --sidebar-border: oklch(0.912 0.006 255);
+  --sidebar-ring: oklch(0.55 0.09 220);
+}
+
+.dark {
+  --background: oklch(0.17 0.008 254);
+  --foreground: oklch(0.96 0.003 247);
+  --card: oklch(0.213 0.01 254);
+  --card-foreground: oklch(0.96 0.003 247);
+  --popover: oklch(0.235 0.011 254);
+  --popover-foreground: oklch(0.96 0.003 247);
+  --primary: oklch(0.93 0.003 247);
+  --primary-foreground: oklch(0.21 0.008 254);
+  --secondary: oklch(0.28 0.012 254);
+  --secondary-foreground: oklch(0.96 0.003 247);
+  --muted: oklch(0.27 0.012 254);
+  --muted-foreground: oklch(0.71 0.013 250);
+  --accent: oklch(0.31 0.014 254);
+  --accent-foreground: oklch(0.96 0.003 247);
+  --destructive: oklch(0.65 0.19 24);
+  --destructive-foreground: oklch(0.99 0 0);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.65 0.1 220);
+
+  /* Brand */
+  --brand: oklch(0.68 0.11 214);
+  --brand-foreground: oklch(0.17 0.03 224);
+  --brand-container: oklch(0.38 0.075 218);
+  --on-brand-container: oklch(0.9 0.06 210);
+  --brand-strong: oklch(0.3 0.05 265);
+  --tertiary: oklch(0.68 0.16 262);
+  --cyan-action: oklch(0.74 0.13 205);
+
+  /* Charts */
+  --chart-1: oklch(0.68 0.12 220);
+  --chart-2: oklch(0.73 0.16 55);
+  --chart-3: oklch(0.71 0.14 155);
+  --chart-4: oklch(0.69 0.18 300);
+  --chart-5: oklch(0.78 0.15 88);
+  --chart-6: oklch(0.67 0.18 18);
+  --chart-7: oklch(0.72 0.12 190);
+  --chart-8: oklch(0.64 0.15 275);
+
+  /* Sidebar */
+  --sidebar: oklch(0.213 0.01 254);
+  --sidebar-foreground: oklch(0.96 0.003 247);
+  --sidebar-primary: oklch(0.68 0.11 214);
+  --sidebar-primary-foreground: oklch(0.17 0.03 224);
+  --sidebar-accent: oklch(0.28 0.012 254);
+  --sidebar-accent-foreground: oklch(0.96 0.003 247);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.65 0.1 220);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    @apply font-sans;
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   react-grid-layout
+   --------------------------------------------------------------------------- */
 .react-draggable-dragging {
   z-index: 100 !important;
 }
-/* Resize handle styling */
+
 .react-resizable-handle {
   opacity: 0;
   transition: opacity 0.15s ease;
 }
+
 .react-resizable:hover .react-resizable-handle {
   opacity: 1;
+}
+
+.react-resizable-handle::after {
+  border-color: var(--muted-foreground) !important;
+}
+
+.react-grid-item.react-grid-placeholder {
+  background: var(--brand) !important;
+  border-radius: var(--radius);
+  opacity: 0.18;
 }

@@ -1,3 +1,5 @@
+using Domain.Charts;
+
 namespace Application.DTos.Request;
 
 public sealed record SaveChartRequest(
@@ -9,5 +11,6 @@ public sealed record SaveChartRequest(
     string? GroupBy,
     string SqlQuery,
     Guid? ConnectionId,
-    string? TableName
+    string? TableName,
+    ChartStyleConfig? StyleConfig = null
 );

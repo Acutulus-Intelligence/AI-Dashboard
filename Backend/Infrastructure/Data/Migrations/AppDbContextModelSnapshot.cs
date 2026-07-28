@@ -99,6 +99,9 @@ namespace Infrastructure.Data.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("bytea");
 
+                    b.Property<string>("StyleConfig")
+                        .HasColumnType("jsonb");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Name")
@@ -444,6 +447,9 @@ namespace Infrastructure.Data.Migrations
                     b.Property<string>("SqlQuery")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<string>("StyleConfig")
+                        .HasColumnType("jsonb");
 
                     b.Property<string>("TableName")
                         .HasMaxLength(200)

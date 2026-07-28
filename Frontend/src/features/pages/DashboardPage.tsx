@@ -1,10 +1,14 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Pencil, Plus } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ROUTES } from '../routes';
-import DashboardHeader from '../layouts/DashboardHeader';
+import AppShell from '../layouts/AppShell';
+import DashboardEditHeader from '../layouts/DashboardEditHeader';
 import DashboardGrid from '../sections/DashboardGrid';
 import SavedChartsPicker from '../components/SavedChartsPicker';
+import ConfirmDialog from '../components/ConfirmDialog';
 import TextWidgetDropdown from '../components/TextWidgetDropdown';
 import type { DashboardGridHandle } from '../sections/DashboardGrid';
 
@@ -14,6 +18,7 @@ export default function DashboardPage() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
 
   const handleSaveEdit = async () => {
     setSaving(true);
@@ -30,58 +35,43 @@ export default function DashboardPage() {
     setEditMode(false);
   };
 
+  const editHeader = (
+    <DashboardEditHeader saving={saving} onSave={handleSaveEdit} onCancel={handleCancelEdit}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button variant="ghost" size="icon" onClick={() => setPickerOpen(true)}>
+            <Plus />
+            <span className="sr-only">Add existing chart</span>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Add existing chart</TooltipContent>
+      </Tooltip>
+      <TextWidgetDropdown onSelect={(variant) => gridRef.current?.addTextWidget(variant)} />
+    </DashboardEditHeader>
+  );
+
   return (
-    <div className="min-h-screen bg-background">
-      <DashboardHeader
-        onToggleNavbar={() => console.log('sidebar toggle')}
-        onNewChart={() => navigate(ROUTES.CONNECTIONS)}
-        onNewDashboard={() => {
-          if (window.confirm('Reset dashboard to default layout?')) {
-            gridRef.current?.resetDashboard();
-          }
-        }}
-        editMode={editMode}
-        onSaveEdit={handleSaveEdit}
-        onCancelEdit={handleCancelEdit}
-        saving={saving}
-      />
-      <main className="pt-16">
-        <div className="mx-auto max-w-container-max px-gutter py-8">
-          <div className="mb-6 flex items-center justify-between border-b border-outline-variant/40 pb-3">
-            <h1 className="text-headline-md font-bold text-on-background">Dashboard</h1>
-            <div className="flex items-center gap-2">
-              {editMode && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setPickerOpen(true)}
-                    className="inline-flex cursor-pointer items-center justify-center rounded-lg p-2 text-primary transition-colors hover:bg-primary/10 active:scale-90"
-                    title="Add existing chart"
-                  >
-                    <Plus size={20} />
-                  </button>
-                  <TextWidgetDropdown
-                    onSelect={(variant) => gridRef.current?.addTextWidget(variant)}
-                  />
-                </>
-              )}
-              {!editMode && (
-                <button
-                  type="button"
-                  onClick={() => setEditMode(true)}
-                  className="inline-flex cursor-pointer items-center justify-center rounded-lg p-2 text-on-surface-variant transition-colors hover:bg-surface-container active:scale-90"
-                  title="Edit dashboard"
-                >
-                  <Pencil size={18} />
-                </button>
-              )}
-            </div>
-          </div>
-          <div className={editMode ? 'min-h-[calc(100vh-10rem)]' : ''}>
-            <DashboardGrid ref={gridRef} editMode={editMode} />
-          </div>
-        </div>
-      </main>
+    <>
+      <AppShell
+        breadcrumbs={[{ label: 'Dashboard' }]}
+        onNewChart={() => navigate(ROUTES.GRAPHS_NEW)}
+        onNewDashboard={() => setResetConfirmOpen(true)}
+        header={editMode ? editHeader : undefined}
+        headerActions={
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" onClick={() => setEditMode(true)}>
+                <Pencil />
+                <span className="sr-only">Edit dashboard</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Edit dashboard</TooltipContent>
+          </Tooltip>
+        }
+      >
+        <DashboardGrid ref={gridRef} editMode={editMode} />
+      </AppShell>
+
       <SavedChartsPicker
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
@@ -89,6 +79,19 @@ export default function DashboardPage() {
           gridRef.current?.addWidget(savedChartId);
         }}
       />
-    </div>
+
+      <ConfirmDialog
+        open={resetConfirmOpen}
+        onOpenChange={setResetConfirmOpen}
+        title="Reset dashboard?"
+        description="This resets the dashboard to the default layout. Unsaved layout changes may be lost."
+        confirmLabel="Reset"
+        variant="destructive"
+        onConfirm={() => {
+          gridRef.current?.resetDashboard();
+          setResetConfirmOpen(false);
+        }}
+      />
+    </>
   );
 }

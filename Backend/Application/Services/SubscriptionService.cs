@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
-using Application.Dtos.Response;
+using Application.DTos.Response;
 using Application.Interfaces;
 using Domain.Enums;
 using Domain.Models;

@@ -1,3 +1,5 @@
+using Domain.Charts;
+
 namespace Domain.Models;
 
 public class SavedChart
@@ -14,6 +16,7 @@ public class SavedChart
     public string SqlQuery { get; set; } = string.Empty;
     public Guid? ConnectionId { get; set; }
     public string? TableName { get; set; }
+    public ChartStyleConfig? StyleConfig { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

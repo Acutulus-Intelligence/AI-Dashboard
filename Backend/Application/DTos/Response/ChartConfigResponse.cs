@@ -1,3 +1,5 @@
+using Domain.Charts;
+
 namespace Application.DTos.Response;
 
 public sealed record ChartConfigResponse(
@@ -8,5 +10,6 @@ public sealed record ChartConfigResponse(
     string Aggregation,
     string? GroupBy,
     string SqlQuery,
-    List<Dictionary<string, object?>> QueryResult
+    List<Dictionary<string, object?>> QueryResult,
+    ChartStyleConfig? StyleConfig = null
 );

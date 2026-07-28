@@ -15,7 +15,7 @@ export default function ContactPage() {
           </p>
 
           <div className="mt-12 space-y-6">
-            <div className="flex items-start gap-4 rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm">
+            <div className="flex items-start gap-4 rounded-2xl border border-outline-variant bg-surface p-6 shadow-xs">
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
                 <Mail size={24} />
               </div>
@@ -33,7 +33,7 @@ export default function ContactPage() {
               </div>
             </div>
 
-            <div className="flex items-start gap-4 rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm">
+            <div className="flex items-start gap-4 rounded-2xl border border-outline-variant bg-surface p-6 shadow-xs">
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
                 <Phone size={24} />
               </div>
@@ -51,7 +51,7 @@ export default function ContactPage() {
               </div>
             </div>
 
-            <div className="flex items-start gap-4 rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm">
+            <div className="flex items-start gap-4 rounded-2xl border border-outline-variant bg-surface p-6 shadow-xs">
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
                 <Clock size={24} />
               </div>

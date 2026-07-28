@@ -1,28 +1,34 @@
-import { Chart } from './Chart';
-import { BarChartType } from './BarChart';
-import { LineChartType } from './LineChart';
-import { PieChartType } from './PieChart';
-import { AreaChartType } from './AreaChart';
-import { ScatterChartType } from './ScatterChart';
-import { TableChartType } from './TableChart';
+import { areaChart } from './descriptors/area';
+import { barChart } from './descriptors/bar';
+import { lineChart } from './descriptors/line';
+import { pieChart } from './descriptors/pie';
+import { radarChart } from './descriptors/radar';
+import { radialChart } from './descriptors/radial';
+import { scatterChart } from './descriptors/scatter';
+import { tableChart } from './descriptors/table';
+import type { ChartDescriptor } from './types';
 
-const _registry = new Map<string, Chart>();
+const DESCRIPTORS: ChartDescriptor[] = [
+  barChart,
+  lineChart,
+  areaChart,
+  pieChart,
+  radarChart,
+  radialChart,
+  scatterChart,
+  tableChart,
+];
 
-export function register(chart: Chart): void {
-  _registry.set(chart.id, chart);
+const byId = new Map(DESCRIPTORS.map((d) => [d.id, d]));
+
+export function get(id: string): ChartDescriptor | undefined {
+  return byId.get(id);
 }
 
-export function get(id: string): Chart | undefined {
-  return _registry.get(id);
+export function getAll(): ChartDescriptor[] {
+  return DESCRIPTORS;
 }
 
-export function getAll(): Chart[] {
-  return Array.from(_registry.values());
+export function isKnownChartType(id: string): boolean {
+  return byId.has(id);
 }
-
-register(new BarChartType());
-register(new LineChartType());
-register(new PieChartType());
-register(new AreaChartType());
-register(new ScatterChartType());
-register(new TableChartType());

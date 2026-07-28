@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
-using Application.Dtos.Request;
-using Application.Dtos.Response;
+using Application.DTos.Request;
+using Application.DTos.Response;
 using Domain.Enums;
 using FluentAssertions;
 

@@ -1,13 +1,32 @@
 import { useState, useCallback, useRef, forwardRef, useImperativeHandle, useEffect, useMemo } from 'react';
 import GridLayout, { type Layout, type LayoutItem } from 'react-grid-layout/legacy';
 import 'react-grid-layout/css/styles.css';
-import { X, GripHorizontal } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { GripHorizontal, Info, MoreHorizontal, Pencil, PlusCircle, Trash2, X } from 'lucide-react';
 import ChartRenderer from '../charts/ChartRenderer';
 import TextWidget from '../components/TextWidget';
 import TextWidgetEditShell from '../components/TextWidgetEditShell';
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { getDashboard, saveWidgets, WIDGET_TYPE, TEXT_VARIANT, TEXT_ALIGN_H, TEXT_ALIGN_V, normalizeTextVariant, normalizeTextHorizontalAlign, normalizeTextVerticalAlign, type TextVariant, type TextHorizontalAlign, type TextVerticalAlign, type DashboardWidgetItem } from '../../lib/api/dashboards';
 import { executeChart } from '../../lib/api/charts';
-import { transformResult } from '../pages/GraphCreationPage';
+import { transformResult } from '../charts/transform';
+import type { ChartData, ChartStyleConfig } from '../charts/types';
+import { ROUTES, graphEditPath } from '../routes';
 
 export interface DashboardGridHandle {
   addWidget: (savedChartId: string) => void;
@@ -21,19 +40,14 @@ interface DashboardGridProps {
   editMode: boolean;
 }
 
-interface WidgetData {
-  labels: string[];
-  datasets: { label: string; values: number[] }[];
-  queryResult?: Record<string, unknown>[];
-}
-
 interface ChartWidget {
   kind: 'chart';
   id: string;
   savedChartId: string;
   chartId: string;
   title: string;
-  data?: WidgetData;
+  data?: ChartData;
+  styleConfig?: ChartStyleConfig;
 }
 
 interface TextWidgetItem {
@@ -151,6 +165,7 @@ async function addWidgetWithData(
     chartId: result.chartType,
     title: result.title,
     data,
+    styleConfig: result.styleConfig ?? undefined,
   }]);
   setLayout((prev) => [
     ...prev,
@@ -257,11 +272,11 @@ function persistPayloadHash(widgets: Widget[], layout: LayoutItem[]) {
 }
 
 const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(function DashboardGrid({ editMode }, ref) {
+  const navigate = useNavigate();
   const { width: containerWidth, containerRef } = useContainerWidth();
 
   const [widgets, setWidgets] = useState<Widget[]>([]);
   const [layout, setLayout] = useState<LayoutItem[]>([]);
-  const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const snapshotRef = useRef<DashboardSnapshot | null>(null);
@@ -323,14 +338,26 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
           chartWidgets.map((widget) => executeChart(widget.savedChartId)),
         );
         if (cancelled) return;
-        results.forEach((result, i) => {
-          if (result.status === 'fulfilled') {
-            chartWidgets[i].data = transformResult(result.value);
-          }
+
+        // Rebuild chart widgets from execute so styleConfig/title/type match
+        // the saved chart (same payload as the edit-page preview).
+        let chartIdx = 0;
+        const hydrated = w.map((widget) => {
+          if (widget.kind !== 'chart') return widget;
+          const result = results[chartIdx++];
+          if (result.status !== 'fulfilled') return widget;
+          return {
+            ...widget,
+            data: transformResult(result.value),
+            styleConfig: result.value.styleConfig ?? undefined,
+            title: result.value.title,
+            chartId: result.value.chartType,
+          };
         });
-        setWidgets(w);
+
+        setWidgets(hydrated);
         setLayout(l);
-        lastPersistHashRef.current = persistPayloadHash(w, l);
+        lastPersistHashRef.current = persistPayloadHash(hydrated, l);
         setLoaded(true);
       })
       .catch(() => setLoaded(true));
@@ -411,10 +438,6 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
     setLayout((prev) => prev.filter((item) => item.i !== id));
   }, []);
 
-  const handleTitleChange = useCallback((id: string, title: string) => {
-    setWidgets((prev) => prev.map((w) => (w.id === id && w.kind === 'chart' ? { ...w, title } : w)));
-  }, []);
-
   const handleTextChange = useCallback((id: string, textContent: string) => {
     setWidgets((prev) => prev.map((w) => (w.id === id && w.kind === 'text' ? { ...w, textContent } : w)));
   }, []);
@@ -425,17 +448,6 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
 
   const handleTextVerticalAlign = useCallback((id: string, textVerticalAlign: TextVerticalAlign) => {
     setWidgets((prev) => prev.map((w) => (w.id === id && w.kind === 'text' ? { ...w, textVerticalAlign } : w)));
-  }, []);
-
-  const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
-
-  const startEditing = useCallback((id: string) => {
-    setEditingTitleId(id);
-    requestAnimationFrame(() => inputRefs.current[id]?.focus());
-  }, []);
-
-  const finishEditing = useCallback(() => {
-    setEditingTitleId(null);
   }, []);
 
   const resetDashboard = useCallback(async () => {
@@ -493,15 +505,50 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
   }, [layout]);
 
   const handleClass = editMode
-    ? 'drag-handle flex cursor-grab items-center justify-between border-b border-outline-variant bg-surface-container-low px-4 py-2.5 active:cursor-grabbing'
-    : 'flex items-center justify-between border-b border-outline-variant bg-surface-container-low px-4 py-2.5';
+    ? 'drag-handle flex cursor-grab items-center gap-2 active:cursor-grabbing'
+    : 'flex items-center gap-2';
 
   if (containerWidth <= 0) {
     return <div ref={containerRef} />;
   }
 
   if (!loaded) {
-    return <div ref={containerRef} className="text-center text-on-surface-variant py-8">Loading dashboard...</div>;
+    return (
+      <div ref={containerRef} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 3 }, (_, i) => (
+          <Card key={i} className="overflow-hidden">
+            <CardHeader>
+              <Skeleton className="h-4 w-1/2" />
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-48 w-full" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    );
+  }
+
+  if (widgets.length === 0) {
+    return (
+      <div
+        ref={containerRef}
+        className="border-border flex min-h-[360px] flex-col items-center justify-center gap-4 rounded-xl border border-dashed p-8 text-center"
+      >
+        <div className="bg-muted flex size-12 items-center justify-center rounded-full">
+          <PlusCircle className="text-muted-foreground size-6" />
+        </div>
+        <div className="max-w-sm">
+          <h2 className="text-lg font-semibold">Your dashboard is empty</h2>
+          <p className="text-muted-foreground mt-1 text-sm">
+            Create a chart from a database connection, or enter edit mode to add an existing one.
+          </p>
+        </div>
+        <Button asChild>
+          <Link to={ROUTES.GRAPHS_NEW}>Create a chart</Link>
+        </Button>
+      </div>
+    );
   }
 
   return (
@@ -612,48 +659,86 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
           }
 
           return (
-            <div
-              key={item.i}
-              className="flex h-full flex-col rounded-xl border border-outline-variant bg-surface-container-lowest shadow-sm"
-              onContextMenu={(e) => e.preventDefault()}
-            >
-              <div className={handleClass}>
-                {editMode && editingTitleId === widget.id ? (
-                  <input
-                    ref={(el) => { inputRefs.current[widget.id] = el; }}
-                    type="text"
-                    value={widget.title}
-                    onChange={(e) => handleTitleChange(widget.id, e.target.value)}
-                    onBlur={finishEditing}
-                    onKeyDown={(e) => { if (e.key === 'Enter') finishEditing(); }}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    className="flex-1 bg-transparent text-body-sm font-medium text-on-background outline-none"
-                    style={{ userSelect: 'auto' }}
-                  />
-                ) : (
-                  <span
-                    className={'text-body-sm font-medium text-on-background' + (editMode ? ' cursor-pointer' : '')}
-                    onDoubleClick={editMode ? () => startEditing(widget.id) : undefined}
-                    title="Double-click to edit"
+            <div key={item.i} onContextMenu={(e) => e.preventDefault()}>
+              <Card className="flex h-full flex-col gap-0 overflow-hidden py-0">
+                <CardHeader className={handleClass + ' border-b px-4 py-2.5'}>
+                  {editMode && <GripHorizontal className="text-muted-foreground size-3.5 shrink-0" />}
+                  <CardTitle
+                    className={'min-w-0 flex-1 truncate text-sm font-medium' + (editMode ? ' cursor-pointer' : '')}
+                    onDoubleClick={
+                      editMode && widget.savedChartId
+                        ? () => navigate(graphEditPath(widget.savedChartId))
+                        : undefined
+                    }
+                    title={editMode ? 'Double-click to edit' : widget.title}
                   >
                     {widget.title}
-                  </span>
-                )}
-                {editMode && (
-                  <button
-                    type="button"
-                    onClick={() => removeWidget(widget.id)}
-                    className="cursor-pointer rounded-md p-1 text-on-surface-variant transition-colors hover:bg-surface-container hover:text-error"
-                  >
-                    <X size={14} />
-                  </button>
-                )}
-              </div>
-              <div className="relative min-h-0 flex-1">
-                <div className="absolute inset-0 p-3">
-                  <ChartRenderer chartId={widget.chartId} data={widget.data} />
-                </div>
-              </div>
+                  </CardTitle>
+
+                  <div className="ml-auto flex shrink-0 items-center gap-0.5">
+                    {widget.styleConfig?.info?.trim() && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            className="text-muted-foreground hover:text-foreground nodrag inline-flex size-7 cursor-pointer items-center justify-center rounded-md"
+                            aria-label="Chart info"
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Info className="size-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="max-w-xs text-left">
+                          {widget.styleConfig.info}
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
+
+                    {editMode && (
+                      <CardAction>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              className="nodrag"
+                              onMouseDown={(e) => e.stopPropagation()}
+                            >
+                              <MoreHorizontal />
+                              <span className="sr-only">Widget actions</span>
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" onMouseDown={(e) => e.stopPropagation()}>
+                            <DropdownMenuItem
+                              onSelect={() => {
+                                if (widget.savedChartId) navigate(graphEditPath(widget.savedChartId));
+                              }}
+                            >
+                              <Pencil />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem variant="destructive" onSelect={() => removeWidget(widget.id)}>
+                              <Trash2 />
+                              Remove
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </CardAction>
+                    )}
+                  </div>
+                </CardHeader>
+
+                <CardContent className="relative min-h-0 flex-1 p-3">
+                  <div className="absolute inset-3">
+                    <ChartRenderer
+                      chartId={widget.chartId}
+                      data={widget.data}
+                      styleConfig={widget.styleConfig}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           );
         })}

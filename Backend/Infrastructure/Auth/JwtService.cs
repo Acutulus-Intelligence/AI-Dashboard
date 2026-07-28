@@ -28,6 +28,7 @@ public class JwtService : ITokenService
             new(JwtRegisteredClaimNames.Jti, jwtId),
             new("userId", user.Id.ToString()),
             new("userType", ((int)user.UserType).ToString()),
+            new("securityStamp", user.SecurityStamp ?? ""),
         };
 
         claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));

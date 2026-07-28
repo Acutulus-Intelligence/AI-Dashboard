@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, Shield, Building2, Database, AlertCircle, CheckCircle2, XCircle, CreditCard, Trash2, User, Crown, X } from 'lucide-react';
-import DashboardHeader from '../layouts/DashboardHeader';
+import { Users, Building2, Database, AlertCircle, CheckCircle2, XCircle, CreditCard, Trash2, Crown, X, Palette } from 'lucide-react';
+import AppShell from '../layouts/AppShell';
 import Button from '../components/Button';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { ROUTES } from '../routes';
 import * as companyApi from '../../lib/api/company';
 import * as subscriptionApi from '../../lib/api/subscription';
@@ -40,6 +41,7 @@ export default function AdminPage() {
   const [transferUserId, setTransferUserId] = useState('');
   const [transferPassword, setTransferPassword] = useState('');
   const [transferring, setTransferring] = useState(false);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
 
   async function loadData() {
     setError('');
@@ -73,13 +75,13 @@ export default function AdminPage() {
 
   async function handleCancel() {
     if (!company || !companySub) return;
-    if (!window.confirm('Are you sure you want to cancel the company subscription? All team members will lose dashboard access.')) return;
 
     setCancelling(true);
     setError('');
     try {
       await subscriptionApi.cancelCompanySubscription(company.id);
       await loadData();
+      setCancelConfirmOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not cancel subscription.');
     } finally {
@@ -123,23 +125,13 @@ export default function AdminPage() {
   const eligibleUsers = users.filter((u) => !u.isOwner);
 
   return (
-    <div className="min-h-screen bg-background">
-      <DashboardHeader
-        onToggleNavbar={() => console.log('sidebar toggle')}
-        onNewChart={() => {}}
-        onNewDashboard={() => {}}
-      />
-      <main className="pt-16">
-        <div className="mx-auto max-w-container-max px-gutter py-8">
-          <div className="mb-6 flex items-center gap-3 border-b border-outline-variant/40 pb-3">
-            <Link
-              to={ROUTES.DASHBOARD}
-              className="inline-flex items-center justify-center rounded-lg p-1.5 text-on-surface-variant transition-colors hover:bg-surface-container"
-            >
-              <ArrowLeft size={18} />
-            </Link>
-            <h1 className="text-headline-md font-bold text-on-background">Administrator</h1>
-          </div>
+    <AppShell breadcrumbs={[{ label: 'Administration' }]}>
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Administration</h1>
+        <p className="text-muted-foreground text-sm">
+          Manage your company workspace, plan and members.
+        </p>
+      </div>
 
           {error && (
             <div className="mb-6 flex items-center gap-2 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-body-sm text-red-700">
@@ -173,7 +165,7 @@ export default function AdminPage() {
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
               <Link
                 to={ROUTES.ADMIN_USERS}
-                className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm transition-shadow hover:shadow-md"
+                className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-xs transition-shadow hover:shadow-md"
               >
                 <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
                   <Users size={24} />
@@ -182,20 +174,10 @@ export default function AdminPage() {
                 <p className="text-body-sm text-on-surface-variant">Manage users, roles, and permissions for your company.</p>
               </Link>
 
-              <Link
-                to={ROUTES.PROFILE}
-                className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm transition-shadow hover:shadow-md"
-              >
-                <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                  <User size={24} />
-                </div>
-                <h2 className="mb-2 text-body-lg font-semibold text-on-background">Profile</h2>
-                <p className="text-body-sm text-on-surface-variant">Update your name, email, password, and manage your account.</p>
-              </Link>
-
+              {isOwner && (
               <Link
                 to={ROUTES.CONNECTIONS}
-                className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm transition-shadow hover:shadow-md"
+                className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-xs transition-shadow hover:shadow-md"
               >
                 <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
                   <Database size={24} />
@@ -203,17 +185,23 @@ export default function AdminPage() {
                 <h2 className="mb-2 text-body-lg font-semibold text-on-background">Connections</h2>
                 <p className="text-body-sm text-on-surface-variant">Connect external databases to generate AI-powered charts.</p>
               </Link>
+              )}
 
-              <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm transition-shadow hover:shadow-md">
+              {isOwner && (
+              <Link
+                to={ROUTES.ADMIN_STYLE}
+                className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-xs transition-shadow hover:shadow-md"
+              >
                 <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                  <Shield size={24} />
+                  <Palette size={24} />
                 </div>
-                <h2 className="mb-2 text-body-lg font-semibold text-on-background">Security</h2>
-                <p className="text-body-sm text-on-surface-variant">Manage your account security and authentication settings.</p>
-              </div>
+                <h2 className="mb-2 text-body-lg font-semibold text-on-background">Style</h2>
+                <p className="text-body-sm text-on-surface-variant">Set your company look — colours, appearance and how charts present.</p>
+              </Link>
+              )}
 
               {company ? (
-                <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm transition-shadow hover:shadow-md">
+                <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-xs transition-shadow hover:shadow-md">
                   <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
                     <Building2 size={24} />
                   </div>
@@ -247,7 +235,7 @@ export default function AdminPage() {
                           variant="outline"
                           className="mt-3 w-full border-red-300 text-red-600 hover:bg-red-50"
                           disabled={cancelling}
-                          onClick={(e) => { e.preventDefault(); void handleCancel(); }}
+                          onClick={(e) => { e.preventDefault(); setCancelConfirmOpen(true); }}
                         >
                           {cancelling ? 'Cancelling...' : 'Cancel subscription'}
                         </Button>
@@ -303,7 +291,7 @@ export default function AdminPage() {
                           <select
                             value={transferUserId}
                             onChange={(e) => setTransferUserId(e.target.value)}
-                            className="w-full rounded-xl border border-amber-300 bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                            className="w-full rounded-xl border border-amber-300 bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background focus:border-amber-500 focus:outline-hidden focus:ring-2 focus:ring-amber-500/20"
                           >
                             <option value="">Select a team member</option>
                             {users
@@ -326,7 +314,7 @@ export default function AdminPage() {
                                     value={transferPassword}
                                     onChange={(e) => setTransferPassword(e.target.value)}
                                     placeholder="Enter your password"
-                                    className="w-full rounded-xl border border-amber-300 bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                                    className="w-full rounded-xl border border-amber-300 bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-amber-500 focus:outline-hidden focus:ring-2 focus:ring-amber-500/20"
                                   />
                               </div>
                               <div className="flex gap-3">
@@ -382,7 +370,7 @@ export default function AdminPage() {
                               value={deletePassword}
                               onChange={(e) => setDeletePassword(e.target.value)}
                               placeholder="Enter your password"
-                              className="w-full rounded-xl border border-red-300 bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20"
+                              className="w-full rounded-xl border border-red-300 bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-red-500 focus:outline-hidden focus:ring-2 focus:ring-red-500/20"
                             />
                           </div>
 
@@ -417,7 +405,7 @@ export default function AdminPage() {
                   )}
                 </div>
               ) : (
-                <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm">
+                <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-xs">
                   <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
                     <Building2 size={24} />
                   </div>
@@ -427,8 +415,19 @@ export default function AdminPage() {
               )}
             </div>
           )}
-        </div>
-      </main>
-    </div>
+
+      <ConfirmDialog
+        open={cancelConfirmOpen}
+        onOpenChange={(open) => {
+          if (!cancelling) setCancelConfirmOpen(open);
+        }}
+        title="Cancel company subscription?"
+        description="All team members will lose dashboard access. You can resubscribe later."
+        confirmLabel="Cancel subscription"
+        variant="destructive"
+        loading={cancelling}
+        onConfirm={handleCancel}
+      />
+    </AppShell>
   );
 }

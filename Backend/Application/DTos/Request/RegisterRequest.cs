@@ -1,5 +1,5 @@
 using Domain.Enums;
-namespace Application.Dtos.Request; 
+namespace Application.DTos.Request; 
 public sealed record RegisterRequest(string Email, 
     string Password, 
     string FirstName, 
