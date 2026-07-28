@@ -103,6 +103,25 @@ export function getMyCompany(): Promise<CompanyResponse> {
   return apiFetch<CompanyResponse>('/api/companies/me');
 }
 
+export interface CompanyStyleResponse {
+  colors: string[];
+}
+
+export interface UpdateCompanyStyleRequest {
+  colors: string[];
+}
+
+export function getCompanyStyle(): Promise<CompanyStyleResponse> {
+  return apiFetch<CompanyStyleResponse>('/api/companies/me/style');
+}
+
+export function updateCompanyStyle(data: UpdateCompanyStyleRequest): Promise<CompanyStyleResponse> {
+  return apiFetch<CompanyStyleResponse>('/api/companies/me/style', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
 export function getCompanyById(id: string): Promise<CompanyResponse> {
   return apiFetch<CompanyResponse>(`/api/companies/${id}`);
 }

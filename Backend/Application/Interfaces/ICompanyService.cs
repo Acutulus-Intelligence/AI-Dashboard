@@ -24,4 +24,6 @@ public interface ICompanyService
     Task RevokeInviteAsync(Guid companyId, Guid inviteId, Guid actorId, CancellationToken ct = default);
     Task RejectInviteAsync(Guid inviteId, Guid userId, CancellationToken ct = default);
     Task DeleteAsync(Guid companyId, Guid actorId, DeleteCompanyRequest request, CancellationToken ct = default);
+    Task<CompanyStyleResponse> GetMyStyleAsync(Guid userId, CancellationToken ct = default);
+    Task<CompanyStyleResponse> UpdateMyStyleAsync(Guid userId, UpdateCompanyStyleRequest request, CancellationToken ct = default);
 }

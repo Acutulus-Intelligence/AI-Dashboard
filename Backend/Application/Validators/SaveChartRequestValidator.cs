@@ -1,4 +1,5 @@
 using Application.DTos.Request;
+using Domain.Charts;
 using FluentValidation;
 
 namespace Application.Validators;
@@ -13,7 +14,8 @@ public class SaveChartRequestValidator : AbstractValidator<SaveChartRequest>
 
         RuleFor(x => x.ChartType)
             .NotEmpty()
-            .MaximumLength(50);
+            .Must(ChartCatalog.IsKnownType)
+            .WithMessage(_ => $"Chart type must be one of: {string.Join(", ", ChartCatalog.TypeIds)}.");
 
         RuleFor(x => x.XAxis)
             .NotEmpty()

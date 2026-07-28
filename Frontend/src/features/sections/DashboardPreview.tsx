@@ -19,10 +19,10 @@ const linePoints = '0,68 45,52 90,58 135,34 180,42 225,20 270,28 315,12';
 export default function DashboardPreview() {
   return (
     <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-4 shadow-ambient">
-      <div className="rounded-lg border border-outline-variant bg-surface-container-lowest p-4 shadow-sm">
+      <div className="rounded-lg border border-outline-variant bg-surface-container-lowest p-4 shadow-xs">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="font-mono text-label-caps uppercase text-secondary">Live dashboard</p>
+            <p className="font-mono text-label-caps uppercase text-brand">Live dashboard</p>
             <h2 className="text-headline-md font-semibold text-on-background">Revenue Intelligence</h2>
           </div>
           <div className="inline-flex items-center gap-2 rounded-full border border-outline-variant bg-surface-container-low px-3 py-2 font-mono text-label-caps text-on-surface-variant">
@@ -46,7 +46,7 @@ export default function DashboardPreview() {
           <div className="rounded-lg border border-outline-variant bg-surface p-4">
             <div className="mb-4 flex items-center justify-between">
               <p className="font-mono text-label-caps uppercase text-on-surface-variant">Monthly growth</p>
-              <span className="rounded-full bg-secondary-container/30 px-3 py-1 text-body-sm font-semibold text-secondary">
+              <span className="rounded-full bg-brand-container/30 px-3 py-1 text-body-sm font-semibold text-brand">
                 +18.4%
               </span>
             </div>
@@ -77,7 +77,7 @@ export default function DashboardPreview() {
               {bars.map((height, index) => (
                 <div
                   key={`${height}-${index}`}
-                  className="min-w-0 flex-1 rounded-t bg-cyan-action/80"
+                  className="min-w-0 flex-1 rounded-t-xs bg-cyan-action/80"
                   style={{ height: `${height}%`, opacity: 0.45 + index * 0.055 }}
                 />
               ))}
@@ -91,7 +91,7 @@ export default function DashboardPreview() {
 
             return (
               <div key={insight.text} className="flex items-center gap-3 rounded-lg bg-surface-container-low p-3">
-                <Icon className="size-5 shrink-0 text-secondary" aria-hidden="true" />
+                <Icon className="size-5 shrink-0 text-brand" aria-hidden="true" />
                 <p className="text-body-sm text-on-surface-variant">{insight.text}</p>
               </div>
             );

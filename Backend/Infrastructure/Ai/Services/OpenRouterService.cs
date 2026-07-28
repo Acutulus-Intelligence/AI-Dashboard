@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Application.Interfaces;
+using Domain.Charts;
 using Domain.Enums;
 using Domain.Models;
 using Infrastructure.ExternalDb.Services;
@@ -71,6 +72,15 @@ public class OpenRouterService : IAiService
         if (string.IsNullOrEmpty(config.ChartType) || string.IsNullOrEmpty(config.SqlQuery))
             throw new InvalidOperationException("AI response is missing required fields (chartType, sqlQuery).");
 
+        if (!ChartCatalog.IsKnownType(config.ChartType))
+            throw new InvalidOperationException(
+                $"AI returned unsupported chart type '{config.ChartType}'. " +
+                $"Supported types: {string.Join(", ", ChartCatalog.TypeIds)}.");
+
+        // Models routinely invent variants and parameters, so keep only what the
+        // catalog actually describes rather than trusting the response.
+        config.StyleConfig = ChartStyleSanitizer.Sanitize(config.StyleConfig, config.ChartType);
+
         _logger.LogInformation(
             "AI chart config generated: chartType={ChartType}, sqlLength={SqlLength}",
             config.ChartType,
@@ -106,21 +116,34 @@ __SCHEMA__
 
 __PREFERENCE__
 
+Available chart types, their variants and their adjustable parameters:
+__CATALOG__
+
+Available palettes: __PALETTES__
+
 Return this exact JSON structure:
 {
-  ""chartType"": ""bar"" | ""line"" | ""pie"" | ""area"" | ""scatter"" | ""table"",
+  ""chartType"": __TYPE_UNION__,
   ""title"": ""string — concise chart title"",
   ""xAxis"": ""column_name — the column for the x-axis / labels"",
   ""yAxis"": [""column_name — one or more columns for the y-axis / values""],
   ""aggregation"": ""sum"" | ""avg"" | ""count"" | ""min"" | ""max"" | ""none"",
   ""groupBy"": ""column_name | null — column to group by, or null"",
-  ""sqlQuery"": ""SELECT ... — a safe, valid SELECT query that fetches the data needed""
+  ""sqlQuery"": ""SELECT ... — a safe, valid SELECT query that fetches the data needed"",
+  ""styleConfig"": {
+    ""variant"": ""one of the variant ids listed for the chosen chartType"",
+    ""palette"": ""one of the palette ids listed above"",
+    ""params"": { ""paramKey"": value }
+  }
 }
 
 Rules:
 - sqlQuery must be a valid SELECT query only for __DBNAME__
 - __QUOTING_RULE__
 - Never include actual data values — only column names and SQL
+- styleConfig.variant must be a variant of the chartType you chose
+- styleConfig.params may only use the parameter keys listed for that chartType, and must respect the stated types and ranges
+- Omit styleConfig fields you have no opinion about rather than guessing
 - The JSON must be parseable and complete
 ";
 
@@ -128,8 +151,39 @@ Rules:
             .Replace("__DBNAME__", dbName)
             .Replace("__SCHEMA__", schemaJson)
             .Replace("__PREFERENCE__", chartPreference)
+            .Replace("__CATALOG__", DescribeCatalog())
+            .Replace("__PALETTES__", string.Join(", ", ChartCatalog.Palettes.Select(p => p.Id)))
+            .Replace("__TYPE_UNION__", string.Join(" | ", ChartCatalog.TypeIds.Select(id => $"\"{id}\"")))
             .Replace("__QUOTING_RULE__", quotingRule);
     }
+
+    /// <summary>
+    /// Renders the catalog as compact text so the prompt always matches what the
+    /// renderer and validators support.
+    /// </summary>
+    private static string DescribeCatalog()
+    {
+        var lines = new List<string>();
+
+        foreach (var type in ChartCatalog.Types)
+        {
+            lines.Add($"- {type.Id}: {type.Description}");
+            lines.Add($"  variants: {string.Join(", ", type.Variants.Select(v => $"{v.Id} ({v.Description})"))}");
+            lines.Add($"  params: {string.Join(", ", type.Params.Select(DescribeParam))}");
+        }
+
+        return string.Join("\n", lines);
+    }
+
+    private static string DescribeParam(ChartParamSpec param) => param.Kind switch
+    {
+        ChartParamKind.Boolean => $"{param.Key} (boolean, default {param.Default.ToString()!.ToLowerInvariant()})",
+        ChartParamKind.Number =>
+            $"{param.Key} (number {param.Min}–{param.Max}, default {param.Default})",
+        ChartParamKind.Select =>
+            $"{param.Key} (one of {string.Join("|", param.Options!.Select(o => o.Value))}, default {param.Default})",
+        _ => param.Key
+    };
 
     private class OpenRouterResponse
     {

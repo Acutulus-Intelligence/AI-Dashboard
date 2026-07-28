@@ -450,7 +450,7 @@ export default function CompanyUsersSection() {
                   value={inviteEmail}
                   onChange={(e) => setInviteEmail(e.target.value)}
                   placeholder="colleague@example.com"
-                  className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest py-2.5 pl-9 pr-4 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest py-2.5 pl-9 pr-4 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-hidden focus:ring-2 focus:ring-primary/20"
                 />
               </div>
             </div>
@@ -462,7 +462,7 @@ export default function CompanyUsersSection() {
                 id="inviteRole"
                 value={inviteRoleId}
                 onChange={(e) => setInviteRoleId(e.target.value)}
-                className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background focus:border-primary focus:outline-hidden focus:ring-2 focus:ring-primary/20"
               >
                 <option value="">Select role</option>
                 {roles
@@ -486,7 +486,7 @@ export default function CompanyUsersSection() {
       )}
 
       {/* Users table */}
-      <div className="overflow-hidden rounded-2xl border border-outline-variant bg-surface shadow-sm">
+      <div className="overflow-hidden rounded-2xl border border-outline-variant bg-surface shadow-xs">
         <table className="w-full text-left text-body-sm">
           <thead>
             <tr className="border-b border-outline-variant bg-surface-container-lowest text-body-xs font-semibold uppercase tracking-wider text-on-surface-variant">
@@ -524,7 +524,7 @@ export default function CompanyUsersSection() {
                         value={u.roleId ?? ''}
                         disabled={changingRole === u.id}
                         onChange={(e) => handleChangeRole(u.id, e.target.value)}
-                        className="w-full max-w-40 rounded-lg border border-outline-variant bg-surface-container-lowest px-2 py-1.5 text-body-sm text-on-background focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="w-full max-w-40 rounded-lg border border-outline-variant bg-surface-container-lowest px-2 py-1.5 text-body-sm text-on-background focus:border-primary focus:outline-hidden focus:ring-2 focus:ring-primary/20 disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         <option value="" disabled>Select role</option>
                         {roles
@@ -601,7 +601,7 @@ export default function CompanyUsersSection() {
               value={transferPassword}
               onChange={(e) => setTransferPassword(e.target.value)}
               placeholder="Enter your password"
-              className="w-full rounded-xl border border-amber-300 bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+              className="w-full rounded-xl border border-amber-300 bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-amber-500 focus:outline-hidden focus:ring-2 focus:ring-amber-500/20"
             />
           </div>
           {error && (
@@ -658,7 +658,7 @@ export default function CompanyUsersSection() {
               value={confirmRemoveText}
               onChange={(e) => setConfirmRemoveText(e.target.value)}
               placeholder="Type DELETE to confirm"
-              className="w-full rounded-xl border border-red-300 bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20"
+              className="w-full rounded-xl border border-red-300 bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-red-500 focus:outline-hidden focus:ring-2 focus:ring-red-500/20"
             />
           </div>
           {error && (
@@ -763,7 +763,7 @@ export default function CompanyUsersSection() {
                     value={newRoleName}
                     onChange={(e) => setNewRoleName(e.target.value)}
                     placeholder="e.g. Analyst"
-                    className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-primary focus:outline-hidden focus:ring-2 focus:ring-primary/20"
                   />
                 </div>
                 <div className="space-y-2">
@@ -834,7 +834,7 @@ export default function CompanyUsersSection() {
                           value={editRoleName}
                           onChange={(e) => setEditRoleName(e.target.value)}
                           readOnly={roles.find(r => r.id === editingRoleId)?.isSystemRole}
-                          className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 read-only:cursor-not-allowed read-only:opacity-60"
+                          className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background focus:border-primary focus:outline-hidden focus:ring-2 focus:ring-primary/20 read-only:cursor-not-allowed read-only:opacity-60"
                         />
                       </div>
                       <div className="space-y-2">
@@ -945,7 +945,7 @@ export default function CompanyUsersSection() {
                   value={confirmDeleteRoleText}
                   onChange={(e) => setConfirmDeleteRoleText(e.target.value)}
                   placeholder="Type DELETE to confirm"
-                  className="w-full rounded-xl border border-red-300 bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20"
+                  className="w-full rounded-xl border border-red-300 bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:border-red-500 focus:outline-hidden focus:ring-2 focus:ring-red-500/20"
                 />
               </div>
               {error && (

@@ -13,8 +13,8 @@ export default function PasswordRequirements({ password }: PasswordRequirementsP
         return (
           <li
             key={rule.id}
-            className={`flex items-center gap-2 text-body-sm ${
-              met ? 'text-secondary' : 'text-on-surface-variant'
+            className={`flex items-center gap-2 text-sm ${
+              met ? 'text-brand' : 'text-muted-foreground'
             }`}
           >
             <Check size={14} className={met ? 'opacity-100' : 'opacity-30'} />

@@ -43,19 +43,19 @@ export default function BenefitsSection() {
                 <article
                   className={`relative overflow-hidden rounded-xl border p-8 ${
                     isAccent
-                      ? 'border-secondary/20 bg-surface-container-lowest shadow-[inset_0_0_15px_rgba(6,182,212,0.1)] border-l-2 border-[#06b6d4]'
+                      ? 'border-brand/20 bg-surface-container-lowest shadow-[inset_0_0_15px_rgba(6,182,212,0.1)] border-l-2 border-cyan-action'
                       : 'border-outline-variant bg-surface-container-low opacity-70'
                   }`}
                 >
                   {isAccent && (
                     <Sparkles
-                      className="absolute right-5 top-5 size-6 animate-spin text-secondary"
+                      className="absolute right-5 top-5 size-6 animate-spin text-brand"
                       style={{ animationDuration: '4s' }}
                       aria-hidden="true"
                     />
                   )}
                   <div className="mb-4 flex items-center gap-3">
-                    <Icon className={`size-6 ${isAccent ? 'text-secondary' : 'text-error'}`} aria-hidden="true" />
+                    <Icon className={`size-6 ${isAccent ? 'text-brand' : 'text-error'}`} aria-hidden="true" />
                     <h3 className="text-headline-md font-semibold">{card.title}</h3>
                   </div>
                   <ul className={`space-y-4 ${isAccent ? 'font-semibold text-on-background' : 'text-on-surface-variant'}`}>
@@ -65,7 +65,7 @@ export default function BenefitsSection() {
                       return (
                         <li key={point.text} className="flex items-center gap-2">
                           <PointIcon
-                            className={`size-5 shrink-0 ${isAccent ? 'text-secondary' : 'text-on-surface-variant'}`}
+                            className={`size-5 shrink-0 ${isAccent ? 'text-brand' : 'text-on-surface-variant'}`}
                             aria-hidden="true"
                           />
                           {point.text}

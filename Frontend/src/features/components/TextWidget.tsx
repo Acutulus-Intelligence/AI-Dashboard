@@ -68,7 +68,7 @@ export default function TextWidget({
           onMouseDown={(e) => e.stopPropagation()}
           onBlur={onStopEdit}
           placeholder={PLACEHOLDER[variant]}
-          className={`h-full min-h-[1.5em] w-full resize-none border-0 bg-transparent p-0 outline-none placeholder:text-on-surface-variant/40 ${className} ${textAlignClass}`}
+          className={`h-full min-h-[1.5em] w-full resize-none border-0 bg-transparent p-0 outline-hidden placeholder:text-on-surface-variant/40 ${className} ${textAlignClass}`}
           style={{ userSelect: 'auto' }}
         />
       </div>

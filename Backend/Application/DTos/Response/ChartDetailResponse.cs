@@ -1,4 +1,4 @@
-using Application.DTos.Request;
+using Domain.Charts;
 
 namespace Application.DTos.Response;
 
@@ -13,5 +13,6 @@ public sealed record ChartDetailResponse(
     string SqlQuery,
     Guid? ConnectionId,
     string? TableName,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    ChartStyleConfig? StyleConfig = null
 );

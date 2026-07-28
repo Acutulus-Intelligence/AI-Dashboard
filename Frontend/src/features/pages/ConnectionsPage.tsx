@@ -1,7 +1,20 @@
-import { useEffect, useState } from 'react';
-import { Plus, Trash2, Database, CheckCircle, XCircle, ChevronRight, Table, Eye, ArrowLeft } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
-import DashboardHeader from '../layouts/DashboardHeader';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  CheckCircle,
+  ChevronDown,
+  Database,
+  Plus,
+  RefreshCw,
+  Table,
+  Trash2,
+  XCircle,
+} from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+import AppShell from '../layouts/AppShell';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { ROUTES } from '../routes';
 import { useAuth } from '../store/useAuth';
 import {
@@ -20,187 +33,426 @@ const DB_PROVIDERS = [
   { value: 'MySql', label: 'MySQL' },
 ];
 
+function canManageConnections(user: { userType: number; companyRoleName?: string | null } | null | undefined) {
+  return !user || user.userType !== 1 || user.companyRoleName === 'Owner';
+}
+
 export default function ConnectionsPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const canManageConnections = !user || user.userType !== 1 || user.companyRoleName === 'Owner';
+  const location = useLocation();
+  const allowed = canManageConnections(user);
+  const isCompany = user?.userType === 1;
+
   const [connections, setConnections] = useState<ConnectionResponse[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<CreateConnectionRequest>({
-    name: '', dbProvider: 'PostgreSql', host: '', port: 5432, database: '', username: '', password: '',
+    name: '',
+    dbProvider: 'PostgreSql',
+    host: '',
+    port: 5432,
+    database: '',
+    username: '',
+    password: '',
   });
   const [error, setError] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [tablesLoading, setTablesLoading] = useState(false);
+  const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  const [testingAll, setTestingAll] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
-  const load = () => getConnections().then(setConnections);
+  const expandConnection = useCallback(async (id: string) => {
+    setExpandedId(id);
+    setSelectedTable(null);
+    setTablesLoading(true);
+    try {
+      const t = await getTables(id);
+      setTables(t);
+    } catch {
+      setTables([]);
+    } finally {
+      setTablesLoading(false);
+    }
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  const testAll = useCallback(async (list: ConnectionResponse[], showToast: boolean) => {
+    if (list.length === 0) {
+      if (showToast) toast.message('No database connections to test.');
+      return;
+    }
+    setTestingAll(true);
+    try {
+      await Promise.allSettled(list.map((c) => testConnection(c.id)));
+      const refreshed = await getConnections();
+      setConnections(refreshed);
+      if (showToast) toast.success('All database connections tested.');
+    } catch {
+      if (showToast) toast.error('Could not test all connections.');
+    } finally {
+      setTestingAll(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!allowed) {
+      navigate(ROUTES.DASHBOARD, { replace: true });
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      setInitialLoading(true);
+      try {
+        const list = await getConnections();
+        if (cancelled) return;
+        setConnections(list);
+        await testAll(list, false);
+        if (cancelled) return;
+
+        const expandId = (location.state as { expandConnectionId?: string } | null)?.expandConnectionId;
+        if (expandId) {
+          await expandConnection(expandId);
+          navigate(location.pathname, { replace: true, state: null });
+        }
+      } catch {
+        if (!cancelled) setConnections([]);
+      } finally {
+        if (!cancelled) setInitialLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // Only gate + initial mount; expand from navigation state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allowed]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     try {
-      await createConnection(form);
+      const created = await createConnection(form);
       setShowForm(false);
-      setForm({ name: '', dbProvider: 'PostgreSql', host: '', port: 5432, database: '', username: '', password: '' });
-      await load();
+      setForm({
+        name: '',
+        dbProvider: 'PostgreSql',
+        host: '',
+        port: 5432,
+        database: '',
+        username: '',
+        password: '',
+      });
+      try {
+        await testConnection(created.id);
+      } catch {
+        /* verification badge updates on reload */
+      }
+      const list = await getConnections();
+      setConnections(list);
+      toast.success('Connection added and tested.');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to create connection');
     }
   };
 
-  const handleTest = async (id: string) => {
-    const { isVerified } = await testConnection(id);
-    await load();
-    alert(isVerified ? 'Connection successful!' : 'Connection failed.');
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this connection?')) return;
-    await deleteConnection(id);
-    if (expandedId === id) { setExpandedId(null); setTables([]); }
-    await load();
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const id = deleteTarget.id;
+      await deleteConnection(id);
+      if (expandedId === id) {
+        setExpandedId(null);
+        setTables([]);
+        setSelectedTable(null);
+      }
+      setConnections(await getConnections());
+      setDeleteTarget(null);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const toggleExpand = async (id: string) => {
     if (expandedId === id) {
       setExpandedId(null);
       setTables([]);
+      setSelectedTable(null);
       return;
     }
-    setExpandedId(id);
-    setTablesLoading(true);
-    try {
-      const t = await getTables(id);
-      setTables(t);
-    } catch { setTables([]); }
-    setTablesLoading(false);
+    await expandConnection(id);
   };
 
-  return (
-    <div className="min-h-screen bg-background">
-      <DashboardHeader
-        onToggleNavbar={() => console.log('sidebar toggle')}
-        onNewChart={() => {}}
-        onNewDashboard={() => {}}
-      />
-      <main className="pt-16">
-        <div className="mx-auto max-w-container-max px-gutter py-8">
-          <div className="mb-6 flex items-center justify-between border-b border-outline-variant/40 pb-3">
-            <div className="flex items-center gap-3">
-              <Link
-                to={ROUTES.DASHBOARD}
-                className="inline-flex items-center justify-center rounded-lg p-1.5 text-on-surface-variant transition-colors hover:bg-surface-container"
-              >
-                <ArrowLeft size={18} />
-              </Link>
-              <h1 className="text-headline-md font-bold text-on-background">Database Connections</h1>
-            </div>
-            {canManageConnections && (
-              <button
-                onClick={() => setShowForm(!showForm)}
-                className="flex cursor-pointer items-center gap-2 rounded-xl bg-primary px-5 py-3 text-body-md font-semibold text-white transition-transform active:scale-95"
-              >
-                <Plus size={18} /> Add Connection
-              </button>
-            )}
-          </div>
+  function toggleTable(tableName: string) {
+    setSelectedTable((prev) => (prev === tableName ? null : tableName));
+  }
 
-        {showForm && (
-          <form onSubmit={handleCreate} className="mb-8 rounded-xl border border-outline-variant bg-surface p-6">
-            <h2 className="mb-4 text-headline-md font-semibold text-on-background">New Connection</h2>
-            {error && <div className="mb-3 rounded-lg bg-error/10 p-3 text-body-sm text-error">{error}</div>}
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <input placeholder="Connection Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required className="rounded-lg border border-outline-variant bg-surface px-4 py-2.5 text-body-md text-on-background outline-none focus:border-secondary" />
-              <select value={form.dbProvider} onChange={(e) => setForm({ ...form, dbProvider: e.target.value })} className="rounded-lg border border-outline-variant bg-surface px-4 py-2.5 text-body-md text-on-background outline-none focus:border-secondary">
-                {DB_PROVIDERS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-              </select>
-              <input placeholder="Host" value={form.host} onChange={(e) => setForm({ ...form, host: e.target.value })} required className="rounded-lg border border-outline-variant bg-surface px-4 py-2.5 text-body-md text-on-background outline-none focus:border-secondary" />
-              <input type="number" placeholder="Port" value={form.port} onChange={(e) => setForm({ ...form, port: Number(e.target.value) })} required className="rounded-lg border border-outline-variant bg-surface px-4 py-2.5 text-body-md text-on-background outline-none focus:border-secondary" />
-              <input placeholder="Database" value={form.database} onChange={(e) => setForm({ ...form, database: e.target.value })} required className="rounded-lg border border-outline-variant bg-surface px-4 py-2.5 text-body-md text-on-background outline-none focus:border-secondary" />
-              <input placeholder="Username" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required className="rounded-lg border border-outline-variant bg-surface px-4 py-2.5 text-body-md text-on-background outline-none focus:border-secondary" />
-              <input type="password" placeholder="Password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required className="rounded-lg border border-outline-variant bg-surface px-4 py-2.5 text-body-md text-on-background outline-none focus:border-secondary" />
-            </div>
-            <div className="mt-4 flex gap-3">
-              <button type="submit" className="cursor-pointer rounded-xl bg-secondary px-6 py-2.5 text-body-md font-semibold text-white transition-transform active:scale-95">Save</button>
-              <button type="button" onClick={() => setShowForm(false)} className="cursor-pointer rounded-xl border border-outline-variant bg-surface px-6 py-2.5 text-body-md text-on-surface-variant">Cancel</button>
-            </div>
-          </form>
+  if (!allowed) return null;
+
+  const breadcrumbs = isCompany
+    ? [
+        { label: 'Administration', to: ROUTES.ADMIN },
+        { label: 'Connections' },
+      ]
+    : [
+        { label: 'Settings', to: ROUTES.SETTINGS },
+        { label: 'Connections' },
+      ];
+
+  return (
+    <AppShell breadcrumbs={breadcrumbs}>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Database connections</h1>
+          <p className="text-muted-foreground text-sm">
+            Connect a PostgreSQL or MySQL database to build charts from.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            disabled={testingAll || initialLoading || connections.length === 0}
+            onClick={() => void testAll(connections, true)}
+            aria-label="Test all connections"
+          >
+            <RefreshCw className={testingAll ? 'animate-spin' : undefined} />
+          </Button>
+          <Button type="button" onClick={() => setShowForm(!showForm)}>
+            <Plus /> Add connection
+          </Button>
+        </div>
+      </div>
+
+      {showForm && (
+        <form
+          onSubmit={handleCreate}
+          className="border-border bg-card rounded-xl border p-6"
+        >
+          <h2 className="mb-4 text-lg font-semibold">New connection</h2>
+          {error && (
+            <div className="bg-destructive/10 text-destructive mb-3 rounded-lg p-3 text-sm">{error}</div>
+          )}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <input
+              placeholder="Connection name"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              required
+              className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
+            />
+            <select
+              value={form.dbProvider}
+              onChange={(e) => setForm({ ...form, dbProvider: e.target.value })}
+              className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
+            >
+              {DB_PROVIDERS.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+            <input
+              placeholder="Host"
+              value={form.host}
+              onChange={(e) => setForm({ ...form, host: e.target.value })}
+              required
+              className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
+            />
+            <input
+              type="number"
+              placeholder="Port"
+              value={form.port}
+              onChange={(e) => setForm({ ...form, port: Number(e.target.value) })}
+              required
+              className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
+            />
+            <input
+              placeholder="Database"
+              value={form.database}
+              onChange={(e) => setForm({ ...form, database: e.target.value })}
+              required
+              className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
+            />
+            <input
+              placeholder="Username"
+              value={form.username}
+              onChange={(e) => setForm({ ...form, username: e.target.value })}
+              required
+              className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              value={form.password}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
+              required
+              className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
+            />
+          </div>
+          <div className="mt-4 flex gap-3">
+            <Button type="submit">Save</Button>
+            <Button type="button" variant="outline" onClick={() => setShowForm(false)}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      )}
+
+      <div className="space-y-3">
+        {initialLoading && (
+          <p className="text-muted-foreground text-sm">Loading connections…</p>
         )}
 
-        <div className="space-y-3">
-          {connections.map((conn) => (
-            <div key={conn.id} className="rounded-xl border border-outline-variant bg-surface">
-              <div className="flex items-center justify-between p-4">
-                <div className="flex items-center gap-3">
-                  <Database size={20} className="text-secondary" />
-                  <div>
-                    <span className="font-semibold text-on-background">{conn.name}</span>
-                    <span className="ml-2 text-body-sm text-on-surface-variant">
+        {connections.map((conn) => (
+          <div key={conn.id} className="border-border bg-card rounded-xl border">
+            <div className="flex items-stretch">
+              <button
+                type="button"
+                onClick={() => void toggleExpand(conn.id)}
+                aria-expanded={expandedId === conn.id}
+                className="hover:bg-muted/50 flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 rounded-l-xl p-4 text-left transition-colors"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <Database className="text-brand size-5 shrink-0" />
+                  <div className="min-w-0">
+                    <span className="font-semibold">{conn.name}</span>
+                    <span className="text-muted-foreground ml-2 text-sm">
                       ({conn.dbProvider === 'PostgreSql' ? 'PostgreSQL' : 'MySQL'})
                     </span>
                   </div>
                   {conn.isVerified ? (
-                    <CheckCircle size={16} className="text-green-600" />
+                    <CheckCircle className="size-4 shrink-0 text-green-600" />
                   ) : (
-                    <XCircle size={16} className="text-red-400" />
+                    <XCircle className="size-4 shrink-0 text-red-400" />
                   )}
                 </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => handleTest(conn.id)} className="cursor-pointer rounded-lg border border-outline-variant px-3 py-1.5 text-body-sm text-on-surface-variant hover:bg-surface-container">Test</button>
-                  <button onClick={() => toggleExpand(conn.id)} className="flex cursor-pointer items-center gap-1 rounded-lg border border-outline-variant px-3 py-1.5 text-body-sm text-on-surface-variant hover:bg-surface-container">
-                    <Table size={14} /> Tables
-                  </button>
-                  {canManageConnections && (
-                    <button onClick={() => handleDelete(conn.id)} className="cursor-pointer rounded-lg p-2 text-on-surface-variant hover:bg-surface-container"><Trash2 size={16} /></button>
-                  )}
-                </div>
-              </div>
+                <span className="text-muted-foreground flex shrink-0 items-center gap-1.5 text-sm">
+                  <Table className="size-4" />
+                  Tables
+                  <ChevronDown
+                    className={cn(
+                      'size-4 transition-transform',
+                      expandedId === conn.id && 'rotate-180',
+                    )}
+                  />
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeleteTarget({ id: conn.id, name: conn.name })}
+                aria-label={`Delete ${conn.name}`}
+                className="text-muted-foreground hover:bg-muted hover:text-destructive flex w-12 cursor-pointer items-center justify-center rounded-r-xl border-l transition-colors"
+              >
+                <Trash2 className="size-4" />
+              </button>
+            </div>
 
-              {expandedId === conn.id && (
-                <div className="border-t border-outline-variant p-4">
-                  {tablesLoading ? (
-                    <div className="text-body-sm text-on-surface-variant">Loading tables...</div>
-                  ) : (
-                    <div className="space-y-2">
-                      {tables.map((t) => (
-                        <button
+            {expandedId === conn.id && (
+              <div className="border-border border-t p-4">
+                {tablesLoading ? (
+                  <div className="text-muted-foreground text-sm">Loading tables…</div>
+                ) : (
+                  <div className="space-y-1">
+                    {tables.map((t) => {
+                      const open = selectedTable === t.tableName;
+                      return (
+                        <div
                           key={t.tableName}
-                          onClick={() => navigate(ROUTES.GRAPHS_NEW, { state: { connectionId: conn.id, table: t.tableName } })}
-                          className="flex w-full cursor-pointer items-center justify-between rounded-lg p-3 text-body-md text-on-surface-variant hover:bg-surface-container"
+                          className={cn(
+                            'rounded-lg border transition-colors',
+                            open ? 'border-border bg-muted/40' : 'border-transparent',
+                          )}
                         >
-                          <div className="flex items-center gap-2">
-                            <Table size={16} className="text-secondary" />
-                            <span className="font-medium text-on-background">{t.tableName}</span>
-                            <span className="text-body-sm text-on-surface-variant">({t.columns.length} columns)</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Eye size={16} />
-                            <ChevronRight size={16} />
-                          </div>
-                        </button>
-                      ))}
-                      {tables.length === 0 && (
-                        <div className="text-body-sm text-on-surface-variant">No tables found.</div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
+                          <button
+                            type="button"
+                            onClick={() => toggleTable(t.tableName)}
+                            aria-expanded={open}
+                            className="hover:bg-muted flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm"
+                          >
+                            <div className="flex items-center gap-2">
+                              <Table className="text-brand size-4 shrink-0" />
+                              <span className="font-medium">{t.tableName}</span>
+                              <span className="text-muted-foreground">
+                                ({t.columns.length} columns)
+                              </span>
+                            </div>
+                            <ChevronDown
+                              className={cn(
+                                'text-muted-foreground size-4 shrink-0 transition-transform',
+                                open && 'rotate-180',
+                              )}
+                            />
+                          </button>
+                          {open && (
+                            <div className="border-border border-t px-3 py-2">
+                              <table className="w-full text-left text-sm">
+                                <thead>
+                                  <tr className="text-muted-foreground border-b">
+                                    <th className="pb-1.5 pr-3 font-medium">Column</th>
+                                    <th className="pb-1.5 pr-3 font-medium">Type</th>
+                                    <th className="pb-1.5 font-medium">Nullable</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {t.columns.map((col) => (
+                                    <tr key={col.columnName} className="border-b last:border-0">
+                                      <td className="py-1.5 pr-3 font-medium">{col.columnName}</td>
+                                      <td className="text-muted-foreground py-1.5 pr-3">
+                                        {col.dataType}
+                                      </td>
+                                      <td className="text-muted-foreground py-1.5">
+                                        {col.isNullable ? 'Yes' : 'No'}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {tables.length === 0 && (
+                      <div className="text-muted-foreground text-sm">No tables found.</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
 
-          {connections.length === 0 && !showForm && (
-            <div className="rounded-xl border border-dashed border-outline-variant p-12 text-center text-on-surface-variant">
-              <Database size={40} className="mx-auto mb-3 opacity-40" />
-              <p className="text-body-md">{canManageConnections ? 'No connections yet. Click "Add Connection" to get started.' : 'No connections available.'}</p>
-            </div>
-          )}
-        </div>
+        {!initialLoading && connections.length === 0 && !showForm && (
+          <div className="border-border text-muted-foreground rounded-xl border border-dashed p-12 text-center">
+            <Database className="mx-auto mb-3 size-10 opacity-40" />
+            <p className="text-sm">No connections yet. Click &quot;Add connection&quot; to get started.</p>
+          </div>
+        )}
       </div>
-      </main>
-    </div>
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeleteTarget(null);
+        }}
+        title="Delete connection?"
+        description={
+          deleteTarget
+            ? `This permanently removes “${deleteTarget.name}”. Charts that use this database may stop working.`
+            : 'This permanently removes the connection.'
+        }
+        confirmLabel="Delete"
+        variant="destructive"
+        loading={deleting}
+        onConfirm={handleDelete}
+      />
+    </AppShell>
   );
 }

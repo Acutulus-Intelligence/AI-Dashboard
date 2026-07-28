@@ -67,7 +67,8 @@ public class GraphGenerationService : IGraphGenerationService
             config.Aggregation,
             config.GroupBy,
             config.SqlQuery,
-            result
+            result,
+            config.StyleConfig
         );
     }
 
@@ -104,7 +105,8 @@ public class GraphGenerationService : IGraphGenerationService
             config.Aggregation,
             config.GroupBy,
             config.SqlQuery,
-            result
+            result,
+            config.StyleConfig
         );
     }
 

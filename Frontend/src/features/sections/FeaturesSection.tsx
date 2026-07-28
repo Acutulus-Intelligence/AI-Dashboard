@@ -35,14 +35,14 @@ export default function FeaturesSection() {
               <article
                 className={`group h-full rounded-xl border bg-surface-container-lowest p-8 transition-all hover:border-cyan-action ${
                   feature.highlighted
-                    ? 'border-secondary/20 shadow-[inset_0_0_15px_rgba(6,182,212,0.1)] border-l-2 border-[#06b6d4]'
+                    ? 'border-brand/20 shadow-[inset_0_0_15px_rgba(6,182,212,0.1)] border-l-2 border-cyan-action'
                     : 'border-outline-variant'
                 }`}
               >
                 <div
                   className={`mb-6 flex size-12 items-center justify-center rounded-lg transition-colors ${
                     feature.highlighted
-                      ? 'bg-secondary-container/20 text-secondary'
+                      ? 'bg-brand-container/20 text-brand'
                       : 'bg-surface-container text-on-background group-hover:bg-cyan-50'
                   }`}
                 >

@@ -35,11 +35,23 @@ public class ChartController : ControllerBase
         return Ok(charts);
     }
 
+    /// <summary>Chart types, variants and adjustable parameters the UI can offer.</summary>
+    [HttpGet("catalog")]
+    public IActionResult GetCatalog() => Ok(_chartService.GetCatalog());
+
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> GetById(Guid id, CancellationToken ct)
     {
         var userId = GetUserId();
         var chart = await _chartService.GetChartAsync(id, userId, ct);
+        return Ok(chart);
+    }
+
+    [HttpPut("{id:guid}")]
+    public async Task<IActionResult> Update(Guid id, [FromBody] UpdateChartRequest request, CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var chart = await _chartService.UpdateChartAsync(id, userId, request, ct);
         return Ok(chart);
     }
 

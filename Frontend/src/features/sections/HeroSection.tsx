@@ -9,14 +9,14 @@ export default function HeroSection() {
     <section id="product" className="overflow-hidden bg-surface px-gutter pt-16 lg:pt-[120px] pb-10 lg:pb-16">
       <div className="mx-auto grid max-w-container-max items-center gap-12 lg:grid-cols-2">
         <div className="z-10">
-          <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-secondary-container/20 px-3 py-1">
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-brand-container/20 px-3 py-1">
             <span className="size-2 animate-pulse rounded-full bg-cyan-action" />
-            <span className="font-mono text-label-caps uppercase text-secondary">
+            <span className="font-mono text-label-caps uppercase text-brand">
               Now in Beta: AI Visualization v2.0
             </span>
           </div>
           <h1 className="mb-6 max-w-2xl text-4xl font-bold leading-tight text-on-background md:text-display-lg">
-            From Database to <span className="text-secondary">Insights</span> in Seconds
+            From Database to <span className="text-brand">Insights</span> in Seconds
           </h1>
           <p className="mb-8 max-w-xl text-body-lg text-on-surface-variant">
             Generate professional charts automatically with AI. Connect your database and let our

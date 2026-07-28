@@ -78,7 +78,7 @@ export default function PaymentSuccessPage() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-background px-4 text-on-background">
       <div className="w-full max-w-md rounded-xl border border-outline-variant bg-surface-container-lowest p-8 text-center">
-        <CheckCircle2 className="mx-auto mb-5 size-12 text-secondary" aria-hidden="true" />
+        <CheckCircle2 className="mx-auto mb-5 size-12 text-brand" aria-hidden="true" />
         <h1 className="text-headline-lg font-semibold">Payment received</h1>
         <p className="mt-3 text-body-md text-on-surface-variant">
           {timedOut

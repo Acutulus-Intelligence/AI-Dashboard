@@ -1,3 +1,5 @@
+using System.Text.Json;
+using Domain.Charts;
 using Domain.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -6,6 +8,12 @@ namespace Infrastructure.Data.Configurations;
 
 public class SavedChartConfiguration : IEntityTypeConfiguration<SavedChart>
 {
+    private static readonly JsonSerializerOptions StyleConfigJson = new()
+    {
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+        PropertyNameCaseInsensitive = true,
+    };
+
     public void Configure(EntityTypeBuilder<SavedChart> builder)
     {
         builder.ToTable("saved_charts");
@@ -33,6 +41,13 @@ public class SavedChartConfiguration : IEntityTypeConfiguration<SavedChart>
             .IsRequired();
 
         builder.Property(sc => sc.TableName).HasMaxLength(200);
+
+        // jsonb rather than columns so new catalog parameters need no migration.
+        builder.Property(sc => sc.StyleConfig)
+            .HasColumnType("jsonb")
+            .HasConversion(
+                v => v == null ? null : JsonSerializer.Serialize(v, StyleConfigJson),
+                v => v == null ? null : JsonSerializer.Deserialize<ChartStyleConfig>(v, StyleConfigJson));
 
         builder.HasOne(sc => sc.User)
             .WithMany()

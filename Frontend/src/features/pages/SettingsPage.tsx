@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { AlertCircle, ArrowLeft, Building2, CheckCircle2, CreditCard, Database, Mailbox, User, XCircle } from 'lucide-react';
+import { AlertCircle, Building2, CheckCircle2, CreditCard, Database, Mailbox, XCircle } from 'lucide-react';
 import Button from '../components/Button';
-import DashboardHeader from '../layouts/DashboardHeader';
+import ConfirmDialog from '../components/ConfirmDialog';
+import AppShell from '../layouts/AppShell';
 import { ROUTES } from '../routes';
 import * as subscriptionApi from '../../lib/api/subscription';
 import * as companyApi from '../../lib/api/company';
@@ -35,6 +36,7 @@ export default function SettingsPage() {
   const [invitesLoading, setInvitesLoading] = useState(true);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
 
   async function loadSubscription() {
     setError('');
@@ -96,13 +98,12 @@ export default function SettingsPage() {
   }, [user?.userType]);
 
   async function handleCancel() {
-    if (!window.confirm('Are you sure you want to cancel your subscription? Your dashboard access will be revoked.')) return;
-
     setCancelling(true);
     setError('');
     try {
       await subscriptionApi.cancel();
       await loadSubscription();
+      setCancelConfirmOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not cancel subscription.');
     } finally {
@@ -113,23 +114,13 @@ export default function SettingsPage() {
   const status = subscription ? statusLabel(subscription.status) : null;
 
   return (
-    <div className="min-h-screen bg-background">
-      <DashboardHeader
-        onToggleNavbar={() => {}}
-        onNewChart={() => {}}
-        onNewDashboard={() => {}}
-      />
-      <main className="pt-16">
-        <div className="mx-auto max-w-container-max px-gutter py-8">
-          <div className="mb-6 flex items-center gap-3 border-b border-outline-variant/40 pb-3">
-            <Link
-              to={ROUTES.DASHBOARD}
-              className="inline-flex items-center justify-center rounded-lg p-1.5 text-on-surface-variant transition-colors hover:bg-surface-container"
-            >
-              <ArrowLeft size={18} />
-            </Link>
-            <h1 className="text-headline-md font-bold text-on-background">Settings</h1>
-          </div>
+    <AppShell breadcrumbs={[{ label: 'Settings' }]}>
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+        <p className="text-muted-foreground text-sm">
+          Manage your account, plan and company membership.
+        </p>
+      </div>
 
           {error && (
             <div className="mb-6 flex items-center gap-2 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-body-sm text-red-700">
@@ -144,22 +135,8 @@ export default function SettingsPage() {
             </div>
           ) : (
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {/* Profile */}
-              <Link
-                to={ROUTES.PROFILE}
-                className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm transition-shadow hover:shadow-md"
-              >
-                <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                  <User size={24} />
-                </div>
-                <h2 className="mb-2 text-body-lg font-semibold text-on-background">Profile</h2>
-                <p className="text-body-sm text-on-surface-variant">
-                  Update your name, email, password, and manage your account.
-                </p>
-              </Link>
-
               {subscription ? (
-                <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm transition-shadow hover:shadow-md">
+                <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-xs transition-shadow hover:shadow-md">
                   <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
                     <CreditCard size={24} />
                   </div>
@@ -199,7 +176,7 @@ export default function SettingsPage() {
                         variant="outline"
                         className="mt-3 w-full border-red-300 text-red-600 hover:bg-red-50"
                         disabled={cancelling}
-                        onClick={(e) => { e.preventDefault(); void handleCancel(); }}
+                        onClick={(e) => { e.preventDefault(); setCancelConfirmOpen(true); }}
                       >
                         {cancelling ? 'Cancelling...' : 'Cancel subscription'}
                       </Button>
@@ -207,7 +184,7 @@ export default function SettingsPage() {
                   </div>
                 </div>
               ) : (
-                <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm transition-shadow hover:shadow-md">
+                <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-xs transition-shadow hover:shadow-md">
                   <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
                     <CreditCard size={24} />
                   </div>
@@ -226,7 +203,7 @@ export default function SettingsPage() {
 
               <Link
                 to={ROUTES.CONNECTIONS}
-                className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm transition-shadow hover:shadow-md"
+                className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-xs transition-shadow hover:shadow-md"
               >
                 <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
                   <Database size={24} />
@@ -238,7 +215,7 @@ export default function SettingsPage() {
               </Link>
 
               {subscription && user?.userType !== 1 && (
-                <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm transition-shadow hover:shadow-md">
+                <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-xs transition-shadow hover:shadow-md">
                   <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
                     <Building2 size={24} />
                   </div>
@@ -255,7 +232,7 @@ export default function SettingsPage() {
               )}
 
               {user?.userType === 0 && (
-                <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-sm transition-shadow hover:shadow-md">
+                <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-xs transition-shadow hover:shadow-md">
                   <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
                     <Mailbox size={24} />
                   </div>
@@ -304,8 +281,19 @@ export default function SettingsPage() {
               )}
             </div>
           )}
-        </div>
-      </main>
-    </div>
+
+      <ConfirmDialog
+        open={cancelConfirmOpen}
+        onOpenChange={(open) => {
+          if (!cancelling) setCancelConfirmOpen(open);
+        }}
+        title="Cancel subscription?"
+        description="Your dashboard access will be revoked. You can resubscribe later."
+        confirmLabel="Cancel subscription"
+        variant="destructive"
+        loading={cancelling}
+        onConfirm={handleCancel}
+      />
+    </AppShell>
   );
 }

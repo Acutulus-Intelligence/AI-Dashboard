@@ -21,7 +21,7 @@ export default function LandingPage() {
   }, [hash]);
 
   return (
-    <div className="min-h-screen bg-background text-on-background selection:bg-secondary-container selection:text-on-secondary-container">
+    <div className="min-h-screen bg-background text-on-background selection:bg-brand-container selection:text-on-brand-container">
       <Header />
       <main className="pt-16">
         <HeroSection />

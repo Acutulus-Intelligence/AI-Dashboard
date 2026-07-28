@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Domain.Charts;
 
 namespace Domain.Models;
 
@@ -24,4 +25,8 @@ public class AiChartConfig
 
     [JsonPropertyName("sqlQuery")]
     public string SqlQuery { get; set; } = string.Empty;
+
+    /// <summary>Presentation the model picked; sanitized against the catalog before use.</summary>
+    [JsonPropertyName("styleConfig")]
+    public ChartStyleConfig? StyleConfig { get; set; }
 }
