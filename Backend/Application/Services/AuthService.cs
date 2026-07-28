@@ -224,6 +224,9 @@ public class AuthService : IAuthService
         user.CompanyId = null;
         user.CompanyRoleId = null;
 
+        // Invalidate all in-flight JWTs before removing the user.
+        await _userManager.UpdateSecurityStampAsync(user);
+
         await _db.SaveChangesAsync(ct);
 
         var result = await _userManager.DeleteAsync(user);
