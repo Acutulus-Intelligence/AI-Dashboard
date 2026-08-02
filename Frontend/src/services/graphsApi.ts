@@ -1,4 +1,14 @@
 import { apiFetch } from '../lib/api/client';
+import type { ChartStyleConfig } from '../features/charts/types';
+
+export interface AiGenerationDebug {
+  rawJson?: string | null;
+  chartType: string;
+  sqlQuery: string;
+  styleConfig?: ChartStyleConfig | null;
+  finishReason?: string | null;
+  notes?: string[] | null;
+}
 
 export interface ChartConfigResponse {
   chartType: string;
@@ -9,7 +19,19 @@ export interface ChartConfigResponse {
   groupBy: string | null;
   sqlQuery: string;
   queryResult: Record<string, unknown>[];
-  styleConfig?: import('../features/charts/types').ChartStyleConfig | null;
+  styleConfig?: ChartStyleConfig | null;
+  aiDebug?: AiGenerationDebug | null;
+}
+/** Metadata sent as refine context — never includes queryResult. */
+export interface ChartBaseline {
+  title: string;
+  chartType: string;
+  xAxis: string;
+  yAxis: string[];
+  aggregation: string;
+  groupBy: string | null;
+  sqlQuery: string;
+  styleConfig?: ChartStyleConfig | null;
 }
 
 export interface GenerateChartRequest {
@@ -18,6 +40,7 @@ export interface GenerateChartRequest {
   prompt?: string;
   prefabChartType?: string;
   mode: 'prompt' | 'prefab' | 'auto';
+  currentChart?: ChartBaseline | null;
 }
 
 export async function generateChart(data: GenerateChartRequest): Promise<ChartConfigResponse> {

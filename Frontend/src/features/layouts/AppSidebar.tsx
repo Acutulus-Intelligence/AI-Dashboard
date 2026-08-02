@@ -128,7 +128,7 @@ export default function AppSidebar() {
                 <img
                   src={logoSrc}
                   alt=""
-                  className="size-8 shrink-0 rounded-md object-contain dark:brightness-0 dark:invert"
+                  className="size-8 shrink-0 rounded-md object-contain"
                 />
                 <div className="grid flex-1 text-left leading-tight">
                   <span className="truncate font-semibold">Actulus</span>

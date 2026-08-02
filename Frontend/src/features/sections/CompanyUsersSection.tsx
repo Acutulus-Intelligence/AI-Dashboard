@@ -1,6 +1,13 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Mail, X, AlertCircle, UserPlus, Clock, Trash2, Shield, Building2, Crown, Plus, Save, Pencil } from 'lucide-react';
 import Button from '../components/Button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ApiError } from '../../lib/api/client';
 import * as companyApi from '../../lib/api/company';
 import { useAuth } from '../store/useAuth';
@@ -454,23 +461,31 @@ export default function CompanyUsersSection() {
                 />
               </div>
             </div>
-            <div className="w-40">
+            <div className="w-44">
               <label htmlFor="inviteRole" className="mb-1 block text-body-xs font-medium text-on-surface-variant">
                 Role
               </label>
-              <select
-                id="inviteRole"
-                value={inviteRoleId}
-                onChange={(e) => setInviteRoleId(e.target.value)}
-                className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2.5 text-body-md text-on-background focus:border-primary focus:outline-hidden focus:ring-2 focus:ring-primary/20"
-              >
-                <option value="">Select role</option>
-                {roles
-                  .filter((r) => r.name !== 'Owner')
-                  .map((r) => (
-                    <option key={r.id} value={r.id}>{r.name}</option>
-                  ))}
-              </select>
+              <Select value={inviteRoleId || undefined} onValueChange={setInviteRoleId}>
+                <SelectTrigger
+                  id="inviteRole"
+                  className="h-11 w-full rounded-xl border-outline-variant bg-surface-container-lowest px-3 text-body-md shadow-none hover:bg-surface-container-lowest focus-visible:border-outline-variant focus-visible:ring-0 data-[state=open]:border-outline-variant data-[state=open]:bg-surface-container-lowest dark:bg-surface-container-lowest dark:hover:bg-surface-container-lowest"
+                >
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent
+                  position="popper"
+                  align="start"
+                  className="w-[var(--radix-select-trigger-width)] min-w-[var(--radix-select-trigger-width)]"
+                >
+                  {roles
+                    .filter((r) => r.name !== 'Owner')
+                    .map((r) => (
+                      <SelectItem key={r.id} value={r.id}>
+                        {r.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
             </div>
             <Button type="submit" variant="primary" className="px-5 py-2.5" disabled={inviting}>
               {inviting ? 'Sending...' : 'Send Invite'}
@@ -520,19 +535,31 @@ export default function CompanyUsersSection() {
                     {u.isOwner ? (
                       <span className="text-on-surface-variant">Owner</span>
                     ) : canManageRoles && u.id !== user?.userId && (isOwner || !isPeerRole(u.roleId)) ? (
-                      <select
-                        value={u.roleId ?? ''}
+                      <Select
+                        value={u.roleId ?? undefined}
                         disabled={changingRole === u.id}
-                        onChange={(e) => handleChangeRole(u.id, e.target.value)}
-                        className="w-full max-w-40 rounded-lg border border-outline-variant bg-surface-container-lowest px-2 py-1.5 text-body-sm text-on-background focus:border-primary focus:outline-hidden focus:ring-2 focus:ring-primary/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                        onValueChange={(value) => void handleChangeRole(u.id, value)}
                       >
-                        <option value="" disabled>Select role</option>
-                        {roles
-                          .filter((r) => r.name !== 'Owner')
-                          .map((r) => (
-                            <option key={r.id} value={r.id}>{r.name}</option>
-                          ))}
-                      </select>
+                        <SelectTrigger
+                          size="sm"
+                          className="w-full max-w-40 rounded-lg border-outline-variant bg-surface-container-lowest shadow-none hover:bg-surface-container-lowest focus-visible:border-outline-variant focus-visible:ring-0 data-[state=open]:border-outline-variant data-[state=open]:bg-surface-container-lowest dark:bg-surface-container-lowest dark:hover:bg-surface-container-lowest"
+                        >
+                          <SelectValue placeholder="Select role" />
+                        </SelectTrigger>
+                        <SelectContent
+                          position="popper"
+                          align="start"
+                          className="w-[var(--radix-select-trigger-width)] min-w-[var(--radix-select-trigger-width)]"
+                        >
+                          {roles
+                            .filter((r) => r.name !== 'Owner')
+                            .map((r) => (
+                              <SelectItem key={r.id} value={r.id}>
+                                {r.name}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
                     ) : (
                       <span className="text-on-surface-variant">{u.roleName ?? '—'}</span>
                     )}
@@ -545,7 +572,7 @@ export default function CompanyUsersSection() {
                             type="button"
                             onClick={() => { setConfirmRemoveUserId(null); setConfirmDeleteRoleId(null); setShowTransferUserId(u.id); setTransferPassword(''); }}
                             disabled={transferring}
-                            className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-body-xs text-amber-600 transition-colors hover:bg-amber-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="inline-flex cursor-pointer items-center gap-1 rounded-lg px-2 py-1 text-body-xs text-amber-600 transition-colors hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-40"
                             title="Transfer ownership"
                           >
                             <Crown size={14} />
