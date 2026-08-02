@@ -32,6 +32,8 @@ public class ConnectionController : ControllerBase
     {
         var userId = GetUserId();
         var connections = await _connectionService.GetAllAsync(userId, ct);
+        Response.Headers["X-Company-Connection-Count"] =
+            (await _connectionService.GetCompanyConnectionCountAsync(userId, ct)).ToString();
         return Ok(connections);
     }
 
@@ -40,6 +42,22 @@ public class ConnectionController : ControllerBase
     {
         var userId = GetUserId();
         var connection = await _connectionService.GetByIdAsync(id, userId, ct);
+        return Ok(connection);
+    }
+
+    [HttpGet("{id:guid}/config")]
+    public async Task<IActionResult> GetConfig(Guid id, CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var config = await _connectionService.GetConfigAsync(id, userId, ct);
+        return Ok(config);
+    }
+
+    [HttpPut("{id:guid}")]
+    public async Task<IActionResult> Update(Guid id, [FromBody] UpdateConnectionRequest request, CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var connection = await _connectionService.UpdateAsync(id, userId, request, ct);
         return Ok(connection);
     }
 

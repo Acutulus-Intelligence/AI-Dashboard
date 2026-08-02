@@ -3,29 +3,44 @@ import {
   CheckCircle,
   ChevronDown,
   Database,
+  Globe,
+  Lock,
+  Pencil,
   Plus,
   RefreshCw,
   Table,
   Trash2,
+  Users,
   XCircle,
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import {
+  getCompanyUsers,
+  getMyCompany,
+  type CompanyResponse,
+  type CompanyRoleResponse,
+  type CompanyUserResponse,
+} from '@/lib/api/company';
 import AppShell from '../layouts/AppShell';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { ROUTES } from '../routes';
 import { useAuth } from '../store/useAuth';
 import {
-  getConnections,
   createConnection,
   deleteConnection,
-  testConnection,
+  getConnectionConfig,
+  getConnectionsWithCount,
   getTables,
+  testConnection,
+  updateConnection,
   type ConnectionResponse,
+  type ConnectionVisibility,
   type CreateConnectionRequest,
   type TableInfo,
+  type UpdateConnectionRequest,
 } from '../../services/connectionsApi';
 
 const DB_PROVIDERS = [
@@ -33,20 +48,28 @@ const DB_PROVIDERS = [
   { value: 'MySql', label: 'MySQL' },
 ];
 
-function canManageConnections(user: { userType: number; companyRoleName?: string | null } | null | undefined) {
-  return !user || user.userType !== 1 || user.companyRoleName === 'Owner';
+const VISIBILITY_OPTIONS: { value: ConnectionVisibility; label: string; hint: string }[] = [
+  { value: 'Company', label: 'Entire company', hint: 'Visible to every member' },
+  { value: 'Roles', label: 'Specific roles', hint: 'Visible to selected roles only' },
+  { value: 'Private', label: 'Only me', hint: 'Visible just to you (and the owner)' },
+];
+
+const MAX_COMPANY_CONNECTIONS = 5;
+
+interface ConnectionFormState {
+  name: string;
+  dbProvider: string;
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  password: string;
+  visibility: ConnectionVisibility;
+  allowedRoleIds: string[];
 }
 
-export default function ConnectionsPage() {
-  const { user } = useAuth();
-  const navigate = useNavigate();
-  const location = useLocation();
-  const allowed = canManageConnections(user);
-  const isCompany = user?.userType === 1;
-
-  const [connections, setConnections] = useState<ConnectionResponse[]>([]);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<CreateConnectionRequest>({
+function emptyForm(): ConnectionFormState {
+  return {
     name: '',
     dbProvider: 'PostgreSql',
     host: '',
@@ -54,8 +77,37 @@ export default function ConnectionsPage() {
     database: '',
     username: '',
     password: '',
-  });
-  const [error, setError] = useState('');
+    visibility: 'Company',
+    allowedRoleIds: [],
+  };
+}
+
+function visibilityLabel(conn: ConnectionResponse, roles: CompanyRoleResponse[]): string {
+  if (conn.visibility === 'Private') return 'Only me';
+  if (conn.visibility === 'Company') return 'Company';
+  const names = conn.allowedRoleIds
+    .map((id) => roles.find((r) => r.id === id)?.name)
+    .filter(Boolean);
+  return names.length > 0 ? `Roles: ${names.join(', ')}` : 'Selected roles';
+}
+
+export default function ConnectionsPage() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const isCompany = user?.userType === 1;
+
+  const [connections, setConnections] = useState<ConnectionResponse[]>([]);
+  const [totalCompanyConnections, setTotalCompanyConnections] = useState(0);
+  const [company, setCompany] = useState<CompanyResponse | null>(null);
+  const [users, setUsers] = useState<CompanyUserResponse[]>([]);
+  const [roles, setRoles] = useState<CompanyRoleResponse[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<ConnectionFormState>(emptyForm());
+  const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [tablesLoading, setTablesLoading] = useState(false);
@@ -64,6 +116,22 @@ export default function ConnectionsPage() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  const isOwner = isCompany && company !== null && user?.userId === company.ownerId;
+  const me = users.find((u) => u.id === user?.userId);
+  const myRole = roles.find((r) => r.id === me?.roleId);
+  const canManageConnections = !isCompany || isOwner || myRole?.canManageConnections === true;
+  const shareableRoles = roles.filter((r) => !(r.isSystemRole && r.name === 'Owner'));
+
+  const canManageConnection = useCallback(
+    (conn: ConnectionResponse) => {
+      if (!isCompany) return conn.createdById === user?.userId;
+      if (conn.createdById === user?.userId) return true;
+      if (isOwner) return true;
+      return myRole?.canManageConnections === true && conn.visibility !== 'Private';
+    },
+    [isCompany, isOwner, myRole, user?.userId],
+  );
 
   const expandConnection = useCallback(async (id: string) => {
     setExpandedId(id);
@@ -79,6 +147,13 @@ export default function ConnectionsPage() {
     }
   }, []);
 
+  const refreshConnections = useCallback(async (): Promise<ConnectionResponse[]> => {
+    const { connections: list, companyConnectionCount } = await getConnectionsWithCount();
+    setConnections(list);
+    setTotalCompanyConnections(companyConnectionCount);
+    return list;
+  }, []);
+
   const testAll = useCallback(async (list: ConnectionResponse[], showToast: boolean) => {
     if (list.length === 0) {
       if (showToast) toast.message('No database connections to test.');
@@ -87,29 +162,33 @@ export default function ConnectionsPage() {
     setTestingAll(true);
     try {
       await Promise.allSettled(list.map((c) => testConnection(c.id)));
-      const refreshed = await getConnections();
-      setConnections(refreshed);
+      await refreshConnections();
       if (showToast) toast.success('All database connections tested.');
     } catch {
       if (showToast) toast.error('Could not test all connections.');
     } finally {
       setTestingAll(false);
     }
-  }, []);
+  }, [refreshConnections]);
 
   useEffect(() => {
-    if (!allowed) {
-      navigate(ROUTES.DASHBOARD, { replace: true });
-      return;
-    }
-
     let cancelled = false;
     (async () => {
       setInitialLoading(true);
       try {
-        const list = await getConnections();
+        const list = await refreshConnections();
         if (cancelled) return;
-        setConnections(list);
+
+        if (isCompany && user?.userId) {
+          const companyData = await getMyCompany();
+          if (cancelled) return;
+          setCompany(companyData);
+          setRoles(companyData.roles);
+          const usersData = await getCompanyUsers(companyData.id);
+          if (cancelled) return;
+          setUsers(usersData);
+        }
+
         await testAll(list, false);
         if (cancelled) return;
 
@@ -119,7 +198,7 @@ export default function ConnectionsPage() {
           navigate(location.pathname, { replace: true, state: null });
         }
       } catch {
-        if (!cancelled) setConnections([]);
+        if (!cancelled) setLoadError('Could not load connections.');
       } finally {
         if (!cancelled) setInitialLoading(false);
       }
@@ -130,34 +209,112 @@ export default function ConnectionsPage() {
     };
     // Only gate + initial mount; expand from navigation state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allowed]);
+  }, [isCompany, user?.userId]);
 
-  const handleCreate = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    if (editingId) {
+      await handleEdit();
+    } else {
+      await handleCreate();
+    }
+  };
+
+  const handleCreate = async () => {
+    setFormError('');
+    setSaving(true);
     try {
-      const created = await createConnection(form);
+      const payload: CreateConnectionRequest = {
+        name: form.name,
+        dbProvider: form.dbProvider,
+        host: form.host,
+        port: form.port,
+        database: form.database,
+        username: form.username,
+        password: form.password,
+        visibility: isCompany ? form.visibility : 'Private',
+        allowedRoleIds: form.visibility === 'Roles' ? form.allowedRoleIds : [],
+      };
+      const created = await createConnection(payload);
       setShowForm(false);
-      setForm({
-        name: '',
-        dbProvider: 'PostgreSql',
-        host: '',
-        port: 5432,
-        database: '',
-        username: '',
-        password: '',
-      });
+      setForm(emptyForm());
       try {
         await testConnection(created.id);
       } catch {
         /* verification badge updates on reload */
       }
-      const list = await getConnections();
-      setConnections(list);
+      await refreshConnections();
       toast.success('Connection added and tested.');
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to create connection');
+      setFormError(err instanceof Error ? err.message : 'Failed to create connection');
+    } finally {
+      setSaving(false);
     }
+  };
+
+  const handleEdit = async () => {
+    if (!editingId) return;
+    setFormError('');
+    setSaving(true);
+    try {
+      const payload: UpdateConnectionRequest = {
+        name: form.name,
+        dbProvider: form.dbProvider,
+        host: form.host,
+        port: form.port,
+        database: form.database,
+        username: form.username,
+        password: form.password || undefined,
+        visibility: isCompany ? form.visibility : 'Private',
+        allowedRoleIds: form.visibility === 'Roles' ? form.allowedRoleIds : [],
+      };
+      await updateConnection(editingId, payload);
+      setEditingId(null);
+      setForm(emptyForm());
+      await refreshConnections();
+      toast.success('Connection updated.');
+    } catch (err: unknown) {
+      setFormError(err instanceof Error ? err.message : 'Failed to update connection');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleCreateForm = () => {
+    setEditingId(null);
+    setForm(emptyForm());
+    setFormError('');
+    setShowForm((v) => !v);
+  };
+
+  const openEdit = async (conn: ConnectionResponse) => {
+    try {
+      const config = await getConnectionConfig(conn.id);
+      setForm({
+        name: config.name,
+        dbProvider: config.dbProvider,
+        host: config.host,
+        port: config.port,
+        database: config.database,
+        username: config.username,
+        password: '',
+        visibility: config.visibility,
+        allowedRoleIds: config.allowedRoleIds,
+      });
+      setEditingId(conn.id);
+      setShowForm(false);
+      setFormError('');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch {
+      toast.error('Could not load connection details.');
+    }
+  };
+
+  const closeForm = () => {
+    setEditingId(null);
+    setShowForm(false);
+    setForm(emptyForm());
+    setFormError('');
   };
 
   const handleDelete = async () => {
@@ -171,7 +328,7 @@ export default function ConnectionsPage() {
         setTables([]);
         setSelectedTable(null);
       }
-      setConnections(await getConnections());
+      await refreshConnections();
       setDeleteTarget(null);
     } finally {
       setDeleting(false);
@@ -192,7 +349,14 @@ export default function ConnectionsPage() {
     setSelectedTable((prev) => (prev === tableName ? null : tableName));
   }
 
-  if (!allowed) return null;
+  const toggleAllowedRole = (roleId: string) => {
+    setForm((prev) => ({
+      ...prev,
+      allowedRoleIds: prev.allowedRoleIds.includes(roleId)
+        ? prev.allowedRoleIds.filter((id) => id !== roleId)
+        : [...prev.allowedRoleIds, roleId],
+    }));
+  };
 
   const breadcrumbs = isCompany
     ? [
@@ -204,6 +368,8 @@ export default function ConnectionsPage() {
         { label: 'Connections' },
       ];
 
+  const formOpen = showForm || editingId !== null;
+
   return (
     <AppShell breadcrumbs={breadcrumbs}>
       <div className="flex items-start justify-between gap-4">
@@ -212,32 +378,42 @@ export default function ConnectionsPage() {
           <p className="text-muted-foreground text-sm">
             Connect a PostgreSQL or MySQL database to build charts from.
           </p>
+          {isCompany && canManageConnections && (
+            <p className="text-muted-foreground mt-1 text-sm">
+              {totalCompanyConnections}/{MAX_COMPANY_CONNECTIONS} company connections used
+            </p>
+          )}
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            disabled={testingAll || initialLoading || connections.length === 0}
-            onClick={() => void testAll(connections, true)}
-            aria-label="Test all connections"
-          >
-            <RefreshCw className={testingAll ? 'animate-spin' : undefined} />
-          </Button>
-          <Button type="button" onClick={() => setShowForm(!showForm)}>
-            <Plus /> Add connection
-          </Button>
-        </div>
+        {canManageConnections && (
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              disabled={testingAll || initialLoading || connections.length === 0}
+              onClick={() => void testAll(connections, true)}
+              aria-label="Test all connections"
+            >
+              <RefreshCw className={testingAll ? 'animate-spin' : undefined} />
+            </Button>
+            <Button type="button" onClick={toggleCreateForm}>
+              <Plus /> Add connection
+            </Button>
+          </div>
+        )}
       </div>
 
-      {showForm && (
-        <form
-          onSubmit={handleCreate}
-          className="border-border bg-card rounded-xl border p-6"
-        >
-          <h2 className="mb-4 text-lg font-semibold">New connection</h2>
-          {error && (
-            <div className="bg-destructive/10 text-destructive mb-3 rounded-lg p-3 text-sm">{error}</div>
+      {loadError && (
+        <div className="bg-destructive/10 text-destructive mt-4 rounded-lg p-3 text-sm">{loadError}</div>
+      )}
+
+      {formOpen && canManageConnections && (
+        <form onSubmit={handleSubmit} className="border-border bg-card mt-4 rounded-xl border p-6">
+          <h2 className="mb-4 text-lg font-semibold">
+            {editingId ? 'Edit connection' : 'New connection'}
+          </h2>
+          {formError && (
+            <div className="bg-destructive/10 text-destructive mb-3 rounded-lg p-3 text-sm">{formError}</div>
           )}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <input
@@ -289,16 +465,76 @@ export default function ConnectionsPage() {
             />
             <input
               type="password"
-              placeholder="Password"
+              placeholder={editingId ? 'Leave blank to keep current password' : 'Password'}
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
-              required
+              required={!editingId}
               className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
             />
           </div>
+
+          {isCompany && (
+            <div className="mt-4">
+              <p className="text-muted-foreground mb-2 text-sm font-medium">Share with</p>
+              <div className="space-y-2">
+                {VISIBILITY_OPTIONS.map((opt) => (
+                  <label
+                    key={opt.value}
+                    className={cn(
+                      'border-border hover:bg-muted/50 flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm',
+                      form.visibility === opt.value && 'border-brand bg-muted/40',
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="visibility"
+                      value={opt.value}
+                      checked={form.visibility === opt.value}
+                      onChange={() => setForm({ ...form, visibility: opt.value })}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      <span className="block font-medium">{opt.label}</span>
+                      <span className="text-muted-foreground block">{opt.hint}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+
+              {form.visibility === 'Roles' && (
+                <div className="border-border mt-3 rounded-lg border p-3">
+                  <p className="text-muted-foreground mb-2 text-sm font-medium">Select roles</p>
+                  {shareableRoles.length === 0 ? (
+                    <p className="text-muted-foreground text-sm">
+                      No roles available. Create roles under Team members first.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {shareableRoles.map((role) => (
+                        <label
+                          key={role.id}
+                          className="hover:bg-muted flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={form.allowedRoleIds.includes(role.id)}
+                            onChange={() => toggleAllowedRole(role.id)}
+                          />
+                          {role.name}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="mt-4 flex gap-3">
-            <Button type="submit">Save</Button>
-            <Button type="button" variant="outline" onClick={() => setShowForm(false)}>
+            <Button type="submit" disabled={saving}>
+              {editingId ? 'Save changes' : 'Save'}
+            </Button>
+            <Button type="button" variant="outline" onClick={closeForm} disabled={saving}>
               Cancel
             </Button>
           </div>
@@ -310,129 +546,161 @@ export default function ConnectionsPage() {
           <p className="text-muted-foreground text-sm">Loading connections…</p>
         )}
 
-        {connections.map((conn) => (
-          <div key={conn.id} className="border-border bg-card rounded-xl border">
-            <div className="flex items-stretch">
-              <button
-                type="button"
-                onClick={() => void toggleExpand(conn.id)}
-                aria-expanded={expandedId === conn.id}
-                className="hover:bg-muted/50 flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 rounded-l-xl p-4 text-left transition-colors"
-              >
-                <div className="flex min-w-0 items-center gap-3">
-                  <Database className="text-brand size-5 shrink-0" />
-                  <div className="min-w-0">
-                    <span className="font-semibold">{conn.name}</span>
-                    <span className="text-muted-foreground ml-2 text-sm">
-                      ({conn.dbProvider === 'PostgreSql' ? 'PostgreSQL' : 'MySQL'})
-                    </span>
-                  </div>
-                  {conn.isVerified ? (
-                    <CheckCircle className="size-4 shrink-0 text-green-600" />
-                  ) : (
-                    <XCircle className="size-4 shrink-0 text-red-400" />
-                  )}
-                </div>
-                <span className="text-muted-foreground flex shrink-0 items-center gap-1.5 text-sm">
-                  <Table className="size-4" />
-                  Tables
-                  <ChevronDown
-                    className={cn(
-                      'size-4 transition-transform',
-                      expandedId === conn.id && 'rotate-180',
-                    )}
-                  />
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setDeleteTarget({ id: conn.id, name: conn.name })}
-                aria-label={`Delete ${conn.name}`}
-                className="text-muted-foreground hover:bg-muted hover:text-destructive flex w-12 cursor-pointer items-center justify-center rounded-r-xl border-l transition-colors"
-              >
-                <Trash2 className="size-4" />
-              </button>
-            </div>
-
-            {expandedId === conn.id && (
-              <div className="border-border border-t p-4">
-                {tablesLoading ? (
-                  <div className="text-muted-foreground text-sm">Loading tables…</div>
-                ) : (
-                  <div className="space-y-1">
-                    {tables.map((t) => {
-                      const open = selectedTable === t.tableName;
-                      return (
-                        <div
-                          key={t.tableName}
-                          className={cn(
-                            'rounded-lg border transition-colors',
-                            open ? 'border-border bg-muted/40' : 'border-transparent',
-                          )}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => toggleTable(t.tableName)}
-                            aria-expanded={open}
-                            className="hover:bg-muted flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm"
-                          >
-                            <div className="flex items-center gap-2">
-                              <Table className="text-brand size-4 shrink-0" />
-                              <span className="font-medium">{t.tableName}</span>
-                              <span className="text-muted-foreground">
-                                ({t.columns.length} columns)
-                              </span>
-                            </div>
-                            <ChevronDown
-                              className={cn(
-                                'text-muted-foreground size-4 shrink-0 transition-transform',
-                                open && 'rotate-180',
-                              )}
-                            />
-                          </button>
-                          {open && (
-                            <div className="border-border border-t px-3 py-2">
-                              <table className="w-full text-left text-sm">
-                                <thead>
-                                  <tr className="text-muted-foreground border-b">
-                                    <th className="pb-1.5 pr-3 font-medium">Column</th>
-                                    <th className="pb-1.5 pr-3 font-medium">Type</th>
-                                    <th className="pb-1.5 font-medium">Nullable</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {t.columns.map((col) => (
-                                    <tr key={col.columnName} className="border-b last:border-0">
-                                      <td className="py-1.5 pr-3 font-medium">{col.columnName}</td>
-                                      <td className="text-muted-foreground py-1.5 pr-3">
-                                        {col.dataType}
-                                      </td>
-                                      <td className="text-muted-foreground py-1.5">
-                                        {col.isNullable ? 'Yes' : 'No'}
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {tables.length === 0 && (
-                      <div className="text-muted-foreground text-sm">No tables found.</div>
+        {connections.map((conn) => {
+          const canManage = canManageConnection(conn);
+          return (
+            <div key={conn.id} className="border-border bg-card rounded-xl border">
+              <div className="flex items-stretch">
+                <button
+                  type="button"
+                  onClick={() => void toggleExpand(conn.id)}
+                  aria-expanded={expandedId === conn.id}
+                  className="hover:bg-muted/50 flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 rounded-l-xl p-4 text-left transition-colors"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <Database className="text-brand size-5 shrink-0" />
+                    <div className="min-w-0">
+                      <span className="font-semibold">{conn.name}</span>
+                      <span className="text-muted-foreground ml-2 text-sm">
+                        ({conn.dbProvider === 'PostgreSql' ? 'PostgreSQL' : 'MySQL'})
+                      </span>
+                      <span
+                        className="text-muted-foreground ml-2 inline-flex items-center gap-1 text-sm"
+                        title={visibilityLabel(conn, roles)}
+                      >
+                        {conn.visibility === 'Private' ? (
+                          <Lock className="size-3.5" />
+                        ) : conn.visibility === 'Company' ? (
+                          <Globe className="size-3.5" />
+                        ) : (
+                          <Users className="size-3.5" />
+                        )}
+                        {visibilityLabel(conn, roles)}
+                      </span>
+                    </div>
+                    {conn.isVerified ? (
+                      <CheckCircle className="size-4 shrink-0 text-green-600" />
+                    ) : (
+                      <XCircle className="size-4 shrink-0 text-red-400" />
                     )}
                   </div>
+                  <span className="text-muted-foreground flex shrink-0 items-center gap-1.5 text-sm">
+                    <Table className="size-4" />
+                    Tables
+                    <ChevronDown
+                      className={cn(
+                        'size-4 transition-transform',
+                        expandedId === conn.id && 'rotate-180',
+                      )}
+                    />
+                  </span>
+                </button>
+                {canManage && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void openEdit(conn)}
+                      aria-label={`Edit ${conn.name}`}
+                      className="text-muted-foreground hover:bg-muted hover:text-brand flex w-12 cursor-pointer items-center justify-center border-l transition-colors"
+                    >
+                      <Pencil className="size-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTarget({ id: conn.id, name: conn.name })}
+                      aria-label={`Delete ${conn.name}`}
+                      className="text-muted-foreground hover:bg-muted hover:text-destructive flex w-12 cursor-pointer items-center justify-center rounded-r-xl border-l transition-colors"
+                    >
+                      <Trash2 className="size-4" />
+                    </button>
+                  </>
                 )}
               </div>
-            )}
-          </div>
-        ))}
 
-        {!initialLoading && connections.length === 0 && !showForm && (
+              {expandedId === conn.id && (
+                <div className="border-border border-t p-4">
+                  {tablesLoading ? (
+                    <div className="text-muted-foreground text-sm">Loading tables…</div>
+                  ) : (
+                    <div className="space-y-1">
+                      {tables.map((t) => {
+                        const open = selectedTable === t.tableName;
+                        return (
+                          <div
+                            key={t.tableName}
+                            className={cn(
+                              'rounded-lg border transition-colors',
+                              open ? 'border-border bg-muted/40' : 'border-transparent',
+                            )}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => toggleTable(t.tableName)}
+                              aria-expanded={open}
+                              className="hover:bg-muted flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm"
+                            >
+                              <div className="flex items-center gap-2">
+                                <Table className="text-brand size-4 shrink-0" />
+                                <span className="font-medium">{t.tableName}</span>
+                                <span className="text-muted-foreground">
+                                  ({t.columns.length} columns)
+                                </span>
+                              </div>
+                              <ChevronDown
+                                className={cn(
+                                  'text-muted-foreground size-4 shrink-0 transition-transform',
+                                  open && 'rotate-180',
+                                )}
+                              />
+                            </button>
+                            {open && (
+                              <div className="border-border border-t px-3 py-2">
+                                <table className="w-full text-left text-sm">
+                                  <thead>
+                                    <tr className="text-muted-foreground border-b">
+                                      <th className="pb-1.5 pr-3 font-medium">Column</th>
+                                      <th className="pb-1.5 pr-3 font-medium">Type</th>
+                                      <th className="pb-1.5 font-medium">Nullable</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {t.columns.map((col) => (
+                                      <tr key={col.columnName} className="border-b last:border-0">
+                                        <td className="py-1.5 pr-3 font-medium">{col.columnName}</td>
+                                        <td className="text-muted-foreground py-1.5 pr-3">
+                                          {col.dataType}
+                                        </td>
+                                        <td className="text-muted-foreground py-1.5">
+                                          {col.isNullable ? 'Yes' : 'No'}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {tables.length === 0 && (
+                        <div className="text-muted-foreground text-sm">No tables found.</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {!initialLoading && connections.length === 0 && !formOpen && (
           <div className="border-border text-muted-foreground rounded-xl border border-dashed p-12 text-center">
             <Database className="mx-auto mb-3 size-10 opacity-40" />
-            <p className="text-sm">No connections yet. Click &quot;Add connection&quot; to get started.</p>
+            <p className="text-sm">
+              {isCompany && !canManageConnections
+                ? 'No shared connections yet. Ask a company admin to add one.'
+                : 'No connections yet. Click "Add connection" to get started.'}
+            </p>
           </div>
         )}
       </div>

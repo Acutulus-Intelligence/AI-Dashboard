@@ -174,7 +174,6 @@ export default function AdminPage() {
                 <p className="text-body-sm text-on-surface-variant">Manage users, roles, and permissions for your company.</p>
               </Link>
 
-              {isOwner && (
               <Link
                 to={ROUTES.CONNECTIONS}
                 className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-xs transition-shadow hover:shadow-md"
@@ -185,7 +184,6 @@ export default function AdminPage() {
                 <h2 className="mb-2 text-body-lg font-semibold text-on-background">Connections</h2>
                 <p className="text-body-sm text-on-surface-variant">Connect external databases to generate AI-powered charts.</p>
               </Link>
-              )}
 
               {isOwner && (
               <Link

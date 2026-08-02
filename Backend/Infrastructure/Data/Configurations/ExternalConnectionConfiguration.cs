@@ -27,12 +27,30 @@ public class ExternalConnectionConfiguration : IEntityTypeConfiguration<External
         builder.Property(ec => ec.IsVerified)
             .IsRequired();
 
+        builder.Property(ec => ec.Visibility)
+            .IsRequired()
+            .HasConversion<string>()
+            .HasMaxLength(20);
+
+        builder.Property(ec => ec.AllowedRoleIds)
+            .HasColumnType("uuid[]");
+
         builder.HasOne(ec => ec.User)
             .WithMany()
             .HasForeignKey(ec => ec.UserId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        builder.HasOne(ec => ec.Company)
+            .WithMany()
+            .HasForeignKey(ec => ec.CompanyId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         builder.HasIndex(ec => new { ec.UserId, ec.Name })
-            .IsUnique();
+            .IsUnique()
+            .HasFilter("\"CompanyId\" IS NULL OR \"Visibility\" = 'Private'");
+
+        builder.HasIndex(ec => new { ec.CompanyId, ec.Name })
+            .IsUnique()
+            .HasFilter("\"CompanyId\" IS NOT NULL AND \"Visibility\" <> 'Private'");
     }
 }

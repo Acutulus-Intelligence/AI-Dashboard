@@ -34,6 +34,7 @@ export default function CompanyUsersSection() {
     canManageUsers: false,
     canManageRoles: false,
     canManageDashboards: false,
+    canManageConnections: false,
   });
   const [creatingRole, setCreatingRole] = useState(false);
   const [createRoleError, setCreateRoleError] = useState('');
@@ -45,6 +46,7 @@ export default function CompanyUsersSection() {
     canManageUsers: false,
     canManageRoles: false,
     canManageDashboards: false,
+    canManageConnections: false,
   });
   const [savingRole, setSavingRole] = useState(false);
   const [editRoleError, setEditRoleError] = useState('');
@@ -246,7 +248,7 @@ export default function CompanyUsersSection() {
       });
       setRoles((prev) => [...prev, created]);
       setNewRoleName('');
-      setNewRolePerms({ canViewAllDashboards: false, canManageUsers: false, canManageRoles: false, canManageDashboards: false });
+      setNewRolePerms({ canViewAllDashboards: false, canManageUsers: false, canManageRoles: false, canManageDashboards: false, canManageConnections: false });
       setShowCreateRole(false);
     } catch (err: unknown) {
       setCreateRoleError(err instanceof Error ? err.message : 'Failed to create role.');
@@ -263,6 +265,7 @@ export default function CompanyUsersSection() {
       canManageUsers: role.canManageUsers,
       canManageRoles: role.canManageRoles,
       canManageDashboards: role.canManageDashboards,
+      canManageConnections: role.canManageConnections,
     });
     setEditRoleError('');
   }
@@ -270,7 +273,7 @@ export default function CompanyUsersSection() {
   function cancelEditRole() {
     setEditingRoleId(null);
     setEditRoleName('');
-    setEditRolePerms({ canViewAllDashboards: false, canManageUsers: false, canManageRoles: false, canManageDashboards: false });
+    setEditRolePerms({ canViewAllDashboards: false, canManageUsers: false, canManageRoles: false, canManageDashboards: false, canManageConnections: false });
     setEditRoleError('');
   }
 
@@ -773,13 +776,14 @@ export default function CompanyUsersSection() {
                     { key: 'canManageUsers' as const, label: 'Manage users', ownerOnly: true },
                     { key: 'canManageRoles' as const, label: 'Manage roles', ownerOnly: true },
                     { key: 'canManageDashboards' as const, label: 'Manage dashboards' },
+                    { key: 'canManageConnections' as const, label: 'Manage connections', ownerOnly: true },
                   ]).map(({ key, label, ownerOnly }) => {
                     const isOwnerOnly = ownerOnly && !isOwner;
                     return (
                       <label key={key} className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="checkbox"
-                          checked={isOwnerOnly ? false : newRolePerms[key]}
+                          checked={newRolePerms[key]}
                           disabled={isOwnerOnly}
                           onChange={(e) => setNewRolePerms((prev) => ({ ...prev, [key]: e.target.checked }))}
                           className="h-4 w-4 rounded border-outline-variant text-primary focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-40"
@@ -844,13 +848,14 @@ export default function CompanyUsersSection() {
                           { key: 'canManageUsers' as const, label: 'Manage users', ownerOnly: true },
                           { key: 'canManageRoles' as const, label: 'Manage roles', ownerOnly: true },
                           { key: 'canManageDashboards' as const, label: 'Manage dashboards' },
+                          { key: 'canManageConnections' as const, label: 'Manage connections', ownerOnly: true },
                         ]).map(({ key, label, ownerOnly }) => {
                           const isOwnerOnly = ownerOnly && !isOwner;
                           return (
                             <label key={key} className="flex items-center gap-2 cursor-pointer">
                               <input
                                 type="checkbox"
-                                checked={isOwnerOnly ? false : editRolePerms[key]}
+                                checked={editRolePerms[key]}
                                 disabled={isOwnerOnly}
                                 onChange={(e) => setEditRolePerms((prev) => ({ ...prev, [key]: e.target.checked }))}
                                 className="h-4 w-4 rounded border-outline-variant text-primary focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-40"

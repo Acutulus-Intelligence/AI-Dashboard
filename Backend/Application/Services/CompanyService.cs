@@ -58,6 +58,7 @@ public class CompanyService : ICompanyService
             CanManageUsers = true,
             CanManageRoles = true,
             CanManageDashboards = true,
+            CanManageConnections = true,
             AllowedTables = []
         };
 
@@ -473,7 +474,12 @@ public class CompanyService : ICompanyService
             .Where(i => i.CompanyId == companyId)
             .ToListAsync(ct);
 
+        var connections = await _db.ExternalConnections
+            .Where(ec => ec.CompanyId == companyId)
+            .ToListAsync(ct);
+
         _db.CompanyInvites.RemoveRange(invites);
+        _db.ExternalConnections.RemoveRange(connections);
         _db.CompanyRoles.RemoveRange(company.CompanyRoles);
         _db.Companies.Remove(company);
 
@@ -550,6 +556,7 @@ public class CompanyService : ICompanyService
                 r.CanManageUsers,
                 r.CanManageRoles,
                 r.CanManageDashboards,
+                r.CanManageConnections,
                 r.AllowedTables,
                 r.Users.Count
             ))
@@ -562,8 +569,8 @@ public class CompanyService : ICompanyService
     {
         var (company, _) = await EnsureCanManageRolesAsync(companyId, actorId, ct);
 
-        if (actorId != company.OwnerId && (request.CanManageUsers || request.CanManageRoles))
-            throw new InvalidOperationException("Only the owner can grant user management or role management permissions.");
+        if (actorId != company.OwnerId && (request.CanManageUsers || request.CanManageRoles || request.CanManageConnections))
+            throw new InvalidOperationException("Only the owner can grant user management, role management, or connection management permissions.");
 
         var role = new CompanyRole
         {
@@ -575,6 +582,7 @@ public class CompanyService : ICompanyService
             CanManageUsers = request.CanManageUsers,
             CanManageRoles = request.CanManageRoles,
             CanManageDashboards = request.CanManageDashboards,
+            CanManageConnections = request.CanManageConnections,
             AllowedTables = request.AllowedTables ?? []
         };
 
@@ -589,6 +597,7 @@ public class CompanyService : ICompanyService
             role.CanManageUsers,
             role.CanManageRoles,
             role.CanManageDashboards,
+            role.CanManageConnections,
             role.AllowedTables,
             0
         );
@@ -606,8 +615,11 @@ public class CompanyService : ICompanyService
         if (role.IsSystemRole)
             throw new InvalidOperationException("Cannot modify system roles.");
 
-        if (actorId != role.Company.OwnerId && (request.CanManageUsers || request.CanManageRoles))
-            throw new InvalidOperationException("Only the owner can grant user management or role management permissions.");
+        if (actorId != role.Company.OwnerId &&
+            ((request.CanManageUsers && !role.CanManageUsers) ||
+             (request.CanManageRoles && !role.CanManageRoles) ||
+             (request.CanManageConnections && !role.CanManageConnections)))
+            throw new InvalidOperationException("Only the owner can grant user management, role management, or connection management permissions.");
 
         if (actorId != role.Company.OwnerId && actor.CompanyRole is not null)
         {
@@ -625,6 +637,7 @@ public class CompanyService : ICompanyService
         role.CanManageUsers = request.CanManageUsers;
         role.CanManageRoles = request.CanManageRoles;
         role.CanManageDashboards = request.CanManageDashboards;
+        role.CanManageConnections = request.CanManageConnections;
         role.AllowedTables = request.AllowedTables ?? [];
 
         await _db.SaveChangesAsync(ct);
@@ -639,6 +652,7 @@ public class CompanyService : ICompanyService
             role.CanManageUsers,
             role.CanManageRoles,
             role.CanManageDashboards,
+            role.CanManageConnections,
             role.AllowedTables,
             userCount
         );
@@ -697,6 +711,7 @@ public class CompanyService : ICompanyService
                 r.CanManageUsers,
                 r.CanManageRoles,
                 r.CanManageDashboards,
+                r.CanManageConnections,
                 r.AllowedTables,
                 0
             )).ToList(),

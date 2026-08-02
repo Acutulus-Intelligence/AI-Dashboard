@@ -12,6 +12,7 @@ public class CompanyRole
     public bool CanManageUsers { get; set; }
     public bool CanManageRoles { get; set; }
     public bool CanManageDashboards { get; set; }
+    public bool CanManageConnections { get; set; }
 
     public List<string> AllowedTables { get; set; } = [];
 

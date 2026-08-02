@@ -12,12 +12,18 @@ public class SchemaInspector : ISchemaInspector
     private readonly AppDbContext _db;
     private readonly IEncryptionService _encryption;
     private readonly ExternalDbSettings _settings;
+    private readonly IConnectionAccessService _access;
 
-    public SchemaInspector(AppDbContext db, IEncryptionService encryption, IOptions<ExternalDbSettings> settings)
+    public SchemaInspector(
+        AppDbContext db,
+        IEncryptionService encryption,
+        IOptions<ExternalDbSettings> settings,
+        IConnectionAccessService access)
     {
         _db = db;
         _encryption = encryption;
         _settings = settings.Value;
+        _access = access;
     }
 
     public async Task<List<TableSchema>> GetSchemaAsync(Guid connectionId, Guid userId, CancellationToken ct = default)
@@ -98,9 +104,7 @@ public class SchemaInspector : ISchemaInspector
 
     private async Task<(DbProvider provider, string connectionString)> GetConnectionAsync(Guid connectionId, Guid userId, CancellationToken ct)
     {
-        var connection = await _db.ExternalConnections
-            .AsNoTracking()
-            .FirstOrDefaultAsync(ec => ec.Id == connectionId && ec.UserId == userId, ct)
+        var connection = await _access.FindViewableAsync(connectionId, userId, ct)
             ?? throw new KeyNotFoundException("Connection not found.");
 
         await _db.Database.CloseConnectionAsync();

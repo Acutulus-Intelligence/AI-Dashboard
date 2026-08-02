@@ -12,22 +12,23 @@ public class ChartService : IChartService
 {
     private readonly IApplicationDbContext _db;
     private readonly IQueryExecutor _queryExecutor;
+    private readonly IConnectionAccessService _access;
 
-    public ChartService(IApplicationDbContext db, IQueryExecutor queryExecutor)
+    public ChartService(IApplicationDbContext db, IQueryExecutor queryExecutor, IConnectionAccessService access)
     {
         _db = db;
         _queryExecutor = queryExecutor;
+        _access = access;
     }
 
     public async Task<ChartResponse> SaveChartAsync(Guid userId, SaveChartRequest request, CancellationToken ct = default)
     {
         if (request.ConnectionId.HasValue)
         {
-            var ownsConnection = await _db.ExternalConnections
-                .AnyAsync(ec => ec.Id == request.ConnectionId.Value && ec.UserId == userId, ct);
+            var canViewConnection = await _access.CanViewAsync(request.ConnectionId.Value, userId, ct);
 
-            if (!ownsConnection)
-                throw new UnauthorizedAccessException("Connection does not belong to you.");
+            if (!canViewConnection)
+                throw new UnauthorizedAccessException("Connection is not accessible to you.");
         }
 
         await EnsureUniqueTitleAsync(userId, request.Title, excludeId: null, ct);

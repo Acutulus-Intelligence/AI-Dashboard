@@ -94,6 +94,7 @@ builder.Services.AddScoped<IExternalConnectionService, ExternalConnectionService
 builder.Services.AddScoped<ISchemaInspector, SchemaInspector>();
 builder.Services.AddSingleton<ISqlValidator, SqlValidator>();
 builder.Services.AddScoped<IQueryExecutor, QueryExecutor>();
+builder.Services.AddScoped<IConnectionAccessService, ConnectionAccessService>();
 
 // AI service
 builder.Services.Configure<AiSettings>(builder.Configuration.GetSection("Ai"));
@@ -133,6 +134,7 @@ builder.Services.AddCors(options =>
             .WithOrigins(corsOrigins)
             .WithMethods("GET", "POST", "PUT", "DELETE")
             .WithHeaders("Content-Type", "Authorization")
+            .WithExposedHeaders("X-Company-Connection-Count")
             .AllowCredentials();
     });
 });

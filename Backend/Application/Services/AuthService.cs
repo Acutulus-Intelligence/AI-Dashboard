@@ -204,7 +204,31 @@ public class AuthService : IAuthService
         var connections = await _db.ExternalConnections
             .Where(c => c.UserId == userId)
             .ToListAsync(ct);
-        _db.ExternalConnections.RemoveRange(connections);
+
+        foreach (var connection in connections.Where(c => c.CompanyId is null).ToList())
+        {
+            _db.ExternalConnections.Remove(connection);
+        }
+
+        foreach (var group in connections
+            .Where(c => c.CompanyId is not null)
+            .GroupBy(c => c.CompanyId!.Value))
+        {
+            var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == group.Key, ct);
+            if (company is null)
+            {
+                _db.ExternalConnections.RemoveRange(group);
+                continue;
+            }
+
+            foreach (var connection in group)
+            {
+                if (connection.Visibility == ConnectionVisibility.Private)
+                    _db.ExternalConnections.Remove(connection);
+                else
+                    connection.UserId = company.OwnerId;
+            }
+        }
 
         var refreshTokens = await _db.RefreshTokens
             .Where(t => t.UserId == userId)

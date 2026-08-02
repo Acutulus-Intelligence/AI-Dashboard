@@ -2,14 +2,14 @@ using Domain.Enums;
 
 namespace Application.DTos.Request;
 
-public sealed record CreateConnectionRequest(
+public sealed record UpdateConnectionRequest(
     string Name,
     DbProvider DbProvider,
     string Host,
     int Port,
     string Database,
     string Username,
-    string Password,
+    string? Password,
     ConnectionVisibility Visibility = ConnectionVisibility.Company,
     List<Guid>? AllowedRoleIds = null
 );

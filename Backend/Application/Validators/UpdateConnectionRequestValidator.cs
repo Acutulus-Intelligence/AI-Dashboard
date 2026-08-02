@@ -5,7 +5,7 @@ using FluentValidation;
 
 namespace Application.Validators;
 
-public partial class CreateConnectionRequestValidator : AbstractValidator<CreateConnectionRequest>
+public partial class UpdateConnectionRequestValidator : AbstractValidator<UpdateConnectionRequest>
 {
     private static readonly string[] BlockedHosts =
     [
@@ -13,7 +13,7 @@ public partial class CreateConnectionRequestValidator : AbstractValidator<Create
         "metadata.google.internal"
     ];
 
-    public CreateConnectionRequestValidator()
+    public UpdateConnectionRequestValidator()
     {
         RuleFor(x => x.Name)
             .NotEmpty()
@@ -46,7 +46,6 @@ public partial class CreateConnectionRequestValidator : AbstractValidator<Create
             .WithMessage("Username contains invalid characters.");
 
         RuleFor(x => x.Password)
-            .NotEmpty()
             .MaximumLength(500);
 
         RuleFor(x => x.Visibility)
