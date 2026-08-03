@@ -55,6 +55,7 @@ const VISIBILITY_OPTIONS: { value: ConnectionVisibility; label: string; hint: st
 ];
 
 const MAX_COMPANY_CONNECTIONS = 5;
+const MAX_INDIVIDUAL_CONNECTIONS = 1;
 
 interface ConnectionFormState {
   name: string;
@@ -378,9 +379,11 @@ export default function ConnectionsPage() {
           <p className="text-muted-foreground text-sm">
             Connect a PostgreSQL or MySQL database to build charts from.
           </p>
-          {isCompany && canManageConnections && (
+          {canManageConnections && (
             <p className="text-muted-foreground mt-1 text-sm">
-              {totalCompanyConnections}/{MAX_COMPANY_CONNECTIONS} company connections used
+              {isCompany
+                ? `${totalCompanyConnections}/${MAX_COMPANY_CONNECTIONS} company connections used`
+                : `${connections.length}/${MAX_INDIVIDUAL_CONNECTIONS} connection used`}
             </p>
           )}
         </div>

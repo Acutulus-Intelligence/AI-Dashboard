@@ -16,6 +16,7 @@ namespace Infrastructure.ExternalDb.Services;
 public class ExternalConnectionService : IExternalConnectionService
 {
     private const int MaxCompanyConnections = 5;
+    private const int MaxIndividualConnections = 1;
 
     private readonly AppDbContext _db;
     private readonly IEncryptionService _encryption;
@@ -57,6 +58,13 @@ public class ExternalConnectionService : IExternalConnectionService
             companyId = null;
             visibility = ConnectionVisibility.Private;
             allowedRoleIds = [];
+
+            var count = await _db.ExternalConnections
+                .CountAsync(ec => ec.UserId == userId && ec.CompanyId == null, ct);
+            if (count >= MaxIndividualConnections)
+                throw new ConflictException(
+                    $"You have reached the limit of {MaxIndividualConnections} database connection.",
+                    "connection_limit_reached");
         }
         else
         {

@@ -104,6 +104,25 @@ public sealed class ProductRoutesTests
     }
 
     [Fact]
+    public async Task Individual_users_can_only_connect_one_database()
+    {
+        var client = CreateClient();
+        var email = $"limit_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        await _factory.SeedActiveSubscriptionAsync(email);
+
+        var first = await client.PostAsJsonAsync("/api/connections", new CreateConnectionRequest(
+            "Only", DbProvider.PostgreSql, _factory.ExternalHost, _factory.ExternalPort,
+            _factory.ExternalDatabase, _factory.ExternalUsername, _factory.ExternalPassword));
+        first.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var second = await client.PostAsJsonAsync("/api/connections", new CreateConnectionRequest(
+            "Second", DbProvider.PostgreSql, _factory.ExternalHost, _factory.ExternalPort,
+            _factory.ExternalDatabase, _factory.ExternalUsername, _factory.ExternalPassword));
+        second.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
     public async Task Product_routes_without_auth_return_401()
     {
         var client = CreateClient();
