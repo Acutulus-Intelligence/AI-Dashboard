@@ -11,5 +11,6 @@ public sealed record CreateConnectionRequest(
     string Username,
     string Password,
     ConnectionVisibility Visibility = ConnectionVisibility.Company,
-    List<Guid>? AllowedRoleIds = null
+    List<Guid>? AllowedRoleIds = null,
+    SslMode SslMode = SslMode.Prefer
 );

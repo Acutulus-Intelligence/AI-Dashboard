@@ -11,5 +11,7 @@ public sealed record ConnectionResponse(
     Guid CreatedById,
     ConnectionVisibility Visibility,
     List<Guid> AllowedRoleIds,
-    Guid? CompanyId
+    Guid? CompanyId,
+    string Host,
+    string Database
 );

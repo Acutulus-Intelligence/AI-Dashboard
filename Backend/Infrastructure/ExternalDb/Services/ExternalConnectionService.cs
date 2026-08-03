@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MySql.Data.MySqlClient;
 using Npgsql;
+using SslMode = Domain.Enums.SslMode;
 
 namespace Infrastructure.ExternalDb.Services;
 
@@ -102,7 +103,8 @@ public class ExternalConnectionService : IExternalConnectionService
             request.Port,
             request.Database,
             request.Username,
-            request.Password ?? "");
+            request.Password ?? "",
+            request.SslMode);
 
         var connection = new ExternalConnection
         {
@@ -206,8 +208,33 @@ public class ExternalConnectionService : IExternalConnectionService
             port,
             database,
             username,
+            ExtractPassword(connection.DbProvider, decrypted),
             connection.Visibility,
-            connection.AllowedRoleIds);
+            connection.AllowedRoleIds,
+            ExtractSslMode(connection.DbProvider, decrypted));
+    }
+
+    public Task<ParseConnectionStringResponse> ParseConnectionStringAsync(string connectionString, CancellationToken ct = default)
+    {
+        if (!ConnectionStringParser.TryParse(connectionString, out var parsed, out var error))
+            throw new InvalidOperationException(error);
+
+        var port = parsed.Port > 0
+            ? parsed.Port
+            : parsed.Provider switch
+            {
+                DbProvider.PostgreSql => 5432,
+                DbProvider.MySql => 3306,
+                _ => 0
+            };
+
+        return Task.FromResult(new ParseConnectionStringResponse(
+            parsed.Provider,
+            parsed.Host,
+            port,
+            parsed.Database,
+            parsed.Username,
+            parsed.Password));
     }
 
     public async Task<ConnectionResponse> UpdateAsync(Guid id, Guid userId, UpdateConnectionRequest request, CancellationToken ct = default)
@@ -263,7 +290,8 @@ public class ExternalConnectionService : IExternalConnectionService
             request.Port,
             request.Database,
             request.Username,
-            password);
+            password,
+            request.SslMode);
 
         connection.Name = request.Name;
         connection.DbProvider = request.DbProvider;
@@ -338,7 +366,7 @@ public class ExternalConnectionService : IExternalConnectionService
                 "connection_name_conflict");
     }
 
-    private static string BuildConnectionString(DbProvider provider, string host, int port, string database, string username, string password)
+    private static string BuildConnectionString(DbProvider provider, string host, int port, string database, string username, string password, SslMode ssl)
     {
         return provider switch
         {
@@ -348,7 +376,8 @@ public class ExternalConnectionService : IExternalConnectionService
                 Port = port,
                 Database = database,
                 Username = username,
-                Password = password
+                Password = password,
+                SslMode = ToNpgsqlSslMode(ssl)
             }.ConnectionString,
             DbProvider.MySql => new MySqlConnectionStringBuilder
             {
@@ -356,7 +385,8 @@ public class ExternalConnectionService : IExternalConnectionService
                 Port = (uint)port,
                 Database = database,
                 UserID = username,
-                Password = password
+                Password = password,
+                SslMode = ToMySqlSslMode(ssl)
             }.ConnectionString,
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         };
@@ -371,6 +401,45 @@ public class ExternalConnectionService : IExternalConnectionService
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         };
     }
+
+    private static SslMode ExtractSslMode(DbProvider provider, string connectionString) => provider switch
+    {
+        DbProvider.PostgreSql => FromNpgsqlSslMode(new NpgsqlConnectionStringBuilder(connectionString).SslMode),
+        DbProvider.MySql => FromMySqlSslMode(new MySqlConnectionStringBuilder(connectionString).SslMode),
+        _ => SslMode.Prefer
+    };
+
+    private static Npgsql.SslMode ToNpgsqlSslMode(SslMode mode) => mode switch
+    {
+        SslMode.None => Npgsql.SslMode.Disable,
+        SslMode.Require => Npgsql.SslMode.Require,
+        SslMode.VerifyFull => Npgsql.SslMode.VerifyFull,
+        _ => Npgsql.SslMode.Prefer
+    };
+
+    private static MySqlSslMode ToMySqlSslMode(SslMode mode) => mode switch
+    {
+        SslMode.None => MySqlSslMode.None,
+        SslMode.Require => MySqlSslMode.Required,
+        SslMode.VerifyFull => MySqlSslMode.VerifyFull,
+        _ => MySqlSslMode.Preferred
+    };
+
+    private static SslMode FromNpgsqlSslMode(Npgsql.SslMode mode) => mode switch
+    {
+        Npgsql.SslMode.Disable => SslMode.None,
+        Npgsql.SslMode.Allow or Npgsql.SslMode.Prefer => SslMode.Prefer,
+        Npgsql.SslMode.Require or Npgsql.SslMode.VerifyCA => SslMode.Require,
+        _ => SslMode.VerifyFull
+    };
+
+    private static SslMode FromMySqlSslMode(MySqlSslMode mode) => mode switch
+    {
+        MySqlSslMode.None => SslMode.None,
+        MySqlSslMode.Preferred => SslMode.Prefer,
+        MySqlSslMode.Required or MySqlSslMode.VerifyCA => SslMode.Require,
+        _ => SslMode.VerifyFull
+    };
 
     private static (string host, int port, string database, string username) ParseConnectionString(DbProvider provider, string connectionString)
     {
@@ -394,8 +463,22 @@ public class ExternalConnectionService : IExternalConnectionService
         };
     }
 
-    private static ConnectionResponse MapResponse(ExternalConnection connection)
+    private ConnectionResponse MapResponse(ExternalConnection connection)
     {
+        string host = string.Empty;
+        string database = string.Empty;
+        try
+        {
+            var (parsedHost, _, parsedDatabase, _) = ParseConnectionString(
+                connection.DbProvider,
+                _encryption.Decrypt(connection.EncryptedConnectionString));
+            host = parsedHost;
+            database = parsedDatabase;
+        }
+        catch
+        {
+        }
+
         return new ConnectionResponse(
             connection.Id,
             connection.Name,
@@ -405,6 +488,8 @@ public class ExternalConnectionService : IExternalConnectionService
             connection.UserId,
             connection.Visibility,
             connection.AllowedRoleIds,
-            connection.CompanyId);
+            connection.CompanyId,
+            host,
+            database);
     }
 }

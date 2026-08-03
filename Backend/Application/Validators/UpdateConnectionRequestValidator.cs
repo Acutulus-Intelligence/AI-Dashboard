@@ -51,6 +51,9 @@ public partial class UpdateConnectionRequestValidator : AbstractValidator<Update
         RuleFor(x => x.Visibility)
             .IsInEnum();
 
+        RuleFor(x => x.SslMode)
+            .IsInEnum();
+
         RuleFor(x => x.AllowedRoleIds)
             .NotNull()
             .NotEmpty()

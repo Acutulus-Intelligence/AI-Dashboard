@@ -9,6 +9,8 @@ public sealed record ConnectionConfigResponse(
     int Port,
     string Database,
     string Username,
+    string Password,
     ConnectionVisibility Visibility,
-    List<Guid> AllowedRoleIds
+    List<Guid> AllowedRoleIds,
+    SslMode SslMode
 );

@@ -52,6 +52,9 @@ public partial class CreateConnectionRequestValidator : AbstractValidator<Create
         RuleFor(x => x.Visibility)
             .IsInEnum();
 
+        RuleFor(x => x.SslMode)
+            .IsInEnum();
+
         RuleFor(x => x.AllowedRoleIds)
             .NotNull()
             .NotEmpty()

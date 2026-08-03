@@ -19,6 +19,13 @@ public class ConnectionController : ControllerBase
         _connectionService = connectionService;
     }
 
+    [HttpPost("parse")]
+    public async Task<IActionResult> ParseConnectionString([FromBody] ParseConnectionStringRequest request, CancellationToken ct)
+    {
+        var parsed = await _connectionService.ParseConnectionStringAsync(request.ConnectionString, ct);
+        return Ok(parsed);
+    }
+
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateConnectionRequest request, CancellationToken ct)
     {

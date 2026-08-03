@@ -1,6 +1,8 @@
 import { apiFetch, apiFetchWithHeaders } from '../lib/api/client';
 
 export type ConnectionVisibility = 'Private' | 'Company' | 'Roles';
+export type DbProvider = 'PostgreSql' | 'MySql';
+export type SslMode = 'None' | 'Prefer' | 'Require' | 'VerifyFull';
 
 export interface ConnectionResponse {
   id: string;
@@ -12,6 +14,17 @@ export interface ConnectionResponse {
   visibility: ConnectionVisibility;
   allowedRoleIds: string[];
   companyId: string | null;
+  host: string;
+  database: string;
+}
+
+export interface ParseConnectionStringResponse {
+  provider: DbProvider | null;
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  password: string;
 }
 
 export interface CreateConnectionRequest {
@@ -22,6 +35,7 @@ export interface CreateConnectionRequest {
   database: string;
   username: string;
   password: string;
+  sslMode: SslMode;
   visibility: ConnectionVisibility;
   allowedRoleIds?: string[];
 }
@@ -34,6 +48,7 @@ export interface UpdateConnectionRequest {
   database: string;
   username: string;
   password?: string;
+  sslMode: SslMode;
   visibility: ConnectionVisibility;
   allowedRoleIds?: string[];
 }
@@ -45,8 +60,10 @@ export interface ConnectionConfigResponse {
   port: number;
   database: string;
   username: string;
+  password: string;
   visibility: ConnectionVisibility;
   allowedRoleIds: string[];
+  sslMode: SslMode;
 }
 
 export interface TableInfo {
@@ -81,6 +98,15 @@ export async function getConnectionsWithCount(): Promise<{
 
 export async function getConnectionConfig(id: string): Promise<ConnectionConfigResponse> {
   return apiFetch<ConnectionConfigResponse>(`/api/connections/${id}/config`);
+}
+
+export async function parseConnectionString(
+  connectionString: string,
+): Promise<ParseConnectionStringResponse> {
+  return apiFetch<ParseConnectionStringResponse>('/api/connections/parse', {
+    method: 'POST',
+    body: JSON.stringify({ connectionString }),
+  });
 }
 
 export async function createConnection(data: CreateConnectionRequest): Promise<ConnectionResponse> {

@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle,
   ChevronDown,
+  ClipboardPaste,
   Database,
+  Eye,
+  EyeOff,
   Globe,
   Lock,
   Pencil,
@@ -34,11 +37,13 @@ import {
   getConnectionConfig,
   getConnectionsWithCount,
   getTables,
+  parseConnectionString,
   testConnection,
   updateConnection,
   type ConnectionResponse,
   type ConnectionVisibility,
   type CreateConnectionRequest,
+  type SslMode,
   type TableInfo,
   type UpdateConnectionRequest,
 } from '../../services/connectionsApi';
@@ -46,6 +51,18 @@ import {
 const DB_PROVIDERS = [
   { value: 'PostgreSql', label: 'PostgreSQL' },
   { value: 'MySql', label: 'MySQL' },
+];
+
+const DEFAULT_PORTS: Record<string, number> = {
+  PostgreSql: 5432,
+  MySql: 3306,
+};
+
+const SSL_MODES: { value: SslMode; label: string; hint: string }[] = [
+  { value: 'Prefer', label: 'Prefer SSL', hint: 'Encrypt if the server supports it (default)' },
+  { value: 'Require', label: 'Require SSL', hint: 'Reject the connection without encryption' },
+  { value: 'VerifyFull', label: 'Verify full', hint: 'Encrypt and verify the server certificate' },
+  { value: 'None', label: 'No SSL', hint: 'Connect without encryption' },
 ];
 
 const VISIBILITY_OPTIONS: { value: ConnectionVisibility; label: string; hint: string }[] = [
@@ -65,6 +82,7 @@ interface ConnectionFormState {
   database: string;
   username: string;
   password: string;
+  sslMode: SslMode;
   visibility: ConnectionVisibility;
   allowedRoleIds: string[];
 }
@@ -74,10 +92,11 @@ function emptyForm(): ConnectionFormState {
     name: '',
     dbProvider: 'PostgreSql',
     host: '',
-    port: 5432,
+    port: DEFAULT_PORTS.PostgreSql,
     database: '',
     username: '',
     password: '',
+    sslMode: 'Prefer',
     visibility: 'Company',
     allowedRoleIds: [],
   };
@@ -117,12 +136,29 @@ export default function ConnectionsPage() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [pasteText, setPasteText] = useState('');
+  const [parsing, setParsing] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const isOwner = isCompany && company !== null && user?.userId === company.ownerId;
   const me = users.find((u) => u.id === user?.userId);
   const myRole = roles.find((r) => r.id === me?.roleId);
   const canManageConnections = !isCompany || isOwner || myRole?.canManageConnections === true;
   const shareableRoles = roles.filter((r) => !(r.isSystemRole && r.name === 'Owner'));
+
+  const duplicateOf = useMemo(() => {
+    const host = form.host.trim().toLowerCase().replace(/\.$/, '');
+    const database = form.database.trim().toLowerCase();
+    if (!host || !database) return null;
+    return (
+      connections.find(
+        (c) =>
+          c.id !== editingId &&
+          c.host.trim().toLowerCase().replace(/\.$/, '') === host &&
+          c.database.trim().toLowerCase() === database,
+      ) ?? null
+    );
+  }, [connections, editingId, form.host, form.database]);
 
   const canManageConnection = useCallback(
     (conn: ConnectionResponse) => {
@@ -212,6 +248,29 @@ export default function ConnectionsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCompany, user?.userId]);
 
+  const handleParsePaste = async () => {
+    const trimmed = pasteText.trim();
+    if (!trimmed) return;
+    setParsing(true);
+    try {
+      const parsed = await parseConnectionString(trimmed);
+      setForm((prev) => ({
+        ...prev,
+        dbProvider: parsed.provider ?? prev.dbProvider,
+        host: parsed.host,
+        port: parsed.port > 0 ? parsed.port : prev.port,
+        database: parsed.database,
+        username: parsed.username,
+        password: parsed.password,
+      }));
+      toast.success('Connection string parsed. Review the fields below.');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Could not parse that connection string.');
+    } finally {
+      setParsing(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (editingId) {
@@ -233,6 +292,7 @@ export default function ConnectionsPage() {
         database: form.database,
         username: form.username,
         password: form.password,
+        sslMode: form.sslMode,
         visibility: isCompany ? form.visibility : 'Private',
         allowedRoleIds: form.visibility === 'Roles' ? form.allowedRoleIds : [],
       };
@@ -266,6 +326,7 @@ export default function ConnectionsPage() {
         database: form.database,
         username: form.username,
         password: form.password || undefined,
+        sslMode: form.sslMode,
         visibility: isCompany ? form.visibility : 'Private',
         allowedRoleIds: form.visibility === 'Roles' ? form.allowedRoleIds : [],
       };
@@ -285,6 +346,8 @@ export default function ConnectionsPage() {
     setEditingId(null);
     setForm(emptyForm());
     setFormError('');
+    setPasteText('');
+    setShowPassword(false);
     setShowForm((v) => !v);
   };
 
@@ -298,11 +361,14 @@ export default function ConnectionsPage() {
         port: config.port,
         database: config.database,
         username: config.username,
-        password: '',
+        password: config.password || '',
+        sslMode: config.sslMode,
         visibility: config.visibility,
         allowedRoleIds: config.allowedRoleIds,
       });
       setEditingId(conn.id);
+      setShowPassword(false);
+      setPasteText('');
       setShowForm(false);
       setFormError('');
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -316,6 +382,8 @@ export default function ConnectionsPage() {
     setShowForm(false);
     setForm(emptyForm());
     setFormError('');
+    setPasteText('');
+    setShowPassword(false);
   };
 
   const handleDelete = async () => {
@@ -418,6 +486,29 @@ export default function ConnectionsPage() {
           {formError && (
             <div className="bg-destructive/10 text-destructive mb-3 rounded-lg p-3 text-sm">{formError}</div>
           )}
+
+          <div className="border-border mb-4 rounded-lg border p-4">
+              <p className="text-muted-foreground mb-2 text-sm font-medium">Or paste a connection string</p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  type="text"
+                  placeholder="postgres://user:pass@host:5432/dbname"
+                  value={pasteText}
+                  onChange={(e) => setPasteText(e.target.value)}
+                  className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void handleParsePaste()}
+                  disabled={parsing || !pasteText.trim()}
+                >
+                  <ClipboardPaste />
+                  {parsing ? 'Parsing…' : 'Parse & fill'}
+                </Button>
+              </div>
+            </div>
+
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <input
               placeholder="Connection name"
@@ -428,7 +519,9 @@ export default function ConnectionsPage() {
             />
             <select
               value={form.dbProvider}
-              onChange={(e) => setForm({ ...form, dbProvider: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, dbProvider: e.target.value, port: DEFAULT_PORTS[e.target.value] ?? form.port })
+              }
               className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
             >
               {DB_PROVIDERS.map((p) => (
@@ -466,15 +559,43 @@ export default function ConnectionsPage() {
               required
               className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
             />
-            <input
-              type="password"
-              placeholder={editingId ? 'Leave blank to keep current password' : 'Password'}
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-              required={!editingId}
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                placeholder={editingId ? 'Leave blank to keep current password' : 'Password'}
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                required={!editingId}
+                className="border-input bg-background focus:border-ring w-full rounded-lg border py-2.5 pl-4 pr-11 text-sm outline-hidden"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                className="text-muted-foreground hover:text-foreground absolute inset-y-0 right-0 flex w-10 cursor-pointer items-center justify-center"
+              >
+                {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            </div>
+            <select
+              value={form.sslMode}
+              onChange={(e) => setForm({ ...form, sslMode: e.target.value as SslMode })}
               className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
-            />
+            >
+              {SSL_MODES.map((m) => (
+                <option key={m.value} value={m.value} title={m.hint}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
           </div>
+
+          {duplicateOf && (
+            <div className="bg-amber-500/10 text-amber-700 dark:text-amber-400 mt-4 rounded-lg p-3 text-sm">
+              This looks like a duplicate of connection “{duplicateOf.name}” — the same host and database are already
+              connected. You can still save it as a separate connection if you want.
+            </div>
+          )}
 
           {isCompany && (
             <div className="mt-4">

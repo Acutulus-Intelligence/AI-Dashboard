@@ -3,10 +3,10 @@ using System.Text.Json.Serialization;
 namespace Domain.Enums;
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum DbProvider
+public enum SslMode
 {
-    PostgreSql,
-    MySql,
-    SqlServer,
-    Sqlite
+    None,
+    Prefer,
+    Require,
+    VerifyFull
 }
