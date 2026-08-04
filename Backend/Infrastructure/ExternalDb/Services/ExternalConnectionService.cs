@@ -5,6 +5,8 @@ using Application.Interfaces;
 using Domain.Enums;
 using Domain.Models;
 using Infrastructure.Data;
+using Microsoft.Data.SqlClient;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -47,7 +49,7 @@ public class ExternalConnectionService : IExternalConnectionService
         if (!await _access.HasConnectionManagePermissionAsync(userId, ct))
             throw new UnauthorizedAccessException("You do not have permission to manage connections.");
 
-        if (HostBlocklist.IsBlocked(request.Host, _settings.BlockedHosts))
+        if (request.DbProvider != DbProvider.Sqlite && HostBlocklist.IsBlocked(request.Host, _settings.BlockedHosts))
             throw new ArgumentException("This host is not allowed.");
 
         var companyId = user.CompanyId;
@@ -225,6 +227,7 @@ public class ExternalConnectionService : IExternalConnectionService
             {
                 DbProvider.PostgreSql => 5432,
                 DbProvider.MySql => 3306,
+                DbProvider.SqlServer => 1433,
                 _ => 0
             };
 
@@ -246,7 +249,7 @@ public class ExternalConnectionService : IExternalConnectionService
         if (!await _access.CanManageAsync(id, userId, ct))
             throw new UnauthorizedAccessException("You do not have permission to manage this connection.");
 
-        if (HostBlocklist.IsBlocked(request.Host, _settings.BlockedHosts))
+        if (request.DbProvider != DbProvider.Sqlite && HostBlocklist.IsBlocked(request.Host, _settings.BlockedHosts))
             throw new ArgumentException("This host is not allowed.");
 
         var visibility = request.Visibility;
@@ -388,8 +391,31 @@ public class ExternalConnectionService : IExternalConnectionService
                 Password = password,
                 SslMode = ToMySqlSslMode(ssl)
             }.ConnectionString,
+            DbProvider.SqlServer => BuildSqlServerConnectionString(host, database, username, password, ssl),
+            DbProvider.Sqlite => new SqliteConnectionStringBuilder
+            {
+                DataSource = database,
+                Mode = SqliteOpenMode.ReadOnly
+            }.ConnectionString,
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         };
+    }
+
+    private static string BuildSqlServerConnectionString(string host, string database, string username, string password, SslMode ssl)
+    {
+        var builder = new SqlConnectionStringBuilder
+        {
+            DataSource = host,
+            InitialCatalog = database,
+            UserID = username,
+            Password = password,
+            ApplicationIntent = ApplicationIntent.ReadOnly,
+            TrustServerCertificate = ssl is SslMode.Prefer or SslMode.Require
+        };
+        builder.Encrypt = ssl == SslMode.None
+            ? SqlConnectionEncryptOption.Optional
+            : SqlConnectionEncryptOption.Mandatory;
+        return builder.ConnectionString;
     }
 
     private static string ExtractPassword(DbProvider provider, string connectionString)
@@ -398,6 +424,8 @@ public class ExternalConnectionService : IExternalConnectionService
         {
             DbProvider.PostgreSql => new NpgsqlConnectionStringBuilder(connectionString).Password ?? "",
             DbProvider.MySql => new MySqlConnectionStringBuilder(connectionString).Password ?? "",
+            DbProvider.SqlServer => new SqlConnectionStringBuilder(connectionString).Password ?? "",
+            DbProvider.Sqlite => "",
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         };
     }
@@ -406,7 +434,10 @@ public class ExternalConnectionService : IExternalConnectionService
     {
         DbProvider.PostgreSql => FromNpgsqlSslMode(new NpgsqlConnectionStringBuilder(connectionString).SslMode),
         DbProvider.MySql => FromMySqlSslMode(new MySqlConnectionStringBuilder(connectionString).SslMode),
-        _ => SslMode.Prefer
+        DbProvider.SqlServer => FromSqlServerEncryptOption(
+            new SqlConnectionStringBuilder(connectionString).Encrypt,
+            new SqlConnectionStringBuilder(connectionString).TrustServerCertificate),
+        _ => SslMode.None
     };
 
     private static Npgsql.SslMode ToNpgsqlSslMode(SslMode mode) => mode switch
@@ -441,12 +472,38 @@ public class ExternalConnectionService : IExternalConnectionService
         _ => SslMode.VerifyFull
     };
 
+    private static SslMode FromSqlServerEncryptOption(SqlConnectionEncryptOption option, bool trustServerCertificate)
+    {
+        if (option == SqlConnectionEncryptOption.Optional)
+            return SslMode.None;
+        if (option == SqlConnectionEncryptOption.Strict)
+            return SslMode.VerifyFull;
+        if (option == SqlConnectionEncryptOption.Mandatory)
+            return trustServerCertificate ? SslMode.Require : SslMode.VerifyFull;
+        return SslMode.Prefer;
+    }
+
     private static (string host, int port, string database, string username) ParseConnectionString(DbProvider provider, string connectionString)
     {
         if (provider == DbProvider.PostgreSql)
         {
             var builder = new NpgsqlConnectionStringBuilder(connectionString);
             return (builder.Host ?? "", builder.Port, builder.Database ?? "", builder.Username ?? "");
+        }
+
+        if (provider == DbProvider.SqlServer)
+        {
+            var builder = new SqlConnectionStringBuilder(connectionString);
+            var hostPort = (builder.DataSource ?? "").Split(',', 2);
+            var host = hostPort[0];
+            var port = hostPort.Length == 2 && int.TryParse(hostPort[1], out var parsedPort) ? parsedPort : 0;
+            return (host, port, builder.InitialCatalog ?? "", builder.UserID ?? "");
+        }
+
+        if (provider == DbProvider.Sqlite)
+        {
+            var builder = new SqliteConnectionStringBuilder(connectionString);
+            return (string.Empty, 0, builder.DataSource ?? "", string.Empty);
         }
 
         var mySqlBuilder = new MySqlConnectionStringBuilder(connectionString);
@@ -459,6 +516,8 @@ public class ExternalConnectionService : IExternalConnectionService
         {
             DbProvider.PostgreSql => new NpgsqlConnection(connectionString),
             DbProvider.MySql => new MySqlConnection(connectionString),
+            DbProvider.SqlServer => new SqlConnection(connectionString),
+            DbProvider.Sqlite => new SqliteConnection(connectionString),
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         };
     }

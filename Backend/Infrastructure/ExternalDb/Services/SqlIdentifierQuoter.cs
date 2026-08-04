@@ -10,6 +10,8 @@ public static class SqlIdentifierQuoter
         {
             DbProvider.PostgreSql => QuoteDoubleQuoted(identifier),
             DbProvider.MySql => QuoteBacktick(identifier),
+            DbProvider.SqlServer => QuoteBrackets(identifier),
+            DbProvider.Sqlite => QuoteDoubleQuoted(identifier),
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         };
     }
@@ -18,6 +20,8 @@ public static class SqlIdentifierQuoter
     {
         DbProvider.PostgreSql => "Use double quotes for table and column names (e.g. \"table_name\")",
         DbProvider.MySql => "Use backticks for table and column names (e.g. `table_name`)",
+        DbProvider.SqlServer => "Use square brackets for table and column names (e.g. [table_name])",
+        DbProvider.Sqlite => "Use double quotes for table and column names (e.g. \"table_name\")",
         _ => "Quote identifiers appropriately for the database"
     };
 
@@ -26,4 +30,7 @@ public static class SqlIdentifierQuoter
 
     private static string QuoteBacktick(string identifier) =>
         $"`{identifier.Replace("`", "``")}`";
+
+    private static string QuoteBrackets(string identifier) =>
+        $"[{identifier.Replace("]", "]]")}]";
 }

@@ -12,6 +12,7 @@ public sealed record ChartDetailResponse(
     string? GroupBy,
     string SqlQuery,
     Guid? ConnectionId,
+    Guid? DatasetId,
     string? TableName,
     DateTime CreatedAt,
     ChartStyleConfig? StyleConfig = null

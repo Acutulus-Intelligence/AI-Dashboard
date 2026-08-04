@@ -15,6 +15,7 @@ public class SavedChart
     public string? GroupBy { get; set; }
     public string SqlQuery { get; set; } = string.Empty;
     public Guid? ConnectionId { get; set; }
+    public Guid? DatasetId { get; set; }
     public string? TableName { get; set; }
     public ChartStyleConfig? StyleConfig { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

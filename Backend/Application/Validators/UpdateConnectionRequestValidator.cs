@@ -28,14 +28,16 @@ public partial class UpdateConnectionRequestValidator : AbstractValidator<Update
             .Must(BeValidHost)
             .WithMessage("Host must be a valid hostname or IP address.")
             .Must(host => !IsBlockedHost(host))
-            .WithMessage("This host is not allowed.");
+            .WithMessage("This host is not allowed.")
+            .When(x => x.DbProvider != DbProvider.Sqlite);
 
         RuleFor(x => x.Port)
-            .InclusiveBetween(1, 65535);
+            .InclusiveBetween(1, 65535)
+            .When(x => x.DbProvider != DbProvider.Sqlite);
 
         RuleFor(x => x.Database)
             .NotEmpty()
-            .MaximumLength(100)
+            .MaximumLength(500)
             .Must(value => !ContainsConnectionStringDelimiter(value))
             .WithMessage("Database name contains invalid characters.");
 
@@ -43,10 +45,12 @@ public partial class UpdateConnectionRequestValidator : AbstractValidator<Update
             .NotEmpty()
             .MaximumLength(100)
             .Must(value => !ContainsConnectionStringDelimiter(value))
-            .WithMessage("Username contains invalid characters.");
+            .WithMessage("Username contains invalid characters.")
+            .When(x => x.DbProvider != DbProvider.Sqlite);
 
         RuleFor(x => x.Password)
-            .MaximumLength(500);
+            .MaximumLength(500)
+            .When(x => x.DbProvider != DbProvider.Sqlite);
 
         RuleFor(x => x.Visibility)
             .IsInEnum();

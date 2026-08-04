@@ -10,6 +10,7 @@ export interface SaveChartRequest {
   groupBy: string | null;
   sqlQuery: string;
   connectionId: string | null;
+  datasetId?: string | null;
   tableName: string | null;
   styleConfig?: ChartStyleConfig | null;
 }
@@ -37,6 +38,7 @@ export interface ChartDetailResponse {
   groupBy: string | null;
   sqlQuery: string;
   connectionId: string | null;
+  datasetId: string | null;
   tableName: string | null;
   createdAt: string;
   styleConfig?: ChartStyleConfig | null;

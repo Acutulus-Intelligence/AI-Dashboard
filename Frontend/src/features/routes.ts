@@ -12,6 +12,7 @@ export const ROUTES = {
   PAYMENT_CANCEL: '/payment/cancel',
   COMPANY_CREATE: '/company/create',
   CONNECTIONS: '/dashboard/connections',
+  DATASETS: '/dashboard/datasets',
   CHARTS: '/dashboard/charts',
   GRAPHS_NEW: '/dashboard/graphs/new',
   GRAPHS_EDIT: '/dashboard/graphs/:chartId/edit',

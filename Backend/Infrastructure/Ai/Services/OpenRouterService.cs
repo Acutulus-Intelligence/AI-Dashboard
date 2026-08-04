@@ -103,6 +103,8 @@ public class OpenRouterService : IAiService
         {
             DbProvider.PostgreSql => "PostgreSQL",
             DbProvider.MySql => "MySQL",
+            DbProvider.SqlServer => "SQL Server",
+            DbProvider.Sqlite => "SQLite",
             _ => "SQL"
         };
 

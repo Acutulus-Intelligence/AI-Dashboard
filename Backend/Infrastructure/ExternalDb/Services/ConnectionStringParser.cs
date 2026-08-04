@@ -35,8 +35,7 @@ public static class ConnectionStringParser
         result = default!;
         error = string.Empty;
 
-        if (!Uri.TryCreate(input, UriKind.Absolute, out var uri) ||
-            string.IsNullOrWhiteSpace(uri.Host))
+        if (!Uri.TryCreate(input, UriKind.Absolute, out var uri))
         {
             error = "The connection string is not a valid database URL.";
             return false;
@@ -51,9 +50,29 @@ public static class ConnectionStringParser
             _ => (DbProvider?)null
         };
 
-        if (provider is null || !IsPhaseOneProvider(provider.Value))
+        if (provider is null)
         {
             error = "Unsupported database scheme in connection string.";
+            return false;
+        }
+
+        // SQLite uses a file path instead of a network host.
+        if (provider == DbProvider.Sqlite)
+        {
+            var sqlitePath = Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/'));
+            if (string.IsNullOrWhiteSpace(sqlitePath))
+            {
+                error = "The SQLite connection string is missing a file path.";
+                return false;
+            }
+
+            result = new ParsedConnectionString(provider, string.Empty, 0, sqlitePath, string.Empty, string.Empty);
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(uri.Host))
+        {
+            error = "The connection string is not a valid database URL.";
             return false;
         }
 
@@ -116,12 +135,24 @@ public static class ConnectionStringParser
             return null;
         }
 
-        var host = Get("host", "server", "data source", "datasource", "serveraddress") ?? "";
+        var server = Get("server", "host", "serveraddress") ?? "";
+        var dataSource = Get("data source", "datasource", "filename", "file") ?? "";
         var database = Get("database", "db", "initial catalog", "initialcatalog", "databasename") ?? "";
         var username = Get("username", "user id", "userid", "user", "uid") ?? "";
         var password = Get("password", "pwd") ?? "";
 
-        if (string.IsNullOrWhiteSpace(host))
+        var host = server;
+        if (string.IsNullOrEmpty(host) && !string.IsNullOrEmpty(dataSource))
+        {
+            // "Data Source=<value>" alone is a SQLite file path; when combined
+            // with Initial Catalog it is a SQL Server host alias.
+            if (string.IsNullOrEmpty(database))
+                database = dataSource;
+            else
+                host = dataSource;
+        }
+
+        if (string.IsNullOrWhiteSpace(host) && string.IsNullOrWhiteSpace(database))
         {
             error = "Connection string is missing a host (Host, Server, or Data Source).";
             return false;
@@ -145,9 +176,4 @@ public static class ConnectionStringParser
         result = new ParsedConnectionString(null, host, 0, database, username, password);
         return true;
     }
-
-    // Phase 1 supports PostgreSql and MySql end-to-end. SQL Server and SQLite
-    // URI schemes are recognised but gated until their implementation lands.
-    private static bool IsPhaseOneProvider(DbProvider provider) =>
-        provider is DbProvider.PostgreSql or DbProvider.MySql;
 }

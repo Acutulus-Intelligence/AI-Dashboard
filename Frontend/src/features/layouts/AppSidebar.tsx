@@ -4,6 +4,7 @@ import {
   BarChart3,
   CreditCard,
   LayoutDashboard,
+  Table,
   type LucideIcon,
   Shield,
 } from 'lucide-react';
@@ -68,7 +69,10 @@ export default function AppSidebar() {
     if (hasActiveSubscription) {
       main.push({
         label: 'Data',
-        items: [{ title: 'Charts', url: ROUTES.CHARTS, icon: BarChart3 }],
+        items: [
+          { title: 'Charts', url: ROUTES.CHARTS, icon: BarChart3 },
+          { title: 'Datasets', url: ROUTES.DATASETS, icon: Table },
+        ],
       });
     }
 

@@ -1,7 +1,7 @@
 import { apiFetch, apiFetchWithHeaders } from '../lib/api/client';
 
 export type ConnectionVisibility = 'Private' | 'Company' | 'Roles';
-export type DbProvider = 'PostgreSql' | 'MySql';
+export type DbProvider = 'PostgreSql' | 'MySql' | 'SqlServer' | 'Sqlite';
 export type SslMode = 'None' | 'Prefer' | 'Require' | 'VerifyFull';
 
 export interface ConnectionResponse {

@@ -1,7 +1,9 @@
 using System.Text;
 using Application.Common.Mapping;
+using Application.Datasets;
 using Application.Interfaces;
 using Application.Services;
+using Application.Settings;
 using Application.Validators;
 using Domain.Models;
 using FluentValidation;
@@ -13,6 +15,7 @@ using Infrastructure.Ai.Services;
 using Infrastructure.Encryption;
 using Infrastructure.ExternalDb;
 using Infrastructure.ExternalDb.Services;
+using Infrastructure.Datasets;
 using Infrastructure.Payment;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
@@ -121,6 +124,11 @@ builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddValidatorsFromAssemblyContaining<RegisterRequestValidator>();
 
 builder.Services.Configure<ExternalDbSettings>(builder.Configuration.GetSection("ExternalDb"));
+builder.Services.Configure<DatasetSettings>(builder.Configuration.GetSection(DatasetSettings.SectionName));
+builder.Services.AddSingleton<IDatasetFileParser, CsvFileParser>();
+builder.Services.AddSingleton<IDatasetFileParser, XlsxFileParser>();
+builder.Services.AddScoped<IDatasetQueryExecutor, SqliteDatasetExecutor>();
+builder.Services.AddScoped<IDatasetService, DatasetService>();
 
 var corsOrigins = builder.Configuration
     .GetSection("Cors:AllowedOrigins")

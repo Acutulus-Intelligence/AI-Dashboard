@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircle,
   ChevronDown,
@@ -51,11 +51,15 @@ import {
 const DB_PROVIDERS = [
   { value: 'PostgreSql', label: 'PostgreSQL' },
   { value: 'MySql', label: 'MySQL' },
+  { value: 'SqlServer', label: 'SQL Server' },
+  { value: 'Sqlite', label: 'SQLite' },
 ];
 
 const DEFAULT_PORTS: Record<string, number> = {
   PostgreSql: 5432,
   MySql: 3306,
+  SqlServer: 1433,
+  Sqlite: 0,
 };
 
 const SSL_MODES: { value: SslMode; label: string; hint: string }[] = [
@@ -64,6 +68,49 @@ const SSL_MODES: { value: SslMode; label: string; hint: string }[] = [
   { value: 'VerifyFull', label: 'Verify full', hint: 'Encrypt and verify the server certificate' },
   { value: 'None', label: 'No SSL', hint: 'Connect without encryption' },
 ];
+
+const IS_SQLITE = (provider: string) => provider === 'Sqlite';
+
+const CONNECTION_CREDENTIALS_RE = /^([a-z][a-z0-9+.-]*:\/\/[^:\/@]*:)([^@\/]*)(@)/i;
+const PASSWORD_PAIR_RE = /\b((?:password|pwd)\s*=\s*)([^;]*)/gi;
+
+function maskConnectionString(value: string): string {
+  if (!value) return value;
+  const uriMasked = value.replace(CONNECTION_CREDENTIALS_RE, '$1****$3');
+  return uriMasked.replace(PASSWORD_PAIR_RE, (_match, prefix, pwd) =>
+    pwd.trim() ? `${prefix}****` : _match,
+  );
+}
+
+function unmaskConnectionString(masked: string, previousRaw: string): string {
+  if (!previousRaw) return masked;
+  const uriPrev = previousRaw.match(CONNECTION_CREDENTIALS_RE);
+  if (uriPrev) {
+    const password = uriPrev[2];
+    return masked.replace(/^([a-z][a-z0-9+.-]*:\/\/[^:\/@]*:)\*+(@)/i, `$1${password}$2`);
+  }
+  const pairPrev = previousRaw.match(/\b(?:password|pwd)\s*=\s*([^;]*)/i);
+  if (pairPrev) {
+    const password = pairPrev[1];
+    return masked.replace(/\b((?:password|pwd)\s*=\s*)\*+/gi, `$1${password}`);
+  }
+  return masked;
+}
+
+function providerLabel(dbProvider: string): string {
+  switch (dbProvider) {
+    case 'PostgreSql':
+      return 'PostgreSQL';
+    case 'MySql':
+      return 'MySQL';
+    case 'SqlServer':
+      return 'SQL Server';
+    case 'Sqlite':
+      return 'SQLite';
+    default:
+      return dbProvider;
+  }
+}
 
 const VISIBILITY_OPTIONS: { value: ConnectionVisibility; label: string; hint: string }[] = [
   { value: 'Company', label: 'Entire company', hint: 'Visible to every member' },
@@ -138,6 +185,7 @@ export default function ConnectionsPage() {
   const [deleting, setDeleting] = useState(false);
   const [pasteText, setPasteText] = useState('');
   const [parsing, setParsing] = useState(false);
+  const lastPasteRawRef = useRef('');
   const [showPassword, setShowPassword] = useState(false);
 
   const isOwner = isCompany && company !== null && user?.userId === company.ownerId;
@@ -445,7 +493,7 @@ export default function ConnectionsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Database connections</h1>
           <p className="text-muted-foreground text-sm">
-            Connect a PostgreSQL or MySQL database to build charts from.
+            Connect a PostgreSQL, MySQL, SQL Server, or SQLite database to build charts from.
           </p>
           {canManageConnections && (
             <p className="text-muted-foreground mt-1 text-sm">
@@ -489,17 +537,26 @@ export default function ConnectionsPage() {
 
           <div className="border-border mb-4 rounded-lg border p-4">
               <p className="text-muted-foreground mb-2 text-sm font-medium">Or paste a connection string</p>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <input
-                  type="text"
-                  placeholder="postgres://user:pass@host:5432/dbname"
-                  value={pasteText}
-                  onChange={(e) => setPasteText(e.target.value)}
-                  className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
-                />
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="w-full max-w-lg min-w-0">
+                  <textarea
+                    rows={1}
+                    autoComplete="off"
+                    placeholder="postgres://user:pass@host:5432/dbname"
+                    value={maskConnectionString(pasteText)}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      const restored = unmaskConnectionString(value, lastPasteRawRef.current);
+                      lastPasteRawRef.current = restored;
+                      setPasteText(restored);
+                    }}
+                    className="border-input bg-background focus:border-ring w-full resize-none rounded-lg border px-3 py-2 text-sm outline-hidden"
+                  />
+                </div>
                 <Button
                   type="button"
                   variant="outline"
+                  className="h-auto shrink-0 self-stretch"
                   onClick={() => void handleParsePaste()}
                   disabled={parsing || !pasteText.trim()}
                 >
@@ -530,64 +587,72 @@ export default function ConnectionsPage() {
                 </option>
               ))}
             </select>
+            {!IS_SQLITE(form.dbProvider) && (
+              <>
+                <input
+                  placeholder="Host"
+                  value={form.host}
+                  onChange={(e) => setForm({ ...form, host: e.target.value })}
+                  required
+                  className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
+                />
+                <input
+                  type="number"
+                  placeholder="Port"
+                  value={form.port}
+                  onChange={(e) => setForm({ ...form, port: Number(e.target.value) })}
+                  required
+                  className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
+                />
+              </>
+            )}
             <input
-              placeholder="Host"
-              value={form.host}
-              onChange={(e) => setForm({ ...form, host: e.target.value })}
-              required
-              className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
-            />
-            <input
-              type="number"
-              placeholder="Port"
-              value={form.port}
-              onChange={(e) => setForm({ ...form, port: Number(e.target.value) })}
-              required
-              className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
-            />
-            <input
-              placeholder="Database"
+              placeholder={IS_SQLITE(form.dbProvider) ? 'Database file path (e.g. C:\\data\\db.sqlite)' : 'Database'}
               value={form.database}
               onChange={(e) => setForm({ ...form, database: e.target.value })}
               required
               className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
             />
-            <input
-              placeholder="Username"
-              value={form.username}
-              onChange={(e) => setForm({ ...form, username: e.target.value })}
-              required
-              className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
-            />
-            <div className="relative">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                placeholder={editingId ? 'Leave blank to keep current password' : 'Password'}
-                value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
-                required={!editingId}
-                className="border-input bg-background focus:border-ring w-full rounded-lg border py-2.5 pl-4 pr-11 text-sm outline-hidden"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-                className="text-muted-foreground hover:text-foreground absolute inset-y-0 right-0 flex w-10 cursor-pointer items-center justify-center"
-              >
-                {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-              </button>
-            </div>
-            <select
-              value={form.sslMode}
-              onChange={(e) => setForm({ ...form, sslMode: e.target.value as SslMode })}
-              className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
-            >
-              {SSL_MODES.map((m) => (
-                <option key={m.value} value={m.value} title={m.hint}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
+            {!IS_SQLITE(form.dbProvider) && (
+              <>
+                <input
+                  placeholder="Username"
+                  value={form.username}
+                  onChange={(e) => setForm({ ...form, username: e.target.value })}
+                  required
+                  className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
+                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder={editingId ? 'Leave blank to keep current password' : 'Password'}
+                    value={form.password}
+                    onChange={(e) => setForm({ ...form, password: e.target.value })}
+                    required={!editingId}
+                    className="border-input bg-background focus:border-ring w-full rounded-lg border py-2.5 pl-4 pr-11 text-sm outline-hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    className="text-muted-foreground hover:text-foreground absolute inset-y-0 right-0 flex w-10 cursor-pointer items-center justify-center"
+                  >
+                    {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                  </button>
+                </div>
+                <select
+                  value={form.sslMode}
+                  onChange={(e) => setForm({ ...form, sslMode: e.target.value as SslMode })}
+                  className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
+                >
+                  {SSL_MODES.map((m) => (
+                    <option key={m.value} value={m.value} title={m.hint}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
           </div>
 
           {duplicateOf && (
@@ -683,13 +748,13 @@ export default function ConnectionsPage() {
                 >
                   <div className="flex min-w-0 items-center gap-3">
                     <Database className="text-brand size-5 shrink-0" />
-                    <div className="min-w-0">
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
                       <span className="font-semibold">{conn.name}</span>
-                      <span className="text-muted-foreground ml-2 text-sm">
-                        ({conn.dbProvider === 'PostgreSql' ? 'PostgreSQL' : 'MySQL'})
+                      <span className="text-muted-foreground text-sm">
+                        ({providerLabel(conn.dbProvider)})
                       </span>
                       <span
-                        className="text-muted-foreground ml-2 inline-flex items-center gap-1 text-sm"
+                        className="text-muted-foreground inline-flex items-center gap-1 text-sm"
                         title={visibilityLabel(conn, roles)}
                       >
                         {conn.visibility === 'Private' ? (

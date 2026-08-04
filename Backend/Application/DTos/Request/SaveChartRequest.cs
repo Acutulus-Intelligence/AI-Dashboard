@@ -11,6 +11,7 @@ public sealed record SaveChartRequest(
     string? GroupBy,
     string SqlQuery,
     Guid? ConnectionId,
+    Guid? DatasetId,
     string? TableName,
     ChartStyleConfig? StyleConfig = null
 );

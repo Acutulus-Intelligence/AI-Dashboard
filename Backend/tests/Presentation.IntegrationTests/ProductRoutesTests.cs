@@ -75,6 +75,7 @@ public sealed class ProductRoutesTests
             "category",
             "SELECT category, SUM(amount) AS amount FROM sales GROUP BY category",
             connectionId,
+            null,
             "sales"));
         saveChart.StatusCode.Should().Be(HttpStatusCode.OK);
         using var chartDoc = JsonDocument.Parse(await saveChart.Content.ReadAsStringAsync());

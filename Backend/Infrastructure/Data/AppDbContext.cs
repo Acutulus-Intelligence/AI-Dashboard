@@ -25,6 +25,7 @@ namespace Infrastructure.Data
         public DbSet<CardFingerprint> CardFingerprints => Set<CardFingerprint>();
         public DbSet<CompanySubscription> CompanySubscriptions => Set<CompanySubscription>();
         public DbSet<SavedChart> SavedCharts => Set<SavedChart>();
+        public DbSet<SavedDataset> SavedDatasets => Set<SavedDataset>();
         public DbSet<DashboardWidget> DashboardWidgets => Set<DashboardWidget>();
 
         protected override void OnModelCreating(ModelBuilder builder)
@@ -42,6 +43,7 @@ namespace Infrastructure.Data
             builder.ApplyConfiguration(new CardFingerprintConfiguration());
             builder.ApplyConfiguration(new CompanySubscriptionConfiguration());
             builder.ApplyConfiguration(new SavedChartConfiguration());
+            builder.ApplyConfiguration(new SavedDatasetConfiguration());
             builder.ApplyConfiguration(new DashboardWidgetConfiguration());
 
             builder.Entity<Company>(entity =>

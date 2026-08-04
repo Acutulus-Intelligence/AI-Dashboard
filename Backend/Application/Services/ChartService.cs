@@ -1,4 +1,5 @@
 using Application.Common.Exceptions;
+using Application.Datasets;
 using Application.DTos.Request;
 using Application.DTos.Response;
 using Application.Interfaces;
@@ -12,23 +13,41 @@ public class ChartService : IChartService
 {
     private readonly IApplicationDbContext _db;
     private readonly IQueryExecutor _queryExecutor;
+    private readonly IDatasetQueryExecutor _datasetQueryExecutor;
     private readonly IConnectionAccessService _access;
 
-    public ChartService(IApplicationDbContext db, IQueryExecutor queryExecutor, IConnectionAccessService access)
+    public ChartService(
+        IApplicationDbContext db,
+        IQueryExecutor queryExecutor,
+        IDatasetQueryExecutor datasetQueryExecutor,
+        IConnectionAccessService access)
     {
         _db = db;
         _queryExecutor = queryExecutor;
+        _datasetQueryExecutor = datasetQueryExecutor;
         _access = access;
     }
 
     public async Task<ChartResponse> SaveChartAsync(Guid userId, SaveChartRequest request, CancellationToken ct = default)
     {
+        if (request.ConnectionId.HasValue && request.DatasetId.HasValue)
+            throw new InvalidOperationException("A chart can reference either a connection or a dataset, not both.");
+
         if (request.ConnectionId.HasValue)
         {
             var canViewConnection = await _access.CanViewAsync(request.ConnectionId.Value, userId, ct);
 
             if (!canViewConnection)
                 throw new UnauthorizedAccessException("Connection is not accessible to you.");
+        }
+
+        if (request.DatasetId.HasValue)
+        {
+            var datasetExists = await _db.SavedDatasets
+                .AnyAsync(ds => ds.Id == request.DatasetId.Value && ds.UserId == userId, ct);
+
+            if (!datasetExists)
+                throw new KeyNotFoundException("Dataset not found.");
         }
 
         await EnsureUniqueTitleAsync(userId, request.Title, excludeId: null, ct);
@@ -45,6 +64,7 @@ public class ChartService : IChartService
             GroupBy = request.GroupBy,
             SqlQuery = request.SqlQuery,
             ConnectionId = request.ConnectionId,
+            DatasetId = request.DatasetId,
             TableName = request.TableName,
             StyleConfig = ChartStyleSanitizer.Sanitize(request.StyleConfig, request.ChartType),
             CreatedAt = DateTime.UtcNow,
@@ -78,7 +98,7 @@ public class ChartService : IChartService
             chart.Id, chart.Title, chart.ChartType,
             chart.XAxis, [.. chart.YAxis], chart.Aggregation,
             chart.GroupBy, chart.SqlQuery,
-            chart.ConnectionId, chart.TableName, chart.CreatedAt,
+            chart.ConnectionId, chart.DatasetId, chart.TableName, chart.CreatedAt,
             chart.StyleConfig
         );
     }
@@ -103,7 +123,7 @@ public class ChartService : IChartService
             chart.Id, chart.Title, chart.ChartType,
             chart.XAxis, [.. chart.YAxis], chart.Aggregation,
             chart.GroupBy, chart.SqlQuery,
-            chart.ConnectionId, chart.TableName, chart.CreatedAt,
+            chart.ConnectionId, chart.DatasetId, chart.TableName, chart.CreatedAt,
             chart.StyleConfig
         );
     }
@@ -127,10 +147,30 @@ public class ChartService : IChartService
             .FirstOrDefaultAsync(sc => sc.Id == id && sc.UserId == userId, ct)
             ?? throw new KeyNotFoundException("Chart not found.");
 
-        if (chart.ConnectionId is null)
-            throw new InvalidOperationException("Chart has no associated database connection.");
+        if (chart.ConnectionId is null && chart.DatasetId is null)
+            throw new InvalidOperationException("Chart has no associated data source.");
 
-        var result = await _queryExecutor.ExecuteAsync(chart.ConnectionId.Value, userId, chart.SqlQuery, ct);
+        List<Dictionary<string, object?>> result;
+
+        if (chart.DatasetId is not null)
+        {
+            var dataset = await _db.SavedDatasets
+                .AsNoTracking()
+                .FirstOrDefaultAsync(ds => ds.Id == chart.DatasetId.Value && ds.UserId == userId, ct)
+                ?? throw new KeyNotFoundException("Dataset not found.");
+
+            result = await _datasetQueryExecutor.ExecuteAsync(
+                dataset.ColumnNames,
+                dataset.ColumnTypes,
+                DatasetRows.Decode(dataset),
+                dataset.TableName,
+                chart.SqlQuery,
+                ct);
+        }
+        else
+        {
+            result = await _queryExecutor.ExecuteAsync(chart.ConnectionId!.Value, userId, chart.SqlQuery, ct);
+        }
 
         return new ChartConfigResponse(
             chart.ChartType,

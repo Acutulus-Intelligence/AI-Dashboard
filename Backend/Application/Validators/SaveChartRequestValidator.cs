@@ -31,5 +31,9 @@ public class SaveChartRequestValidator : AbstractValidator<SaveChartRequest>
         RuleFor(x => x.ConnectionId)
             .NotEmpty()
             .When(x => x.ConnectionId.HasValue);
+
+        RuleFor(x => x.DatasetId)
+            .NotEmpty()
+            .When(x => x.DatasetId.HasValue);
     }
 }

@@ -111,7 +111,12 @@ public class QueryExecutor : IQueryExecutor
             cmd.Transaction = tx;
             cmd.CommandText = "SET SESSION TRANSACTION READ ONLY";
             await cmd.ExecuteNonQueryAsync(ct);
+            return;
         }
+
+        // SQL Server read-only is enforced best-effort via ApplicationIntent=ReadOnly
+        // on the connection string; SQLite is opened with Mode=ReadOnly. Neither
+        // supports SET TRANSACTION READ ONLY.
     }
 
     private static long EstimateSize(object value) => value switch
@@ -127,6 +132,8 @@ public class QueryExecutor : IQueryExecutor
         {
             DbProvider.PostgreSql => new Npgsql.NpgsqlConnection(connectionString),
             DbProvider.MySql => new MySql.Data.MySqlClient.MySqlConnection(connectionString),
+            DbProvider.SqlServer => new Microsoft.Data.SqlClient.SqlConnection(connectionString),
+            DbProvider.Sqlite => new Microsoft.Data.Sqlite.SqliteConnection(connectionString),
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         };
     }
