@@ -52,9 +52,7 @@ public sealed class CompanyConnectionsRoutesTests
     }
 
     private CreateConnectionRequest Conn(string name, ConnectionVisibility visibility, List<Guid>? roles = null) =>
-        new(name, DbProvider.PostgreSql, _factory.ExternalHost, _factory.ExternalPort,
-            _factory.ExternalDatabase, _factory.ExternalUsername, _factory.ExternalPassword,
-            visibility, roles);
+        new(name, DbProvider.PostgreSql, _factory.ExternalConnectionString, visibility, roles);
 
     [Fact]
     public async Task Company_connections_follow_visibility_and_permission_rules()
@@ -103,8 +101,7 @@ public sealed class CompanyConnectionsRoutesTests
         denyCreate.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
         var denyEdit = await analystClient.PutAsJsonAsync($"/api/connections/{shared.Id}",
-            new UpdateConnectionRequest("Hacked", DbProvider.PostgreSql, _factory.ExternalHost, _factory.ExternalPort,
-                _factory.ExternalDatabase, _factory.ExternalUsername, _factory.ExternalPassword,
+            new UpdateConnectionRequest("Hacked", DbProvider.PostgreSql, _factory.ExternalConnectionString,
                 ConnectionVisibility.Company, null));
         denyEdit.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
@@ -123,8 +120,7 @@ public sealed class CompanyConnectionsRoutesTests
         (await adminClient.GetAsync($"/api/connections/{adminConn.Id}/config")).StatusCode.Should().Be(HttpStatusCode.OK);
 
         var editResp = await adminClient.PutAsJsonAsync($"/api/connections/{adminConn.Id}",
-            new UpdateConnectionRequest("DbAdmin Updated", DbProvider.PostgreSql, _factory.ExternalHost, _factory.ExternalPort,
-                _factory.ExternalDatabase, _factory.ExternalUsername, null,
+            new UpdateConnectionRequest("DbAdmin Updated", DbProvider.PostgreSql, _factory.ExternalConnectionString,
                 ConnectionVisibility.Company, null));
         editResp.StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -137,8 +133,7 @@ public sealed class CompanyConnectionsRoutesTests
         adminList2.Should().NotContain(c => c.Id == ownerPrivate.Id);
 
         var denyPrivateEdit = await adminClient.PutAsJsonAsync($"/api/connections/{ownerPrivate.Id}",
-            new UpdateConnectionRequest("Hack", DbProvider.PostgreSql, _factory.ExternalHost, _factory.ExternalPort,
-                _factory.ExternalDatabase, _factory.ExternalUsername, null,
+            new UpdateConnectionRequest("Hack", DbProvider.PostgreSql, _factory.ExternalConnectionString,
                 ConnectionVisibility.Company, null));
         denyPrivateEdit.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 

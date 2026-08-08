@@ -56,6 +56,7 @@ public class ConnectionController : ControllerBase
     public async Task<IActionResult> GetConfig(Guid id, CancellationToken ct)
     {
         var userId = GetUserId();
+        Response.Headers.CacheControl = "no-store";
         var config = await _connectionService.GetConfigAsync(id, userId, ct);
         return Ok(config);
     }

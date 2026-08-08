@@ -158,22 +158,69 @@ public static class ConnectionStringParser
             return false;
         }
 
+        var detectedProvider = DetectProvider(host, dataSource, values);
+
         // Allow SQL Server style "Server=host,1433".
         var hostPort = host.Split(',', 2);
         host = hostPort[0].Trim();
         if (hostPort.Length == 2 && int.TryParse(hostPort[1], out var commaPort))
         {
-            result = new ParsedConnectionString(null, host, commaPort, database, username, password);
+            result = new ParsedConnectionString(detectedProvider, host, commaPort, database, username, password);
             return true;
         }
 
         if (int.TryParse(Get("port") ?? "", out var portKey))
         {
-            result = new ParsedConnectionString(null, host, portKey, database, username, password);
+            result = new ParsedConnectionString(detectedProvider, host, portKey, database, username, password);
             return true;
         }
 
-        result = new ParsedConnectionString(null, host, 0, database, username, password);
+        result = new ParsedConnectionString(detectedProvider, host, 0, database, username, password);
         return true;
     }
+
+    /// <summary>
+    /// Best-effort provider detection for key=value connection strings.
+    /// Returns null when the format is ambiguous, so validation never falsely
+    /// rejects a string it cannot identify.
+    /// </summary>
+    private static DbProvider? DetectProvider(string host, string dataSource, Dictionary<string, string> values)
+    {
+        if (!string.IsNullOrEmpty(host) && values.ContainsKey("host"))
+            return DbProvider.PostgreSql;
+
+        var mySqlIdioms = values.ContainsKey("uid") || values.ContainsKey("pwd");
+        if (mySqlIdioms)
+            return DbProvider.MySql;
+
+        var hasSqlServerSignals =
+            values.ContainsKey("user id") ||
+            values.ContainsKey("userid") ||
+            values.ContainsKey("initial catalog") ||
+            values.ContainsKey("initialcatalog") ||
+            values.ContainsKey("integrated security") ||
+            values.ContainsKey("trusted_connection") ||
+            values.ContainsKey("trust server certificate") ||
+            values.ContainsKey("trustservercertificate") ||
+            values.ContainsKey("applicationintent") ||
+            values.ContainsKey("multipleactiveresultsets") ||
+            values.ContainsKey("encrypt") ||
+            (!string.IsNullOrEmpty(host) && (values.ContainsKey("data source") || values.ContainsKey("datasource"))) ||
+            host.Contains(',');
+
+        if (hasSqlServerSignals)
+            return DbProvider.SqlServer;
+
+        if (string.IsNullOrEmpty(host) && !string.IsNullOrEmpty(dataSource) && LooksLikeFilePath(dataSource))
+            return DbProvider.Sqlite;
+
+        return null;
+    }
+
+    private static bool LooksLikeFilePath(string value) =>
+        value.Contains('\\') ||
+        value.Contains('/') ||
+        value.EndsWith(".db", StringComparison.OrdinalIgnoreCase) ||
+        value.EndsWith(".sqlite", StringComparison.OrdinalIgnoreCase) ||
+        value.EndsWith(".sqlite3", StringComparison.OrdinalIgnoreCase);
 }

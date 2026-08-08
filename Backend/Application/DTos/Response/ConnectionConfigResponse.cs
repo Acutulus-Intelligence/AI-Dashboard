@@ -5,12 +5,7 @@ namespace Application.DTos.Response;
 public sealed record ConnectionConfigResponse(
     string Name,
     DbProvider DbProvider,
-    string Host,
-    int Port,
-    string Database,
-    string Username,
-    string Password,
+    string ConnectionString,
     ConnectionVisibility Visibility,
-    List<Guid> AllowedRoleIds,
-    SslMode SslMode
+    List<Guid> AllowedRoleIds
 );

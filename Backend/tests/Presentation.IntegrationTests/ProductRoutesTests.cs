@@ -39,11 +39,7 @@ public sealed class ProductRoutesTests
         var createConn = await client.PostAsJsonAsync("/api/connections", new CreateConnectionRequest(
             "Sample",
             DbProvider.PostgreSql,
-            _factory.ExternalHost,
-            _factory.ExternalPort,
-            _factory.ExternalDatabase,
-            _factory.ExternalUsername,
-            _factory.ExternalPassword));
+            _factory.ExternalConnectionString));
         createConn.StatusCode.Should().Be(HttpStatusCode.OK);
         using var connDoc = JsonDocument.Parse(await createConn.Content.ReadAsStringAsync());
         var connectionId = connDoc.RootElement.GetProperty("id").GetGuid();
@@ -113,13 +109,11 @@ public sealed class ProductRoutesTests
         await _factory.SeedActiveSubscriptionAsync(email);
 
         var first = await client.PostAsJsonAsync("/api/connections", new CreateConnectionRequest(
-            "Only", DbProvider.PostgreSql, _factory.ExternalHost, _factory.ExternalPort,
-            _factory.ExternalDatabase, _factory.ExternalUsername, _factory.ExternalPassword));
+            "Only", DbProvider.PostgreSql, _factory.ExternalConnectionString));
         first.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var second = await client.PostAsJsonAsync("/api/connections", new CreateConnectionRequest(
-            "Second", DbProvider.PostgreSql, _factory.ExternalHost, _factory.ExternalPort,
-            _factory.ExternalDatabase, _factory.ExternalUsername, _factory.ExternalPassword));
+            "Second", DbProvider.PostgreSql, _factory.ExternalConnectionString));
         second.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 

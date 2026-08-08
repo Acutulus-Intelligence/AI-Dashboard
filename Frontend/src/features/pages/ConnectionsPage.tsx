@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   CheckCircle,
   ChevronDown,
@@ -43,7 +43,6 @@ import {
   type ConnectionResponse,
   type ConnectionVisibility,
   type CreateConnectionRequest,
-  type SslMode,
   type TableInfo,
   type UpdateConnectionRequest,
 } from '../../services/connectionsApi';
@@ -55,23 +54,10 @@ const DB_PROVIDERS = [
   { value: 'Sqlite', label: 'SQLite' },
 ];
 
-const DEFAULT_PORTS: Record<string, number> = {
-  PostgreSql: 5432,
-  MySql: 3306,
-  SqlServer: 1433,
-  Sqlite: 0,
-};
-
-const SSL_MODES: { value: SslMode; label: string; hint: string }[] = [
-  { value: 'Prefer', label: 'Prefer SSL', hint: 'Encrypt if the server supports it (default)' },
-  { value: 'Require', label: 'Require SSL', hint: 'Reject the connection without encryption' },
-  { value: 'VerifyFull', label: 'Verify full', hint: 'Encrypt and verify the server certificate' },
-  { value: 'None', label: 'No SSL', hint: 'Connect without encryption' },
-];
-
-const IS_SQLITE = (provider: string) => provider === 'Sqlite';
-
-const CONNECTION_CREDENTIALS_RE = /^([a-z][a-z0-9+.-]*:\/\/[^:\/@]*:)([^@\/]*)(@)/i;
+const URI_CREDENTIALS_STARTS = '^([a-z][a-z0-9+.-]*://[^:@/]*:)';
+const URI_CREDENTIALS_TAIL = '([^@/]*)(@)';
+const CONNECTION_CREDENTIALS_RE = new RegExp(URI_CREDENTIALS_STARTS + URI_CREDENTIALS_TAIL, 'i');
+const MASKED_URI_RE = new RegExp(URI_CREDENTIALS_STARTS + '\\*+(@)', 'i');
 const PASSWORD_PAIR_RE = /\b((?:password|pwd)\s*=\s*)([^;]*)/gi;
 
 function maskConnectionString(value: string): string {
@@ -87,7 +73,7 @@ function unmaskConnectionString(masked: string, previousRaw: string): string {
   const uriPrev = previousRaw.match(CONNECTION_CREDENTIALS_RE);
   if (uriPrev) {
     const password = uriPrev[2];
-    return masked.replace(/^([a-z][a-z0-9+.-]*:\/\/[^:\/@]*:)\*+(@)/i, `$1${password}$2`);
+    return masked.replace(MASKED_URI_RE, `$1${password}$2`);
   }
   const pairPrev = previousRaw.match(/\b(?:password|pwd)\s*=\s*([^;]*)/i);
   if (pairPrev) {
@@ -95,6 +81,12 @@ function unmaskConnectionString(masked: string, previousRaw: string): string {
     return masked.replace(/\b((?:password|pwd)\s*=\s*)\*+/gi, `$1${password}`);
   }
   return masked;
+}
+
+function resolveConnectionString(display: string, real: string): string {
+  if (!real) return display;
+  if (display === maskConnectionString(real)) return real;
+  return unmaskConnectionString(display, real);
 }
 
 function providerLabel(dbProvider: string): string {
@@ -124,12 +116,7 @@ const MAX_INDIVIDUAL_CONNECTIONS = 1;
 interface ConnectionFormState {
   name: string;
   dbProvider: string;
-  host: string;
-  port: number;
-  database: string;
-  username: string;
-  password: string;
-  sslMode: SslMode;
+  connectionString: string;
   visibility: ConnectionVisibility;
   allowedRoleIds: string[];
 }
@@ -138,12 +125,7 @@ function emptyForm(): ConnectionFormState {
   return {
     name: '',
     dbProvider: 'PostgreSql',
-    host: '',
-    port: DEFAULT_PORTS.PostgreSql,
-    database: '',
-    username: '',
-    password: '',
-    sslMode: 'Prefer',
+    connectionString: '',
     visibility: 'Company',
     allowedRoleIds: [],
   };
@@ -183,10 +165,10 @@ export default function ConnectionsPage() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [pasteText, setPasteText] = useState('');
-  const [parsing, setParsing] = useState(false);
-  const lastPasteRawRef = useRef('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [connectionStringRevealed, setConnectionStringRevealed] = useState(false);
+  const realConnectionStringRef = useRef('');
+  const [validateState, setValidateState] = useState<{ ok: boolean; text: string } | null>(null);
+  const [validating, setValidating] = useState(false);
 
   const isOwner = isCompany && company !== null && user?.userId === company.ownerId;
   const me = users.find((u) => u.id === user?.userId);
@@ -194,19 +176,27 @@ export default function ConnectionsPage() {
   const canManageConnections = !isCompany || isOwner || myRole?.canManageConnections === true;
   const shareableRoles = roles.filter((r) => !(r.isSystemRole && r.name === 'Owner'));
 
-  const duplicateOf = useMemo(() => {
-    const host = form.host.trim().toLowerCase().replace(/\.$/, '');
-    const database = form.database.trim().toLowerCase();
-    if (!host || !database) return null;
-    return (
-      connections.find(
-        (c) =>
-          c.id !== editingId &&
-          c.host.trim().toLowerCase().replace(/\.$/, '') === host &&
-          c.database.trim().toLowerCase() === database,
-      ) ?? null
-    );
-  }, [connections, editingId, form.host, form.database]);
+  const displayConnectionString = connectionStringRevealed
+    ? form.connectionString
+    : maskConnectionString(form.connectionString);
+
+  const getRawConnectionString = () => {
+    const raw = resolveConnectionString(form.connectionString, realConnectionStringRef.current);
+    realConnectionStringRef.current = raw;
+    return raw;
+  };
+
+  const handleConnectionStringChange = (value: string) => {
+    if (connectionStringRevealed) {
+      realConnectionStringRef.current = value;
+      setForm((prev) => ({ ...prev, connectionString: value }));
+    } else {
+      const restored = unmaskConnectionString(value, realConnectionStringRef.current);
+      realConnectionStringRef.current = restored;
+      setForm((prev) => ({ ...prev, connectionString: restored }));
+    }
+    setValidateState(null);
+  };
 
   const canManageConnection = useCallback(
     (conn: ConnectionResponse) => {
@@ -296,27 +286,53 @@ export default function ConnectionsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCompany, user?.userId]);
 
-  const handleParsePaste = async () => {
-    const trimmed = pasteText.trim();
-    if (!trimmed) return;
-    setParsing(true);
+  const runValidation = async (raw: string): Promise<{ ok: boolean; text: string }> => {
     try {
-      const parsed = await parseConnectionString(trimmed);
-      setForm((prev) => ({
-        ...prev,
-        dbProvider: parsed.provider ?? prev.dbProvider,
-        host: parsed.host,
-        port: parsed.port > 0 ? parsed.port : prev.port,
-        database: parsed.database,
-        username: parsed.username,
-        password: parsed.password,
-      }));
-      toast.success('Connection string parsed. Review the fields below.');
+      const parsed = await parseConnectionString(raw);
+      if (parsed.provider && parsed.provider !== form.dbProvider) {
+        return {
+          ok: false,
+          text: `This looks like a ${providerLabel(parsed.provider)} connection string, but you have ${providerLabel(form.dbProvider)} selected.`,
+        };
+      }
+      if (!parsed.provider) {
+        return {
+          ok: false,
+          text: 'Could not detect the database provider from this connection string.',
+        };
+      }
+      return {
+        ok: true,
+        text: `Valid connection string for ${providerLabel(parsed.provider)}.`,
+      };
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Could not parse that connection string.');
-    } finally {
-      setParsing(false);
+      return {
+        ok: false,
+        text: err instanceof Error ? err.message : 'Could not parse that connection string.',
+      };
     }
+  };
+
+  const handleValidate = async () => {
+    const raw = getRawConnectionString().trim();
+    if (!raw) return;
+    setValidating(true);
+    try {
+      setValidateState(await runValidation(raw));
+    } finally {
+      setValidating(false);
+    }
+  };
+
+  const ensureValidated = async (): Promise<boolean> => {
+    const raw = getRawConnectionString().trim();
+    if (!raw) {
+      setValidateState({ ok: false, text: 'Paste a connection string first.' });
+      return false;
+    }
+    const result = await runValidation(raw);
+    setValidateState(result);
+    return result.ok;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -330,23 +346,25 @@ export default function ConnectionsPage() {
 
   const handleCreate = async () => {
     setFormError('');
+    if (!(await ensureValidated())) {
+      setFormError('Detect and validate the connection string before saving.');
+      return;
+    }
     setSaving(true);
     try {
       const payload: CreateConnectionRequest = {
         name: form.name,
         dbProvider: form.dbProvider,
-        host: form.host,
-        port: form.port,
-        database: form.database,
-        username: form.username,
-        password: form.password,
-        sslMode: form.sslMode,
+        connectionString: getRawConnectionString(),
         visibility: isCompany ? form.visibility : 'Private',
         allowedRoleIds: form.visibility === 'Roles' ? form.allowedRoleIds : [],
       };
       const created = await createConnection(payload);
       setShowForm(false);
       setForm(emptyForm());
+      realConnectionStringRef.current = '';
+      setConnectionStringRevealed(false);
+      setValidateState(null);
       try {
         await testConnection(created.id);
       } catch {
@@ -364,23 +382,25 @@ export default function ConnectionsPage() {
   const handleEdit = async () => {
     if (!editingId) return;
     setFormError('');
+    if (!(await ensureValidated())) {
+      setFormError('Detect and validate the connection string before saving.');
+      return;
+    }
     setSaving(true);
     try {
       const payload: UpdateConnectionRequest = {
         name: form.name,
         dbProvider: form.dbProvider,
-        host: form.host,
-        port: form.port,
-        database: form.database,
-        username: form.username,
-        password: form.password || undefined,
-        sslMode: form.sslMode,
+        connectionString: getRawConnectionString(),
         visibility: isCompany ? form.visibility : 'Private',
         allowedRoleIds: form.visibility === 'Roles' ? form.allowedRoleIds : [],
       };
       await updateConnection(editingId, payload);
       setEditingId(null);
       setForm(emptyForm());
+      realConnectionStringRef.current = '';
+      setConnectionStringRevealed(false);
+      setValidateState(null);
       await refreshConnections();
       toast.success('Connection updated.');
     } catch (err: unknown) {
@@ -394,8 +414,9 @@ export default function ConnectionsPage() {
     setEditingId(null);
     setForm(emptyForm());
     setFormError('');
-    setPasteText('');
-    setShowPassword(false);
+    realConnectionStringRef.current = '';
+    setConnectionStringRevealed(false);
+    setValidateState(null);
     setShowForm((v) => !v);
   };
 
@@ -405,18 +426,14 @@ export default function ConnectionsPage() {
       setForm({
         name: config.name,
         dbProvider: config.dbProvider,
-        host: config.host,
-        port: config.port,
-        database: config.database,
-        username: config.username,
-        password: config.password || '',
-        sslMode: config.sslMode,
+        connectionString: config.connectionString,
         visibility: config.visibility,
         allowedRoleIds: config.allowedRoleIds,
       });
       setEditingId(conn.id);
-      setShowPassword(false);
-      setPasteText('');
+      setConnectionStringRevealed(false);
+      realConnectionStringRef.current = config.connectionString;
+      setValidateState(null);
       setShowForm(false);
       setFormError('');
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -430,8 +447,9 @@ export default function ConnectionsPage() {
     setShowForm(false);
     setForm(emptyForm());
     setFormError('');
-    setPasteText('');
-    setShowPassword(false);
+    realConnectionStringRef.current = '';
+    setConnectionStringRevealed(false);
+    setValidateState(null);
   };
 
   const handleDelete = async () => {
@@ -535,132 +553,82 @@ export default function ConnectionsPage() {
             <div className="bg-destructive/10 text-destructive mb-3 rounded-lg p-3 text-sm">{formError}</div>
           )}
 
-          <div className="border-border mb-4 rounded-lg border p-4">
-              <p className="text-muted-foreground mb-2 text-sm font-medium">Or paste a connection string</p>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <div className="w-full max-w-lg min-w-0">
-                  <textarea
-                    rows={1}
-                    autoComplete="off"
-                    placeholder="postgres://user:pass@host:5432/dbname"
-                    value={maskConnectionString(pasteText)}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      const restored = unmaskConnectionString(value, lastPasteRawRef.current);
-                      lastPasteRawRef.current = restored;
-                      setPasteText(restored);
-                    }}
-                    className="border-input bg-background focus:border-ring w-full resize-none rounded-lg border px-3 py-2 text-sm outline-hidden"
-                  />
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-auto shrink-0 self-stretch"
-                  onClick={() => void handleParsePaste()}
-                  disabled={parsing || !pasteText.trim()}
-                >
-                  <ClipboardPaste />
-                  {parsing ? 'Parsing…' : 'Parse & fill'}
-                </Button>
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <input
+                placeholder="Connection name"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                required
+                className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
+              />
+              <select
+                value={form.dbProvider}
+                onChange={(e) => setForm({ ...form, dbProvider: e.target.value })}
+                className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
+              >
+                {DB_PROVIDERS.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="connection-string" className="text-muted-foreground mb-2 block text-sm font-medium">
+                Connection string
+              </label>
+              <div>
+                <textarea
+                  id="connection-string"
+                  rows={4}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  placeholder={
+                    form.dbProvider === 'Sqlite'
+                      ? 'Data Source=C:\\data\\app.db'
+                      : 'postgres://user:pass@host:5432/dbname\nor Server=host,1433;Database=db;User Id=user;Password=pass'
+                  }
+                  value={displayConnectionString}
+                  onChange={(e) => handleConnectionStringChange(e.target.value)}
+                  className="border-input bg-background focus:border-ring font-mono w-full rounded-lg border px-3 py-2.5 text-sm outline-hidden"
+                />
               </div>
-            </div>
-
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <input
-              placeholder="Connection name"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              required
-              className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
-            />
-            <select
-              value={form.dbProvider}
-              onChange={(e) =>
-                setForm({ ...form, dbProvider: e.target.value, port: DEFAULT_PORTS[e.target.value] ?? form.port })
-              }
-              className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
-            >
-              {DB_PROVIDERS.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-            {!IS_SQLITE(form.dbProvider) && (
-              <>
-                <input
-                  placeholder="Host"
-                  value={form.host}
-                  onChange={(e) => setForm({ ...form, host: e.target.value })}
-                  required
-                  className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
-                />
-                <input
-                  type="number"
-                  placeholder="Port"
-                  value={form.port}
-                  onChange={(e) => setForm({ ...form, port: Number(e.target.value) })}
-                  required
-                  className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
-                />
-              </>
-            )}
-            <input
-              placeholder={IS_SQLITE(form.dbProvider) ? 'Database file path (e.g. C:\\data\\db.sqlite)' : 'Database'}
-              value={form.database}
-              onChange={(e) => setForm({ ...form, database: e.target.value })}
-              required
-              className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
-            />
-            {!IS_SQLITE(form.dbProvider) && (
-              <>
-                <input
-                  placeholder="Username"
-                  value={form.username}
-                  onChange={(e) => setForm({ ...form, username: e.target.value })}
-                  required
-                  className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
-                />
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder={editingId ? 'Leave blank to keep current password' : 'Password'}
-                    value={form.password}
-                    onChange={(e) => setForm({ ...form, password: e.target.value })}
-                    required={!editingId}
-                    className="border-input bg-background focus:border-ring w-full rounded-lg border py-2.5 pl-4 pr-11 text-sm outline-hidden"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    className="text-muted-foreground hover:text-foreground absolute inset-y-0 right-0 flex w-10 cursor-pointer items-center justify-center"
-                  >
-                    {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                  </button>
-                </div>
-                <select
-                  value={form.sslMode}
-                  onChange={(e) => setForm({ ...form, sslMode: e.target.value as SslMode })}
-                  className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
+              <div className="mt-1.5 flex items-start justify-between gap-2">
+                <p className="text-muted-foreground text-sm">
+                  Paste the full connection string. Your password stays hidden until you reveal it.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setConnectionStringRevealed((v) => !v)}
+                  aria-label={connectionStringRevealed ? 'Hide password' : 'Show password'}
+                  className="text-muted-foreground hover:text-foreground inline-flex shrink-0 cursor-pointer items-center gap-1.5 text-sm"
                 >
-                  {SSL_MODES.map((m) => (
-                    <option key={m.value} value={m.value} title={m.hint}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
-              </>
-            )}
-          </div>
-
-          {duplicateOf && (
-            <div className="bg-amber-500/10 text-amber-700 dark:text-amber-400 mt-4 rounded-lg p-3 text-sm">
-              This looks like a duplicate of connection “{duplicateOf.name}” — the same host and database are already
-              connected. You can still save it as a separate connection if you want.
+                  {connectionStringRevealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                  {connectionStringRevealed ? 'Hide password' : 'Show password'}
+                </button>
+              </div>
+              {validateState && (
+                <p className={cn('mt-1.5 text-sm', validateState.ok ? 'text-green-600' : 'text-red-500')}>
+                  {validateState.text}
+                </p>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                onClick={() => void handleValidate()}
+                disabled={validating || !form.connectionString.trim()}
+              >
+                <ClipboardPaste />
+                {validating ? 'Checking…' : 'Detect provider & validate'}
+              </Button>
             </div>
-          )}
+          </div>
 
           {isCompany && (
             <div className="mt-4">

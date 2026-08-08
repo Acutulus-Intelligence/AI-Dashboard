@@ -2,7 +2,6 @@ import { apiFetch, apiFetchWithHeaders } from '../lib/api/client';
 
 export type ConnectionVisibility = 'Private' | 'Company' | 'Roles';
 export type DbProvider = 'PostgreSql' | 'MySql' | 'SqlServer' | 'Sqlite';
-export type SslMode = 'None' | 'Prefer' | 'Require' | 'VerifyFull';
 
 export interface ConnectionResponse {
   id: string;
@@ -30,12 +29,7 @@ export interface ParseConnectionStringResponse {
 export interface CreateConnectionRequest {
   name: string;
   dbProvider: string;
-  host: string;
-  port: number;
-  database: string;
-  username: string;
-  password: string;
-  sslMode: SslMode;
+  connectionString: string;
   visibility: ConnectionVisibility;
   allowedRoleIds?: string[];
 }
@@ -43,12 +37,7 @@ export interface CreateConnectionRequest {
 export interface UpdateConnectionRequest {
   name: string;
   dbProvider: string;
-  host: string;
-  port: number;
-  database: string;
-  username: string;
-  password?: string;
-  sslMode: SslMode;
+  connectionString: string;
   visibility: ConnectionVisibility;
   allowedRoleIds?: string[];
 }
@@ -56,14 +45,9 @@ export interface UpdateConnectionRequest {
 export interface ConnectionConfigResponse {
   name: string;
   dbProvider: string;
-  host: string;
-  port: number;
-  database: string;
-  username: string;
-  password: string;
+  connectionString: string;
   visibility: ConnectionVisibility;
   allowedRoleIds: string[];
-  sslMode: SslMode;
 }
 
 export interface TableInfo {

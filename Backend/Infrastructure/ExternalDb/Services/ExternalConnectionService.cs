@@ -12,7 +12,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MySql.Data.MySqlClient;
 using Npgsql;
-using SslMode = Domain.Enums.SslMode;
 
 namespace Infrastructure.ExternalDb.Services;
 
@@ -49,8 +48,20 @@ public class ExternalConnectionService : IExternalConnectionService
         if (!await _access.HasConnectionManagePermissionAsync(userId, ct))
             throw new UnauthorizedAccessException("You do not have permission to manage connections.");
 
-        if (request.DbProvider != DbProvider.Sqlite && HostBlocklist.IsBlocked(request.Host, _settings.BlockedHosts))
-            throw new ArgumentException("This host is not allowed.");
+        if (!ConnectionStringParser.TryParse(request.ConnectionString, out var parsed, out var parseError))
+            throw new ArgumentException(parseError);
+
+        if (request.DbProvider != DbProvider.Sqlite)
+        {
+            if (parsed.Provider is null)
+                throw new ArgumentException("Could not detect the database provider from this connection string.");
+
+            if (parsed.Provider != request.DbProvider)
+                throw new ArgumentException($"The connection string does not match the selected database provider ({parsed.Provider}).");
+
+            if (HostBlocklist.IsBlocked(parsed.Host, _settings.BlockedHosts))
+                throw new ArgumentException("This host is not allowed.");
+        }
 
         var companyId = user.CompanyId;
         var visibility = request.Visibility;
@@ -99,14 +110,7 @@ public class ExternalConnectionService : IExternalConnectionService
             await EnsureNameUniqueInCompanyAsync(companyId.Value, request.Name, null, visibility, ct);
         }
 
-        var connectionString = BuildConnectionString(
-            request.DbProvider,
-            request.Host,
-            request.Port,
-            request.Database,
-            request.Username,
-            request.Password ?? "",
-            request.SslMode);
+        var connectionString = request.ConnectionString;
 
         var connection = new ExternalConnection
         {
@@ -201,19 +205,13 @@ public class ExternalConnectionService : IExternalConnectionService
             throw new UnauthorizedAccessException("You do not have permission to manage this connection.");
 
         var decrypted = _encryption.Decrypt(connection.EncryptedConnectionString);
-        var (host, port, database, username) = ParseConnectionString(connection.DbProvider, decrypted);
 
         return new ConnectionConfigResponse(
             connection.Name,
             connection.DbProvider,
-            host,
-            port,
-            database,
-            username,
-            ExtractPassword(connection.DbProvider, decrypted),
+            decrypted,
             connection.Visibility,
-            connection.AllowedRoleIds,
-            ExtractSslMode(connection.DbProvider, decrypted));
+            connection.AllowedRoleIds);
     }
 
     public Task<ParseConnectionStringResponse> ParseConnectionStringAsync(string connectionString, CancellationToken ct = default)
@@ -249,8 +247,20 @@ public class ExternalConnectionService : IExternalConnectionService
         if (!await _access.CanManageAsync(id, userId, ct))
             throw new UnauthorizedAccessException("You do not have permission to manage this connection.");
 
-        if (request.DbProvider != DbProvider.Sqlite && HostBlocklist.IsBlocked(request.Host, _settings.BlockedHosts))
-            throw new ArgumentException("This host is not allowed.");
+        if (!ConnectionStringParser.TryParse(request.ConnectionString, out var parsed, out var parseError))
+            throw new ArgumentException(parseError);
+
+        if (request.DbProvider != DbProvider.Sqlite)
+        {
+            if (parsed.Provider is null)
+                throw new ArgumentException("Could not detect the database provider from this connection string.");
+
+            if (parsed.Provider != request.DbProvider)
+                throw new ArgumentException($"The connection string does not match the selected database provider ({parsed.Provider}).");
+
+            if (HostBlocklist.IsBlocked(parsed.Host, _settings.BlockedHosts))
+                throw new ArgumentException("This host is not allowed.");
+        }
 
         var visibility = request.Visibility;
         var allowedRoleIds = request.AllowedRoleIds ?? [];
@@ -283,18 +293,7 @@ public class ExternalConnectionService : IExternalConnectionService
             await EnsureNameUniqueInCompanyAsync(connection.CompanyId.Value, request.Name, id, visibility, ct);
         }
 
-        var password = string.IsNullOrEmpty(request.Password)
-            ? ExtractPassword(connection.DbProvider, _encryption.Decrypt(connection.EncryptedConnectionString))
-            : request.Password;
-
-        var connectionString = BuildConnectionString(
-            request.DbProvider,
-            request.Host,
-            request.Port,
-            request.Database,
-            request.Username,
-            password,
-            request.SslMode);
+        var connectionString = request.ConnectionString;
 
         connection.Name = request.Name;
         connection.DbProvider = request.DbProvider;
@@ -367,120 +366,6 @@ public class ExternalConnectionService : IExternalConnectionService
             throw new ConflictException(
                 $"A shared connection named \"{trimmed}\" already exists in your company.",
                 "connection_name_conflict");
-    }
-
-    private static string BuildConnectionString(DbProvider provider, string host, int port, string database, string username, string password, SslMode ssl)
-    {
-        return provider switch
-        {
-            DbProvider.PostgreSql => new NpgsqlConnectionStringBuilder
-            {
-                Host = host,
-                Port = port,
-                Database = database,
-                Username = username,
-                Password = password,
-                SslMode = ToNpgsqlSslMode(ssl)
-            }.ConnectionString,
-            DbProvider.MySql => new MySqlConnectionStringBuilder
-            {
-                Server = host,
-                Port = (uint)port,
-                Database = database,
-                UserID = username,
-                Password = password,
-                SslMode = ToMySqlSslMode(ssl)
-            }.ConnectionString,
-            DbProvider.SqlServer => BuildSqlServerConnectionString(host, database, username, password, ssl),
-            DbProvider.Sqlite => new SqliteConnectionStringBuilder
-            {
-                DataSource = database,
-                Mode = SqliteOpenMode.ReadOnly
-            }.ConnectionString,
-            _ => throw new ArgumentOutOfRangeException(nameof(provider))
-        };
-    }
-
-    private static string BuildSqlServerConnectionString(string host, string database, string username, string password, SslMode ssl)
-    {
-        var builder = new SqlConnectionStringBuilder
-        {
-            DataSource = host,
-            InitialCatalog = database,
-            UserID = username,
-            Password = password,
-            ApplicationIntent = ApplicationIntent.ReadOnly,
-            TrustServerCertificate = ssl is SslMode.Prefer or SslMode.Require
-        };
-        builder.Encrypt = ssl == SslMode.None
-            ? SqlConnectionEncryptOption.Optional
-            : SqlConnectionEncryptOption.Mandatory;
-        return builder.ConnectionString;
-    }
-
-    private static string ExtractPassword(DbProvider provider, string connectionString)
-    {
-        return provider switch
-        {
-            DbProvider.PostgreSql => new NpgsqlConnectionStringBuilder(connectionString).Password ?? "",
-            DbProvider.MySql => new MySqlConnectionStringBuilder(connectionString).Password ?? "",
-            DbProvider.SqlServer => new SqlConnectionStringBuilder(connectionString).Password ?? "",
-            DbProvider.Sqlite => "",
-            _ => throw new ArgumentOutOfRangeException(nameof(provider))
-        };
-    }
-
-    private static SslMode ExtractSslMode(DbProvider provider, string connectionString) => provider switch
-    {
-        DbProvider.PostgreSql => FromNpgsqlSslMode(new NpgsqlConnectionStringBuilder(connectionString).SslMode),
-        DbProvider.MySql => FromMySqlSslMode(new MySqlConnectionStringBuilder(connectionString).SslMode),
-        DbProvider.SqlServer => FromSqlServerEncryptOption(
-            new SqlConnectionStringBuilder(connectionString).Encrypt,
-            new SqlConnectionStringBuilder(connectionString).TrustServerCertificate),
-        _ => SslMode.None
-    };
-
-    private static Npgsql.SslMode ToNpgsqlSslMode(SslMode mode) => mode switch
-    {
-        SslMode.None => Npgsql.SslMode.Disable,
-        SslMode.Require => Npgsql.SslMode.Require,
-        SslMode.VerifyFull => Npgsql.SslMode.VerifyFull,
-        _ => Npgsql.SslMode.Prefer
-    };
-
-    private static MySqlSslMode ToMySqlSslMode(SslMode mode) => mode switch
-    {
-        SslMode.None => MySqlSslMode.None,
-        SslMode.Require => MySqlSslMode.Required,
-        SslMode.VerifyFull => MySqlSslMode.VerifyFull,
-        _ => MySqlSslMode.Preferred
-    };
-
-    private static SslMode FromNpgsqlSslMode(Npgsql.SslMode mode) => mode switch
-    {
-        Npgsql.SslMode.Disable => SslMode.None,
-        Npgsql.SslMode.Allow or Npgsql.SslMode.Prefer => SslMode.Prefer,
-        Npgsql.SslMode.Require or Npgsql.SslMode.VerifyCA => SslMode.Require,
-        _ => SslMode.VerifyFull
-    };
-
-    private static SslMode FromMySqlSslMode(MySqlSslMode mode) => mode switch
-    {
-        MySqlSslMode.None => SslMode.None,
-        MySqlSslMode.Preferred => SslMode.Prefer,
-        MySqlSslMode.Required or MySqlSslMode.VerifyCA => SslMode.Require,
-        _ => SslMode.VerifyFull
-    };
-
-    private static SslMode FromSqlServerEncryptOption(SqlConnectionEncryptOption option, bool trustServerCertificate)
-    {
-        if (option == SqlConnectionEncryptOption.Optional)
-            return SslMode.None;
-        if (option == SqlConnectionEncryptOption.Strict)
-            return SslMode.VerifyFull;
-        if (option == SqlConnectionEncryptOption.Mandatory)
-            return trustServerCertificate ? SslMode.Require : SslMode.VerifyFull;
-        return SslMode.Prefer;
     }
 
     private static (string host, int port, string database, string username) ParseConnectionString(DbProvider provider, string connectionString)
