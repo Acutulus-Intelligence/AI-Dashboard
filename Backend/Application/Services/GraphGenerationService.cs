@@ -89,6 +89,12 @@ public class GraphGenerationService : IGraphGenerationService
 
         if (request.CurrentChart is not null)
         {
+            if (string.IsNullOrWhiteSpace(aiResult.Config.ChartType)
+                || string.IsNullOrWhiteSpace(aiResult.Config.SqlQuery))
+            {
+                notes.Add("AI omitted chartType and/or sqlQuery; filled from baseline.");
+            }
+
             // Preserve baseline colours/params; take AI variant/info/decimals/prefix/suffix only.
             config = ChartRefineMerger.Apply(request.CurrentChart, config, prompt);
             config.StyleConfig = ChartStyleSanitizer.Sanitize(config.StyleConfig, config.ChartType);
@@ -101,6 +107,13 @@ public class GraphGenerationService : IGraphGenerationService
                 ChartRefineMerger.TakeAiControlledStyleFields(config.StyleConfig, config.ChartType),
                 config.ChartType);
             notes.Add("First generate: stripped AI colours/params.");
+        }
+
+        if (string.IsNullOrWhiteSpace(config.ChartType) || string.IsNullOrWhiteSpace(config.SqlQuery))
+        {
+            throw new InvalidOperationException(
+                "Chart config is missing required fields (chartType, sqlQuery) after merge. " +
+                $"Raw: {Truncate(aiResult.RawJson, 400)}");
         }
 
         config = EnsureValidSql(config, request.CurrentChart, notes);

@@ -133,31 +133,43 @@ public class OpenRouterService : IAiService
                 "AI returned invalid chart JSON. Try the adjustment again with a shorter prompt.");
         }
 
-        if (string.IsNullOrEmpty(config.ChartType) || string.IsNullOrEmpty(config.SqlQuery))
-            throw new InvalidOperationException("AI response is missing required fields (chartType, sqlQuery).");
+        var isRefine = !string.IsNullOrWhiteSpace(currentChartJson);
 
-        if (!ChartCatalog.IsKnownType(config.ChartType))
+        // First generate needs chartType + sqlQuery. On refine the model often omits
+        // unchanged fields — ChartRefineMerger fills those from the baseline.
+        if (!isRefine && (string.IsNullOrEmpty(config.ChartType) || string.IsNullOrEmpty(config.SqlQuery)))
+        {
+            throw new InvalidOperationException(
+                "AI response is missing required fields (chartType, sqlQuery). " +
+                $"Raw: {Truncate(json, 400)}");
+        }
+
+        if (!string.IsNullOrEmpty(config.ChartType) && !ChartCatalog.IsKnownType(config.ChartType))
             throw new InvalidOperationException(
                 $"AI returned unsupported chart type '{config.ChartType}'. " +
-                $"Supported types: {string.Join(", ", ChartCatalog.TypeIds)}.");
+                $"Supported types: {string.Join(", ", ChartCatalog.TypeIds)}. " +
+                $"Raw: {Truncate(json, 400)}");
 
         // Models routinely invent variants and parameters, so keep only what the
         // catalog actually describes rather than trusting the response.
-        try
+        if (!string.IsNullOrEmpty(config.ChartType))
         {
-            config.StyleConfig = ChartStyleSanitizer.Sanitize(config.StyleConfig, config.ChartType);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Style sanitization failed; dropping styleConfig");
-            config.StyleConfig = null;
+            try
+            {
+                config.StyleConfig = ChartStyleSanitizer.Sanitize(config.StyleConfig, config.ChartType);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Style sanitization failed; dropping styleConfig");
+                config.StyleConfig = null;
+            }
         }
 
         _logger.LogInformation(
             "AI chart config generated: chartType={ChartType}, sqlLength={SqlLength}, refine={IsRefine}, style={Style}",
-            config.ChartType,
-            config.SqlQuery.Length,
-            !string.IsNullOrWhiteSpace(currentChartJson),
+            string.IsNullOrEmpty(config.ChartType) ? "(omitted)" : config.ChartType,
+            config.SqlQuery?.Length ?? 0,
+            isRefine,
             config.StyleConfig is null
                 ? "(none)"
                 : JsonSerializer.Serialize(config.StyleConfig));
@@ -225,12 +237,12 @@ public class OpenRouterService : IAiService
             Title = GetString(root, "title") ?? string.Empty,
             XAxis = GetString(root, "xAxis") ?? string.Empty,
             YAxis = GetStringArray(root, "yAxis"),
-            Aggregation = GetString(root, "aggregation") ?? "none",
+            Aggregation = GetString(root, "aggregation") ?? string.Empty,
             GroupBy = GetString(root, "groupBy"),
             SqlQuery = GetString(root, "sqlQuery") ?? string.Empty,
         };
 
-        if (root.TryGetProperty("styleConfig", out var styleEl)
+        if (TryGetPropertyIgnoreCase(root, "styleConfig", out var styleEl)
             && styleEl.ValueKind == JsonValueKind.Object)
         {
             try
@@ -249,7 +261,7 @@ public class OpenRouterService : IAiService
 
     private static string? GetString(JsonElement root, string name)
     {
-        if (!root.TryGetProperty(name, out var el)) return null;
+        if (!TryGetPropertyIgnoreCase(root, name, out var el)) return null;
         return el.ValueKind switch
         {
             JsonValueKind.String => el.GetString(),
@@ -261,7 +273,7 @@ public class OpenRouterService : IAiService
 
     private static List<string> GetStringArray(JsonElement root, string name)
     {
-        if (!root.TryGetProperty(name, out var el) || el.ValueKind != JsonValueKind.Array)
+        if (!TryGetPropertyIgnoreCase(root, name, out var el) || el.ValueKind != JsonValueKind.Array)
             return [];
 
         var list = new List<string>();
@@ -278,6 +290,24 @@ public class OpenRouterService : IAiService
             }
         }
         return list;
+    }
+
+    private static bool TryGetPropertyIgnoreCase(JsonElement root, string name, out JsonElement value)
+    {
+        if (root.TryGetProperty(name, out value))
+            return true;
+
+        foreach (var prop in root.EnumerateObject())
+        {
+            if (prop.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+            {
+                value = prop.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
     }
 
     /// <summary>
