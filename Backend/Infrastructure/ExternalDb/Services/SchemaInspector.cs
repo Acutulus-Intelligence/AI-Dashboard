@@ -34,20 +34,6 @@ public class SchemaInspector : ISchemaInspector
         using var conn = CreateConnection(provider, connectionString);
         await conn.OpenAsync(ct);
 
-        if (provider == DbProvider.Sqlite)
-        {
-            await using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name";
-            await using var reader = await cmd.ExecuteReaderAsync(ct);
-            while (await reader.ReadAsync(ct))
-            {
-                var tableName = reader.GetString(0);
-                var columns = await GetColumnsAsync(conn, provider, tableName, ct);
-                tables.Add(new TableSchema { TableName = tableName, Columns = columns });
-            }
-            return tables;
-        }
-
         var schemaTable = await conn.GetSchemaAsync("Tables", ct);
         foreach (System.Data.DataRow row in schemaTable.Rows)
         {
@@ -59,7 +45,7 @@ public class SchemaInspector : ISchemaInspector
                 row["TABLE_TYPE"]?.ToString() != "BASE TABLE")
                 continue;
 
-            var columns = await GetColumnsAsync(conn, provider, tableName, ct);
+            var columns = await GetColumnsAsync(conn, tableName, ct);
             tables.Add(new TableSchema { TableName = tableName, Columns = columns });
         }
 
@@ -73,7 +59,7 @@ public class SchemaInspector : ISchemaInspector
         using var conn = CreateConnection(provider, connectionString);
         await conn.OpenAsync(ct);
 
-        var columns = await GetColumnsAsync(conn, provider, tableName, ct);
+        var columns = await GetColumnsAsync(conn, tableName, ct);
         return new TableSchema { TableName = tableName, Columns = columns };
     }
 
@@ -90,7 +76,7 @@ public class SchemaInspector : ISchemaInspector
         using var conn = CreateConnection(provider, connectionString);
         await conn.OpenAsync(ct);
 
-        var schema = await GetColumnsAsync(conn, provider, tableName, ct);
+        var schema = await GetColumnsAsync(conn, tableName, ct);
         if (schema.Count == 0)
             return [];
 
@@ -131,28 +117,10 @@ public class SchemaInspector : ISchemaInspector
 
     private static async Task<List<ColumnSchema>> GetColumnsAsync(
         System.Data.Common.DbConnection conn,
-        DbProvider provider,
         string tableName,
         CancellationToken ct)
     {
         var columns = new List<ColumnSchema>();
-
-        if (provider == DbProvider.Sqlite)
-        {
-            await using var cmd = conn.CreateCommand();
-            cmd.CommandText = $@"PRAGMA table_info(""{tableName.Replace("\"", "\"\"")}"")";
-            await using var reader = await cmd.ExecuteReaderAsync(ct);
-            while (await reader.ReadAsync(ct))
-            {
-                columns.Add(new ColumnSchema
-                {
-                    ColumnName = reader.GetString(reader.GetOrdinal("name")),
-                    DataType = reader["type"]?.ToString() ?? "",
-                    IsNullable = (reader.GetInt32(reader.GetOrdinal("notnull"))) == 0
-                });
-            }
-            return columns;
-        }
 
         var columnTable = await conn.GetSchemaAsync("Columns", new[] { null, null, tableName, null }, ct);
         foreach (System.Data.DataRow row in columnTable.Rows)
@@ -175,7 +143,6 @@ public class SchemaInspector : ISchemaInspector
             DbProvider.PostgreSql => new Npgsql.NpgsqlConnection(connectionString),
             DbProvider.MySql => new MySql.Data.MySqlClient.MySqlConnection(connectionString),
             DbProvider.SqlServer => new Microsoft.Data.SqlClient.SqlConnection(connectionString),
-            DbProvider.Sqlite => new Microsoft.Data.Sqlite.SqliteConnection(connectionString),
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         };
     }

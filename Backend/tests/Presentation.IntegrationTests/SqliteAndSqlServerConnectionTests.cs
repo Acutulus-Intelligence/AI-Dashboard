@@ -4,7 +4,6 @@ using System.Text.Json;
 using Application.DTos.Request;
 using Domain.Enums;
 using FluentAssertions;
-using Microsoft.Data.Sqlite;
 
 namespace Presentation.IntegrationTests;
 
@@ -18,63 +17,19 @@ public sealed class SqliteAndSqlServerConnectionTests
     private HttpClient CreateClient() => _factory.CreateClient(new() { AllowAutoRedirect = false });
 
     [Fact]
-    public async Task Sqlite_connection_lists_tables_previews_and_queries()
+    public async Task Create_rejects_sqlite_connection_provider()
     {
+        var client = CreateClient();
+        var email = $"sqlite_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        await _factory.SeedActiveSubscriptionAsync(email);
+
         var dbPath = Path.Combine(Path.GetTempPath(), $"sqlite_{Guid.NewGuid():N}.db");
-        try
-        {
-            using (var conn = new SqliteConnection($"Data Source={dbPath}"))
-            {
-                conn.Open();
-                using var cmd = conn.CreateCommand();
-                cmd.CommandText =
-                    """
-                    CREATE TABLE sales (category TEXT NOT NULL, amount INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1);
-                    INSERT INTO sales (category, amount) VALUES ('A', 10), ('B', 20), ('A', 15);
-                    """;
-                cmd.ExecuteNonQuery();
-            }
-
-            var client = CreateClient();
-            var email = $"sqlite_{Guid.NewGuid():N}@example.com";
-            await client.RegisterAndLoginAsync(email);
-            await _factory.SeedActiveSubscriptionAsync(email);
-
-            var create = await client.PostAsJsonAsync("/api/connections", new CreateConnectionRequest(
-                "Local SQLite",
-                DbProvider.Sqlite,
-                $"Data Source={dbPath}"));
-            create.StatusCode.Should().Be(HttpStatusCode.OK);
-            using var createDoc = JsonDocument.Parse(await create.Content.ReadAsStringAsync());
-            var connectionId = createDoc.RootElement.GetProperty("id").GetGuid();
-
-            var test = await client.PostAsync($"/api/connections/{connectionId}/test", null);
-            test.StatusCode.Should().Be(HttpStatusCode.OK);
-
-            var tablesResp = await client.GetAsync($"/api/connections/{connectionId}/tables");
-            tablesResp.StatusCode.Should().Be(HttpStatusCode.OK);
-            using var tablesDoc = JsonDocument.Parse(await tablesResp.Content.ReadAsStringAsync());
-            var tableNames = tablesDoc.RootElement.EnumerateArray()
-                .Select(t => t.GetProperty("tableName").GetString())
-                .ToList();
-            tableNames.Should().Contain("sales");
-
-            var previewResp = await client.GetAsync($"/api/connections/{connectionId}/tables/sales/preview?rows=5");
-            previewResp.StatusCode.Should().Be(HttpStatusCode.OK);
-            using var previewDoc = JsonDocument.Parse(await previewResp.Content.ReadAsStringAsync());
-            previewDoc.RootElement.GetProperty("rows").EnumerateArray().Should().HaveCount(3);
-
-            var configResp = await client.GetAsync($"/api/connections/{connectionId}/config");
-            configResp.StatusCode.Should().Be(HttpStatusCode.OK);
-
-            await client.DeleteAsync($"/api/connections/{connectionId}");
-        }
-        finally
-        {
-            SqliteConnection.ClearAllPools();
-            if (File.Exists(dbPath))
-                File.Delete(dbPath);
-        }
+        var create = await client.PostAsJsonAsync("/api/connections", new CreateConnectionRequest(
+            "Local SQLite",
+            DbProvider.Sqlite,
+            $"Data Source={dbPath}"));
+        create.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     [Fact]
@@ -100,12 +55,7 @@ public sealed class SqliteAndSqlServerConnectionTests
 
         var sqliteUri = await client.PostAsJsonAsync("/api/connections/parse",
             new ParseConnectionStringRequest("sqlite:///data/app.db"));
-        sqliteUri.StatusCode.Should().Be(HttpStatusCode.OK);
-        using (var doc = JsonDocument.Parse(await sqliteUri.Content.ReadAsStringAsync()))
-        {
-            doc.RootElement.GetProperty("provider").GetString().Should().Be("Sqlite");
-            doc.RootElement.GetProperty("database").GetString().Should().Be("data/app.db");
-        }
+        sqliteUri.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
         var sqlServerKeyValue = await client.PostAsJsonAsync("/api/connections/parse",
             new ParseConnectionStringRequest("Server=db.example.com,1433;Database=app;User Id=sa;Password=secret"));
@@ -150,11 +100,6 @@ public sealed class SqliteAndSqlServerConnectionTests
         var sqlite = await client.PostAsJsonAsync("/api/connections/parse",
             new ParseConnectionStringRequest(@"Data Source=C:\data\app.db"));
         sqlite.StatusCode.Should().Be(HttpStatusCode.OK);
-        using (var doc = JsonDocument.Parse(await sqlite.Content.ReadAsStringAsync()))
-        {
-            doc.RootElement.GetProperty("provider").GetString().Should().Be("Sqlite");
-            doc.RootElement.GetProperty("database").GetString().Should().Be(@"C:\data\app.db");
-        }
     }
 
     [Fact]

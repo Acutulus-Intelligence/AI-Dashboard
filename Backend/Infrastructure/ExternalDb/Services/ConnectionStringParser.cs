@@ -46,7 +46,6 @@ public static class ConnectionStringParser
             "postgres" or "postgresql" => DbProvider.PostgreSql,
             "mysql" or "mariadb" => DbProvider.MySql,
             "mssql" or "sqlserver" => DbProvider.SqlServer,
-            "sqlite" or "file" => DbProvider.Sqlite,
             _ => (DbProvider?)null
         };
 
@@ -54,20 +53,6 @@ public static class ConnectionStringParser
         {
             error = "Unsupported database scheme in connection string.";
             return false;
-        }
-
-        // SQLite uses a file path instead of a network host.
-        if (provider == DbProvider.Sqlite)
-        {
-            var sqlitePath = Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/'));
-            if (string.IsNullOrWhiteSpace(sqlitePath))
-            {
-                error = "The SQLite connection string is missing a file path.";
-                return false;
-            }
-
-            result = new ParsedConnectionString(provider, string.Empty, 0, sqlitePath, string.Empty, string.Empty);
-            return true;
         }
 
         if (string.IsNullOrWhiteSpace(uri.Host))
@@ -144,8 +129,8 @@ public static class ConnectionStringParser
         var host = server;
         if (string.IsNullOrEmpty(host) && !string.IsNullOrEmpty(dataSource))
         {
-            // "Data Source=<value>" alone is a SQLite file path; when combined
-            // with Initial Catalog it is a SQL Server host alias.
+            // Without an Initial Catalog, "Data Source=<value>" is treated as a
+            // host alias so SQL Server host strings still parse.
             if (string.IsNullOrEmpty(database))
                 database = dataSource;
             else
@@ -158,7 +143,7 @@ public static class ConnectionStringParser
             return false;
         }
 
-        var detectedProvider = DetectProvider(host, dataSource, values);
+        var detectedProvider = DetectProvider(host, values);
 
         // Allow SQL Server style "Server=host,1433".
         var hostPort = host.Split(',', 2);
@@ -184,7 +169,7 @@ public static class ConnectionStringParser
     /// Returns null when the format is ambiguous, so validation never falsely
     /// rejects a string it cannot identify.
     /// </summary>
-    private static DbProvider? DetectProvider(string host, string dataSource, Dictionary<string, string> values)
+    private static DbProvider? DetectProvider(string host, Dictionary<string, string> values)
     {
         if (!string.IsNullOrEmpty(host) && values.ContainsKey("host"))
             return DbProvider.PostgreSql;
@@ -211,16 +196,6 @@ public static class ConnectionStringParser
         if (hasSqlServerSignals)
             return DbProvider.SqlServer;
 
-        if (string.IsNullOrEmpty(host) && !string.IsNullOrEmpty(dataSource) && LooksLikeFilePath(dataSource))
-            return DbProvider.Sqlite;
-
         return null;
     }
-
-    private static bool LooksLikeFilePath(string value) =>
-        value.Contains('\\') ||
-        value.Contains('/') ||
-        value.EndsWith(".db", StringComparison.OrdinalIgnoreCase) ||
-        value.EndsWith(".sqlite", StringComparison.OrdinalIgnoreCase) ||
-        value.EndsWith(".sqlite3", StringComparison.OrdinalIgnoreCase);
 }

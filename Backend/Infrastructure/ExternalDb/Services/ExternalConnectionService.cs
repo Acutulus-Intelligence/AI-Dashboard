@@ -6,7 +6,6 @@ using Domain.Enums;
 using Domain.Models;
 using Infrastructure.Data;
 using Microsoft.Data.SqlClient;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -51,17 +50,17 @@ public class ExternalConnectionService : IExternalConnectionService
         if (!ConnectionStringParser.TryParse(request.ConnectionString, out var parsed, out var parseError))
             throw new ArgumentException(parseError);
 
-        if (request.DbProvider != DbProvider.Sqlite)
-        {
-            if (parsed.Provider is null)
-                throw new ArgumentException("Could not detect the database provider from this connection string.");
+        if (request.DbProvider == DbProvider.Sqlite)
+            throw new ArgumentException("SQLite database connections are not supported.");
 
-            if (parsed.Provider != request.DbProvider)
-                throw new ArgumentException($"The connection string does not match the selected database provider ({parsed.Provider}).");
+        if (parsed.Provider is null)
+            throw new ArgumentException("Could not detect the database provider from this connection string.");
 
-            if (HostBlocklist.IsBlocked(parsed.Host, _settings.BlockedHosts))
-                throw new ArgumentException("This host is not allowed.");
-        }
+        if (parsed.Provider != request.DbProvider)
+            throw new ArgumentException($"The connection string does not match the selected database provider ({parsed.Provider}).");
+
+        if (HostBlocklist.IsBlocked(parsed.Host, _settings.BlockedHosts))
+            throw new ArgumentException("This host is not allowed.");
 
         var companyId = user.CompanyId;
         var visibility = request.Visibility;
@@ -250,17 +249,17 @@ public class ExternalConnectionService : IExternalConnectionService
         if (!ConnectionStringParser.TryParse(request.ConnectionString, out var parsed, out var parseError))
             throw new ArgumentException(parseError);
 
-        if (request.DbProvider != DbProvider.Sqlite)
-        {
-            if (parsed.Provider is null)
-                throw new ArgumentException("Could not detect the database provider from this connection string.");
+        if (request.DbProvider == DbProvider.Sqlite)
+            throw new ArgumentException("SQLite database connections are not supported.");
 
-            if (parsed.Provider != request.DbProvider)
-                throw new ArgumentException($"The connection string does not match the selected database provider ({parsed.Provider}).");
+        if (parsed.Provider is null)
+            throw new ArgumentException("Could not detect the database provider from this connection string.");
 
-            if (HostBlocklist.IsBlocked(parsed.Host, _settings.BlockedHosts))
-                throw new ArgumentException("This host is not allowed.");
-        }
+        if (parsed.Provider != request.DbProvider)
+            throw new ArgumentException($"The connection string does not match the selected database provider ({parsed.Provider}).");
+
+        if (HostBlocklist.IsBlocked(parsed.Host, _settings.BlockedHosts))
+            throw new ArgumentException("This host is not allowed.");
 
         var visibility = request.Visibility;
         var allowedRoleIds = request.AllowedRoleIds ?? [];
@@ -385,12 +384,6 @@ public class ExternalConnectionService : IExternalConnectionService
             return (host, port, builder.InitialCatalog ?? "", builder.UserID ?? "");
         }
 
-        if (provider == DbProvider.Sqlite)
-        {
-            var builder = new SqliteConnectionStringBuilder(connectionString);
-            return (string.Empty, 0, builder.DataSource ?? "", string.Empty);
-        }
-
         var mySqlBuilder = new MySqlConnectionStringBuilder(connectionString);
         return (mySqlBuilder.Server ?? "", (int)mySqlBuilder.Port, mySqlBuilder.Database ?? "", mySqlBuilder.UserID ?? "");
     }
@@ -402,7 +395,6 @@ public class ExternalConnectionService : IExternalConnectionService
             DbProvider.PostgreSql => new NpgsqlConnection(connectionString),
             DbProvider.MySql => new MySqlConnection(connectionString),
             DbProvider.SqlServer => new SqlConnection(connectionString),
-            DbProvider.Sqlite => new SqliteConnection(connectionString),
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         };
     }

@@ -51,7 +51,6 @@ const DB_PROVIDERS = [
   { value: 'PostgreSql', label: 'PostgreSQL' },
   { value: 'MySql', label: 'MySQL' },
   { value: 'SqlServer', label: 'SQL Server' },
-  { value: 'Sqlite', label: 'SQLite' },
 ];
 
 const URI_CREDENTIALS_STARTS = '^([a-z][a-z0-9+.-]*://[^:@/]*:)';
@@ -97,8 +96,6 @@ function providerLabel(dbProvider: string): string {
       return 'MySQL';
     case 'SqlServer':
       return 'SQL Server';
-    case 'Sqlite':
-      return 'SQLite';
     default:
       return dbProvider;
   }
@@ -511,7 +508,7 @@ export default function ConnectionsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Database connections</h1>
           <p className="text-muted-foreground text-sm">
-            Connect a PostgreSQL, MySQL, SQL Server, or SQLite database to build charts from.
+            Connect a PostgreSQL, MySQL, or SQL Server database to build charts from.
           </p>
           {canManageConnections && (
             <p className="text-muted-foreground mt-1 text-sm">
@@ -587,11 +584,7 @@ export default function ConnectionsPage() {
                   autoCorrect="off"
                   autoCapitalize="off"
                   spellCheck={false}
-                  placeholder={
-                    form.dbProvider === 'Sqlite'
-                      ? 'Data Source=C:\\data\\app.db'
-                      : 'postgres://user:pass@host:5432/dbname\nor Server=host,1433;Database=db;User Id=user;Password=pass'
-                  }
+                  placeholder="postgres://user:pass@host:5432/dbname\nor Server=host,1433;Database=db;User Id=user;Password=pass"
                   value={displayConnectionString}
                   onChange={(e) => handleConnectionStringChange(e.target.value)}
                   className="border-input bg-background focus:border-ring font-mono w-full rounded-lg border px-3 py-2.5 text-sm outline-hidden"
