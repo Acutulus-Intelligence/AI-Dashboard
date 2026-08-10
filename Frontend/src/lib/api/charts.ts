@@ -10,8 +10,34 @@ export interface SaveChartRequest {
   groupBy: string | null;
   sqlQuery: string;
   connectionId: string | null;
+  datasetId?: string | null;
   tableName: string | null;
   styleConfig?: ChartStyleConfig | null;
+  dataModel?: DataQueryModel | null;
+}
+
+export interface DataQueryFilter {
+  column: string;
+  operator: string;
+  value?: string | null;
+}
+
+export interface DataQueryAggregation {
+  column: string;
+  function: string;
+}
+
+export interface DataQueryOrderBy {
+  column: string;
+  direction: string;
+}
+
+export interface DataQueryModel {
+  filters: DataQueryFilter[];
+  groupBy: string[];
+  aggregations: DataQueryAggregation[];
+  orderBy: DataQueryOrderBy[];
+  limit?: number | null;
 }
 
 export interface UpdateChartRequest {
@@ -42,9 +68,11 @@ export interface ChartDetailResponse {
   groupBy: string | null;
   sqlQuery: string;
   connectionId: string | null;
+  datasetId: string | null;
   tableName: string | null;
   createdAt: string;
   styleConfig?: ChartStyleConfig | null;
+  dataModel?: DataQueryModel | null;
 }
 
 export interface ChartConfigResponse {
@@ -57,6 +85,7 @@ export interface ChartConfigResponse {
   sqlQuery: string;
   queryResult: Record<string, unknown>[];
   styleConfig?: ChartStyleConfig | null;
+  dataModel?: DataQueryModel | null;
 }
 
 export interface CatalogParamOption {

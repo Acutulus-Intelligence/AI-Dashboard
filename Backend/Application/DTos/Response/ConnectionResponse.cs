@@ -7,5 +7,11 @@ public sealed record ConnectionResponse(
     string Name,
     DbProvider DbProvider,
     bool IsVerified,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    Guid CreatedById,
+    ConnectionVisibility Visibility,
+    List<Guid> AllowedRoleIds,
+    Guid? CompanyId,
+    string Host,
+    string Database
 );

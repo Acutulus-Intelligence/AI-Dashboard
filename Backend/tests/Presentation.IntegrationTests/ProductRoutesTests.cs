@@ -39,11 +39,7 @@ public sealed class ProductRoutesTests
         var createConn = await client.PostAsJsonAsync("/api/connections", new CreateConnectionRequest(
             "Sample",
             DbProvider.PostgreSql,
-            _factory.ExternalHost,
-            _factory.ExternalPort,
-            _factory.ExternalDatabase,
-            _factory.ExternalUsername,
-            _factory.ExternalPassword));
+            _factory.ExternalConnectionString));
         createConn.StatusCode.Should().Be(HttpStatusCode.OK);
         using var connDoc = JsonDocument.Parse(await createConn.Content.ReadAsStringAsync());
         var connectionId = connDoc.RootElement.GetProperty("id").GetGuid();
@@ -94,6 +90,7 @@ public sealed class ProductRoutesTests
             "category",
             "SELECT category, SUM(amount) AS amount FROM sales GROUP BY category",
             connectionId,
+            null,
             "sales"));
         saveChart.StatusCode.Should().Be(HttpStatusCode.OK);
         using var chartDoc = JsonDocument.Parse(await saveChart.Content.ReadAsStringAsync());
@@ -134,6 +131,23 @@ public sealed class ProductRoutesTests
 
         (await client.DeleteAsync($"/api/charts/{chartId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
         (await client.DeleteAsync($"/api/connections/{connectionId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task Individual_users_can_only_connect_one_database()
+    {
+        var client = CreateClient();
+        var email = $"limit_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        await _factory.SeedActiveSubscriptionAsync(email);
+
+        var first = await client.PostAsJsonAsync("/api/connections", new CreateConnectionRequest(
+            "Only", DbProvider.PostgreSql, _factory.ExternalConnectionString));
+        first.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var second = await client.PostAsJsonAsync("/api/connections", new CreateConnectionRequest(
+            "Second", DbProvider.PostgreSql, _factory.ExternalConnectionString));
+        second.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
     [Fact]

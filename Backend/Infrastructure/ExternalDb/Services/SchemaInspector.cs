@@ -12,12 +12,18 @@ public class SchemaInspector : ISchemaInspector
     private readonly AppDbContext _db;
     private readonly IEncryptionService _encryption;
     private readonly ExternalDbSettings _settings;
+    private readonly IConnectionAccessService _access;
 
-    public SchemaInspector(AppDbContext db, IEncryptionService encryption, IOptions<ExternalDbSettings> settings)
+    public SchemaInspector(
+        AppDbContext db,
+        IEncryptionService encryption,
+        IOptions<ExternalDbSettings> settings,
+        IConnectionAccessService access)
     {
         _db = db;
         _encryption = encryption;
         _settings = settings.Value;
+        _access = access;
     }
 
     public async Task<List<TableSchema>> GetSchemaAsync(Guid connectionId, Guid userId, CancellationToken ct = default)
@@ -33,6 +39,10 @@ public class SchemaInspector : ISchemaInspector
         {
             var tableName = row["TABLE_NAME"]?.ToString();
             if (string.IsNullOrEmpty(tableName))
+                continue;
+
+            if (provider == DbProvider.SqlServer &&
+                row["TABLE_TYPE"]?.ToString() != "BASE TABLE")
                 continue;
 
             var columns = await GetColumnsAsync(conn, tableName, ct);
@@ -72,12 +82,11 @@ public class SchemaInspector : ISchemaInspector
 
         var columnList = string.Join(", ", schema.Select(c => SqlIdentifierQuoter.Quote(provider, c.ColumnName)));
         var quotedTable = SqlIdentifierQuoter.Quote(provider, tableName);
-        var limitClause = provider == DbProvider.MySql
-            ? $" LIMIT {clampedLimit}"
-            : $" LIMIT {clampedLimit}";
 
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"SELECT {columnList} FROM {quotedTable}{limitClause}";
+        cmd.CommandText = provider == DbProvider.SqlServer
+            ? $"SELECT TOP ({clampedLimit}) {columnList} FROM {quotedTable}"
+            : $"SELECT {columnList} FROM {quotedTable} LIMIT {clampedLimit}";
         cmd.CommandTimeout = 15;
 
         var results = new List<Dictionary<string, object?>>();
@@ -98,9 +107,7 @@ public class SchemaInspector : ISchemaInspector
 
     private async Task<(DbProvider provider, string connectionString)> GetConnectionAsync(Guid connectionId, Guid userId, CancellationToken ct)
     {
-        var connection = await _db.ExternalConnections
-            .AsNoTracking()
-            .FirstOrDefaultAsync(ec => ec.Id == connectionId && ec.UserId == userId, ct)
+        var connection = await _access.FindViewableAsync(connectionId, userId, ct)
             ?? throw new KeyNotFoundException("Connection not found.");
 
         await _db.Database.CloseConnectionAsync();
@@ -108,7 +115,10 @@ public class SchemaInspector : ISchemaInspector
         return (connection.DbProvider, _encryption.Decrypt(connection.EncryptedConnectionString));
     }
 
-    private static async Task<List<ColumnSchema>> GetColumnsAsync(System.Data.Common.DbConnection conn, string tableName, CancellationToken ct)
+    private static async Task<List<ColumnSchema>> GetColumnsAsync(
+        System.Data.Common.DbConnection conn,
+        string tableName,
+        CancellationToken ct)
     {
         var columns = new List<ColumnSchema>();
 
@@ -132,6 +142,7 @@ public class SchemaInspector : ISchemaInspector
         {
             DbProvider.PostgreSql => new Npgsql.NpgsqlConnection(connectionString),
             DbProvider.MySql => new MySql.Data.MySqlClient.MySqlConnection(connectionString),
+            DbProvider.SqlServer => new Microsoft.Data.SqlClient.SqlConnection(connectionString),
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         };
     }

@@ -1,7 +1,9 @@
 using System.Text;
 using Application.Common.Mapping;
+using Application.Datasets;
 using Application.Interfaces;
 using Application.Services;
+using Application.Settings;
 using Application.Validators;
 using Domain.Models;
 using FluentValidation;
@@ -13,6 +15,8 @@ using Infrastructure.Ai.Services;
 using Infrastructure.Encryption;
 using Infrastructure.ExternalDb;
 using Infrastructure.ExternalDb.Services;
+using Infrastructure.Collections;
+using Infrastructure.Datasets;
 using Infrastructure.Payment;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
@@ -94,6 +98,7 @@ builder.Services.AddScoped<IExternalConnectionService, ExternalConnectionService
 builder.Services.AddScoped<ISchemaInspector, SchemaInspector>();
 builder.Services.AddSingleton<ISqlValidator, SqlValidator>();
 builder.Services.AddScoped<IQueryExecutor, QueryExecutor>();
+builder.Services.AddScoped<IConnectionAccessService, ConnectionAccessService>();
 
 // AI service
 builder.Services.Configure<AiSettings>(builder.Configuration.GetSection("Ai"));
@@ -120,6 +125,13 @@ builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddValidatorsFromAssemblyContaining<RegisterRequestValidator>();
 
 builder.Services.Configure<ExternalDbSettings>(builder.Configuration.GetSection("ExternalDb"));
+builder.Services.Configure<DatasetSettings>(builder.Configuration.GetSection(DatasetSettings.SectionName));
+builder.Services.AddSingleton<IDatasetFileParser, CsvFileParser>();
+builder.Services.AddSingleton<IDatasetFileParser, XlsxFileParser>();
+builder.Services.AddScoped<IDatasetQueryExecutor, SqliteDatasetExecutor>();
+builder.Services.AddScoped<IDataQueryExecutor, InMemoryDataQueryExecutor>();
+builder.Services.AddScoped<ICollectionAccessService, CollectionAccessService>();
+builder.Services.AddScoped<ICollectionService, CollectionService>();
 
 var corsOrigins = builder.Configuration
     .GetSection("Cors:AllowedOrigins")
@@ -133,6 +145,7 @@ builder.Services.AddCors(options =>
             .WithOrigins(corsOrigins)
             .WithMethods("GET", "POST", "PUT", "DELETE")
             .WithHeaders("Content-Type", "Authorization")
+            .WithExposedHeaders("X-Company-Connection-Count")
             .AllowCredentials();
     });
 });

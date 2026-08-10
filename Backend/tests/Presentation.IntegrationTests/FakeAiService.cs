@@ -39,4 +39,31 @@ public sealed class FakeAiService : IAiService
             FinishReason = "stop",
         });
     }
+
+    public Task<AiChartConfig> GenerateCollectionChartConfigAsync(
+        string schemaJson,
+        string prompt,
+        string? prefabChartType = null,
+        CancellationToken ct = default)
+    {
+        var chartType = string.IsNullOrWhiteSpace(prefabChartType) ? "bar" : prefabChartType;
+        return Task.FromResult(new AiChartConfig
+        {
+            ChartType = chartType,
+            Title = "Sales by category",
+            XAxis = "category",
+            YAxis = ["amount"],
+            Aggregation = "sum",
+            GroupBy = "category",
+            SqlQuery = string.Empty,
+            DataModel = new DataQueryModel
+            {
+                Filters = [],
+                GroupBy = ["category"],
+                Aggregations = [new DataAggregation { Column = "amount", Function = "sum" }],
+                OrderBy = [new DataOrderBy { Column = "amount", Direction = "desc" }],
+                Limit = 10,
+            },
+        });
+    }
 }

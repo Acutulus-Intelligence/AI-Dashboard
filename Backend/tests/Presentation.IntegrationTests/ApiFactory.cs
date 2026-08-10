@@ -35,6 +35,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     public string ExternalDatabase => "external_sample";
     public string ExternalUsername => "extuser";
     public string ExternalPassword => "extpass";
+    public string ExternalConnectionString =>
+        $"Host={ExternalHost};Port={ExternalPort};Database={ExternalDatabase};Username={ExternalUsername};Password={ExternalPassword}";
 
     public async Task InitializeAsync()
     {

@@ -12,17 +12,20 @@ public class QueryExecutor : IQueryExecutor
     private readonly IEncryptionService _encryption;
     private readonly ISqlValidator _validator;
     private readonly ExternalDbSettings _settings;
+    private readonly IConnectionAccessService _access;
 
     public QueryExecutor(
         AppDbContext db,
         IEncryptionService encryption,
         ISqlValidator validator,
-        IOptions<ExternalDbSettings> settings)
+        IOptions<ExternalDbSettings> settings,
+        IConnectionAccessService access)
     {
         _db = db;
         _encryption = encryption;
         _validator = validator;
         _settings = settings.Value;
+        _access = access;
     }
 
     public async Task<List<Dictionary<string, object?>>> ExecuteAsync(Guid connectionId, Guid userId, string sql, CancellationToken ct = default)
@@ -30,9 +33,7 @@ public class QueryExecutor : IQueryExecutor
         if (!_validator.IsSelectOnly(sql, out var errorMessage))
             throw new InvalidOperationException($"Query rejected: {errorMessage}");
 
-        var connection = await _db.ExternalConnections
-            .AsNoTracking()
-            .FirstOrDefaultAsync(ec => ec.Id == connectionId && ec.UserId == userId, ct)
+        var connection = await _access.FindViewableAsync(connectionId, userId, ct)
             ?? throw new KeyNotFoundException("Connection not found.");
 
         var connectionString = _encryption.Decrypt(connection.EncryptedConnectionString);
@@ -110,7 +111,11 @@ public class QueryExecutor : IQueryExecutor
             cmd.Transaction = tx;
             cmd.CommandText = "SET SESSION TRANSACTION READ ONLY";
             await cmd.ExecuteNonQueryAsync(ct);
+            return;
         }
+
+        // SQL Server read-only is enforced best-effort via ApplicationIntent=ReadOnly
+        // on the connection string; it does not support SET TRANSACTION READ ONLY.
     }
 
     private static long EstimateSize(object value) => value switch
@@ -126,6 +131,7 @@ public class QueryExecutor : IQueryExecutor
         {
             DbProvider.PostgreSql => new Npgsql.NpgsqlConnection(connectionString),
             DbProvider.MySql => new MySql.Data.MySqlClient.MySqlConnection(connectionString),
+            DbProvider.SqlServer => new Microsoft.Data.SqlClient.SqlConnection(connectionString),
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         };
     }

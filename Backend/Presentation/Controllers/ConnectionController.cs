@@ -19,6 +19,13 @@ public class ConnectionController : ControllerBase
         _connectionService = connectionService;
     }
 
+    [HttpPost("parse")]
+    public async Task<IActionResult> ParseConnectionString([FromBody] ParseConnectionStringRequest request, CancellationToken ct)
+    {
+        var parsed = await _connectionService.ParseConnectionStringAsync(request.ConnectionString, ct);
+        return Ok(parsed);
+    }
+
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateConnectionRequest request, CancellationToken ct)
     {
@@ -32,6 +39,8 @@ public class ConnectionController : ControllerBase
     {
         var userId = GetUserId();
         var connections = await _connectionService.GetAllAsync(userId, ct);
+        Response.Headers["X-Company-Connection-Count"] =
+            (await _connectionService.GetCompanyConnectionCountAsync(userId, ct)).ToString();
         return Ok(connections);
     }
 
@@ -40,6 +49,23 @@ public class ConnectionController : ControllerBase
     {
         var userId = GetUserId();
         var connection = await _connectionService.GetByIdAsync(id, userId, ct);
+        return Ok(connection);
+    }
+
+    [HttpGet("{id:guid}/config")]
+    public async Task<IActionResult> GetConfig(Guid id, CancellationToken ct)
+    {
+        var userId = GetUserId();
+        Response.Headers.CacheControl = "no-store";
+        var config = await _connectionService.GetConfigAsync(id, userId, ct);
+        return Ok(config);
+    }
+
+    [HttpPut("{id:guid}")]
+    public async Task<IActionResult> Update(Guid id, [FromBody] UpdateConnectionRequest request, CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var connection = await _connectionService.UpdateAsync(id, userId, request, ct);
         return Ok(connection);
     }
 

@@ -1,5 +1,6 @@
 import { apiFetch } from '../lib/api/client';
 import type { ChartStyleConfig } from '../features/charts/types';
+import type { DataQueryModel } from '../lib/api/charts';
 
 export interface AiGenerationDebug {
   rawJson?: string | null;
@@ -20,6 +21,7 @@ export interface ChartConfigResponse {
   sqlQuery: string;
   queryResult: Record<string, unknown>[];
   styleConfig?: ChartStyleConfig | null;
+  dataModel?: DataQueryModel | null;
   aiDebug?: AiGenerationDebug | null;
 }
 /** Metadata sent as refine context — never includes queryResult. */

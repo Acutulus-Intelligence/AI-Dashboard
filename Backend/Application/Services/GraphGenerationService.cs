@@ -16,6 +16,7 @@ public class GraphGenerationService : IGraphGenerationService
     private readonly IAiService _aiService;
     private readonly ISqlValidator _sqlValidator;
     private readonly IQueryExecutor _queryExecutor;
+    private readonly IConnectionAccessService _access;
 
     private static readonly JsonSerializerOptions BaselineJsonOptions = new()
     {
@@ -28,13 +29,15 @@ public class GraphGenerationService : IGraphGenerationService
         ISchemaInspector schemaInspector,
         IAiService aiService,
         ISqlValidator sqlValidator,
-        IQueryExecutor queryExecutor)
+        IQueryExecutor queryExecutor,
+        IConnectionAccessService access)
     {
         _db = db;
         _schemaInspector = schemaInspector;
         _aiService = aiService;
         _sqlValidator = sqlValidator;
         _queryExecutor = queryExecutor;
+        _access = access;
     }
 
     public async Task<ChartConfigResponse> GenerateAsync(GenerateChartRequest request, Guid userId, CancellationToken ct = default)
@@ -130,7 +133,7 @@ public class GraphGenerationService : IGraphGenerationService
             config.SqlQuery,
             result,
             config.StyleConfig,
-            BuildDebug(aiResult, config, notes)
+            AiDebug: BuildDebug(aiResult, config, notes)
         );
     }
 
@@ -174,7 +177,7 @@ public class GraphGenerationService : IGraphGenerationService
             config.SqlQuery,
             result,
             config.StyleConfig,
-            BuildDebug(aiResult, config, notes)
+            AiDebug: BuildDebug(aiResult, config, notes)
         );
     }
 
@@ -228,9 +231,7 @@ public class GraphGenerationService : IGraphGenerationService
 
     private async Task<DbProvider> GetDbProviderAsync(Guid connectionId, Guid userId, CancellationToken ct)
     {
-        var connection = await _db.ExternalConnections
-            .AsNoTracking()
-            .FirstOrDefaultAsync(ec => ec.Id == connectionId && ec.UserId == userId, ct)
+        var connection = await _access.FindViewableAsync(connectionId, userId, ct)
             ?? throw new KeyNotFoundException("Connection not found.");
 
         return connection.DbProvider;

@@ -28,6 +28,7 @@ export interface CompanyRoleResponse {
   canManageUsers: boolean;
   canManageRoles: boolean;
   canManageDashboards: boolean;
+  canManageConnections: boolean;
   allowedTables: string[];
   userCount: number;
 }
@@ -80,6 +81,7 @@ export interface CreateRoleRequest {
   canManageUsers: boolean;
   canManageRoles: boolean;
   canManageDashboards: boolean;
+  canManageConnections: boolean;
   allowedTables?: string[];
 }
 
@@ -89,6 +91,7 @@ export interface UpdateRoleRequest {
   canManageUsers: boolean;
   canManageRoles: boolean;
   canManageDashboards: boolean;
+  canManageConnections: boolean;
   allowedTables?: string[];
 }
 

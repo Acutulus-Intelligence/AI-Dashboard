@@ -43,6 +43,78 @@ public class OpenRouterService : IAiService
             ? prompt
             : BuildRefineUserPrompt(prompt, currentChartJson);
 
+        var result = await SendChatAsync(systemPrompt, userContent, ct);
+        var config = result.Config;
+        var isRefine = !string.IsNullOrWhiteSpace(currentChartJson);
+
+        // First generate needs chartType + sqlQuery. On refine the model often omits
+        // unchanged fields — ChartRefineMerger fills those from the baseline.
+        if (!isRefine && (string.IsNullOrEmpty(config.ChartType) || string.IsNullOrEmpty(config.SqlQuery)))
+        {
+            throw new InvalidOperationException(
+                "AI response is missing required fields (chartType, sqlQuery). " +
+                $"Raw: {Truncate(result.Json, 400)}");
+        }
+
+        if (!string.IsNullOrEmpty(config.ChartType) && !ChartCatalog.IsKnownType(config.ChartType))
+            throw new InvalidOperationException(
+                $"AI returned unsupported chart type '{config.ChartType}'. " +
+                $"Supported types: {string.Join(", ", ChartCatalog.TypeIds)}. " +
+                $"Raw: {Truncate(result.Json, 400)}");
+
+        // Models routinely invent variants and parameters, so keep only what the
+        // catalog actually describes rather than trusting the response.
+        if (!string.IsNullOrEmpty(config.ChartType))
+        {
+            try
+            {
+                config.StyleConfig = ChartStyleSanitizer.Sanitize(config.StyleConfig, config.ChartType);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Style sanitization failed; dropping styleConfig");
+                config.StyleConfig = null;
+            }
+        }
+
+        _logger.LogInformation(
+            "AI chart config generated: chartType={ChartType}, sqlLength={SqlLength}, refine={IsRefine}, style={Style}",
+            string.IsNullOrEmpty(config.ChartType) ? "(omitted)" : config.ChartType,
+            config.SqlQuery?.Length ?? 0,
+            isRefine,
+            config.StyleConfig is null
+                ? "(none)"
+                : JsonSerializer.Serialize(config.StyleConfig));
+
+        return new AiChartResult
+        {
+            Config = config,
+            RawJson = result.Json,
+            FinishReason = result.FinishReason,
+        };
+    }
+
+    public async Task<AiChartConfig> GenerateCollectionChartConfigAsync(
+        string schemaJson,
+        string prompt,
+        string? prefabChartType = null,
+        CancellationToken ct = default)
+    {
+        var systemPrompt = BuildCollectionSystemPrompt(schemaJson, prefabChartType);
+        var config = (await SendChatAsync(systemPrompt, prompt, ct)).Config;
+
+        if (string.IsNullOrEmpty(config.ChartType) || config.DataModel is null)
+            throw new InvalidOperationException("AI response is missing required fields (chartType, dataModel).");
+
+        config.SqlQuery = string.Empty;
+        return FinalizeConfig(config);
+    }
+
+    /// <summary>
+    /// Sends a prompt to OpenRouter and tolerantly parses the chart JSON out of the reply.
+    /// </summary>
+    private async Task<AiChatOutcome> SendChatAsync(string systemPrompt, string userContent, CancellationToken ct)
+    {
         var requestBody = new
         {
             model = _settings.Model,
@@ -133,53 +205,26 @@ public class OpenRouterService : IAiService
                 "AI returned invalid chart JSON. Try the adjustment again with a shorter prompt.");
         }
 
-        var isRefine = !string.IsNullOrWhiteSpace(currentChartJson);
+        return new AiChatOutcome(config, json, finishReason);
+    }
 
-        // First generate needs chartType + sqlQuery. On refine the model often omits
-        // unchanged fields — ChartRefineMerger fills those from the baseline.
-        if (!isRefine && (string.IsNullOrEmpty(config.ChartType) || string.IsNullOrEmpty(config.SqlQuery)))
-        {
-            throw new InvalidOperationException(
-                "AI response is missing required fields (chartType, sqlQuery). " +
-                $"Raw: {Truncate(json, 400)}");
-        }
-
-        if (!string.IsNullOrEmpty(config.ChartType) && !ChartCatalog.IsKnownType(config.ChartType))
+    private AiChartConfig FinalizeConfig(AiChartConfig config)
+    {
+        if (!ChartCatalog.IsKnownType(config.ChartType))
             throw new InvalidOperationException(
                 $"AI returned unsupported chart type '{config.ChartType}'. " +
-                $"Supported types: {string.Join(", ", ChartCatalog.TypeIds)}. " +
-                $"Raw: {Truncate(json, 400)}");
+                $"Supported types: {string.Join(", ", ChartCatalog.TypeIds)}.");
 
         // Models routinely invent variants and parameters, so keep only what the
         // catalog actually describes rather than trusting the response.
-        if (!string.IsNullOrEmpty(config.ChartType))
-        {
-            try
-            {
-                config.StyleConfig = ChartStyleSanitizer.Sanitize(config.StyleConfig, config.ChartType);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Style sanitization failed; dropping styleConfig");
-                config.StyleConfig = null;
-            }
-        }
+        config.StyleConfig = ChartStyleSanitizer.Sanitize(config.StyleConfig, config.ChartType);
 
         _logger.LogInformation(
-            "AI chart config generated: chartType={ChartType}, sqlLength={SqlLength}, refine={IsRefine}, style={Style}",
-            string.IsNullOrEmpty(config.ChartType) ? "(omitted)" : config.ChartType,
-            config.SqlQuery?.Length ?? 0,
-            isRefine,
-            config.StyleConfig is null
-                ? "(none)"
-                : JsonSerializer.Serialize(config.StyleConfig));
+            "AI chart config generated: chartType={ChartType}, sqlLength={SqlLength}",
+            config.ChartType,
+            config.SqlQuery?.Length ?? 0);
 
-        return new AiChartResult
-        {
-            Config = config,
-            RawJson = json,
-            FinishReason = finishReason,
-        };
+        return config;
     }
 
     /// <summary>
@@ -253,6 +298,20 @@ public class OpenRouterService : IAiService
             {
                 // e.g. params as array/boolean — keep the chart, drop broken style
                 config.StyleConfig = null;
+            }
+        }
+
+        if (TryGetPropertyIgnoreCase(root, "dataModel", out var dataModelEl)
+            && dataModelEl.ValueKind == JsonValueKind.Object)
+        {
+            try
+            {
+                config.DataModel = dataModelEl.Deserialize<DataQueryModel>();
+            }
+            catch (JsonException)
+            {
+                // Tolerant like styleConfig: a broken dataModel surfaces downstream.
+                config.DataModel = null;
             }
         }
 
@@ -377,6 +436,8 @@ public class OpenRouterService : IAiService
         {
             DbProvider.PostgreSql => "PostgreSQL",
             DbProvider.MySql => "MySQL",
+            DbProvider.SqlServer => "SQL Server",
+            DbProvider.Sqlite => "SQLite",
             _ => "SQL"
         };
 
@@ -465,6 +526,78 @@ __REFINE_RULES__
             .Replace("__REFINE_RULES__", refineRules);
     }
 
+    private static string BuildCollectionSystemPrompt(string schemaJson, string? prefabChartType)
+    {
+        var chartPreference = prefabChartType switch
+        {
+            not null => $"The user prefers the chart type: {prefabChartType}.",
+            null => "Choose the best chart type based on the data."
+        };
+
+        var template = @"
+You are a data visualization assistant. Given the schema of uploaded tabular data, generate a chart configuration.
+Return ONLY valid JSON — no markdown, no code fences, no extra text.
+
+Data schema (columns and their inferred types):
+__SCHEMA__
+
+__PREFERENCE__
+
+Available chart types, their variants and their adjustable parameters:
+__CATALOG__
+
+Available palettes: __PALETTES__
+
+This data lives in memory, not in a database. Do NOT generate SQL — instead build a structured query (dataModel) that is applied to the rows in memory.
+
+Return this exact JSON structure:
+{
+  ""chartType"": __TYPE_UNION__,
+  ""title"": ""string — concise chart title"",
+  ""xAxis"": ""column_name — the column used for labels / categories"",
+  ""yAxis"": [""column_name — columns used as values; must exist in the dataModel output""],
+  ""aggregation"": ""sum"" | ""avg"" | ""count"" | ""min"" | ""max"" | ""none"",
+  ""groupBy"": ""column_name | null — column to group by, or null"",
+  ""dataModel"": {
+    ""filters"": [
+      { ""column"": ""column_name"", ""operator"": ""eq""|""neq""|""gt""|""gte""|""lt""|""lte""|""contains""|""in""|""notin""|""isnull""|""isnotnull"", ""value"": ""string — raw filter value, e.g. a category name, number, or comma-separated list for in/notin"" }
+    ],
+    ""groupBy"": [""column_name — one or more group columns""],
+    ""aggregations"": [
+      { ""column"": ""column_name"", ""function"": ""count""|""sum""|""avg""|""min""|""max"" }
+    ],
+    ""orderBy"": [
+      { ""column"": ""column_name"", ""direction"": ""asc""|""desc"" }
+    ],
+    ""limit"": null
+  },
+  ""styleConfig"": {
+    ""variant"": ""one of the variant ids listed for the chosen chartType"",
+    ""palette"": ""one of the palette ids listed above"",
+    ""params"": { ""paramKey"": value }
+  }
+}
+
+Rules:
+- yAxis columns must be present in the dataModel output: groupBy columns plus aggregated columns. When an aggregation runs on a column, the output keeps the same column name.
+- Aggregated outputs reuse the source column name (e.g. SUM of ""amount"" produces a column named ""amount"").
+- For count with no obvious column, pick a column from the schema and function ""count"".
+- filters/orderBy column names must be from the schema; omit them when no filtering/ordering is meaningful.
+- Do NOT invent columns that are not in the schema.
+- If the data needs no grouping or aggregation, emit groupBy: [], aggregations: [], filters: [].
+- styleConfig.variant must be a variant of the chartType you chose; styleConfig.params may only use the parameter keys listed for that chartType
+- Omit styleConfig fields you have no opinion about rather than guessing
+- The JSON must be parseable and complete
+";
+
+        return template
+            .Replace("__SCHEMA__", schemaJson)
+            .Replace("__PREFERENCE__", chartPreference)
+            .Replace("__CATALOG__", DescribeCatalog())
+            .Replace("__PALETTES__", string.Join(", ", ChartCatalog.Palettes.Select(p => p.Id)))
+            .Replace("__TYPE_UNION__", string.Join(" | ", ChartCatalog.TypeIds.Select(id => $"\"{id}\"")));
+    }
+
     /// <summary>
     /// Compact catalog: types + variants only (params are UI-controlled).
     /// </summary>
@@ -480,6 +613,8 @@ __REFINE_RULES__
 
         return string.Join("\n", lines);
     }
+
+    private sealed record AiChatOutcome(AiChartConfig Config, string Json, string? FinishReason);
 
     private class OpenRouterResponse
     {

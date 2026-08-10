@@ -1,4 +1,5 @@
 using Domain.Charts;
+using Domain.Models;
 
 namespace Application.DTos.Response;
 
@@ -12,5 +13,6 @@ public sealed record ChartConfigResponse(
     string SqlQuery,
     List<Dictionary<string, object?>> QueryResult,
     ChartStyleConfig? StyleConfig = null,
+    DataQueryModel? DataModel = null,
     AiGenerationDebug? AiDebug = null
 );

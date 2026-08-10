@@ -70,6 +70,18 @@ export async function apiFetch<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
+  return handleResponse<T>(await rawApiFetch(path, options));
+}
+
+export async function apiFetchWithHeaders<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<{ data: T; headers: Headers }> {
+  const res = await rawApiFetch(path, options);
+  return { data: await handleResponse<T>(res), headers: res.headers };
+}
+
+async function rawApiFetch(path: string, options: RequestInit): Promise<Response> {
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),
   };
@@ -97,6 +109,10 @@ export async function apiFetch<T>(
     }
   }
 
+  return res;
+}
+
+async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let message = `Request failed with status ${res.status}`;
     let code: string | undefined;

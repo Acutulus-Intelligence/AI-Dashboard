@@ -56,7 +56,7 @@ public partial class SqlValidator : ISqlValidator
 
     private static bool TryParseAsSelectOnly(string sql, out string? errorMessage)
     {
-        foreach (var vendor in new[] { EDbVendor.dbvpostgresql, EDbVendor.dbvmysql })
+        foreach (var vendor in new[] { EDbVendor.dbvpostgresql, EDbVendor.dbvmysql, EDbVendor.dbvmssql })
         {
             var parser = new TGSqlParser(vendor)
             {

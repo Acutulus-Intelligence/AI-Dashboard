@@ -1,0 +1,201 @@
+using Domain.Enums;
+
+namespace Infrastructure.ExternalDb.Services;
+
+public sealed record ParsedConnectionString(
+    DbProvider? Provider,
+    string Host,
+    int Port,
+    string Database,
+    string Username,
+    string Password);
+
+public static class ConnectionStringParser
+{
+    public static bool TryParse(string input, out ParsedConnectionString result, out string error)
+    {
+        result = default!;
+        error = string.Empty;
+
+        var trimmed = input.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            error = "Connection string is empty.";
+            return false;
+        }
+
+        if (trimmed.Contains("://"))
+            return TryParseUri(trimmed, out result, out error);
+
+        return TryParseKeyValue(trimmed, out result, out error);
+    }
+
+    private static bool TryParseUri(string input, out ParsedConnectionString result, out string error)
+    {
+        result = default!;
+        error = string.Empty;
+
+        if (!Uri.TryCreate(input, UriKind.Absolute, out var uri))
+        {
+            error = "The connection string is not a valid database URL.";
+            return false;
+        }
+
+        var provider = uri.Scheme.ToLowerInvariant() switch
+        {
+            "postgres" or "postgresql" => DbProvider.PostgreSql,
+            "mysql" or "mariadb" => DbProvider.MySql,
+            "mssql" or "sqlserver" => DbProvider.SqlServer,
+            _ => (DbProvider?)null
+        };
+
+        if (provider is null)
+        {
+            error = "Unsupported database scheme in connection string.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(uri.Host))
+        {
+            error = "The connection string is not a valid database URL.";
+            return false;
+        }
+
+        string username = string.Empty;
+        string password = string.Empty;
+        if (!string.IsNullOrEmpty(uri.UserInfo))
+        {
+            var parts = uri.UserInfo.Split(':', 2);
+            username = Uri.UnescapeDataString(parts[0]);
+            if (parts.Length == 2)
+                password = Uri.UnescapeDataString(parts[1]);
+        }
+
+        var defaultPort = provider switch
+        {
+            DbProvider.PostgreSql => 5432,
+            DbProvider.MySql => 3306,
+            DbProvider.SqlServer => 1433,
+            _ => 0
+        };
+
+        var port = uri.Port > 0 ? uri.Port : defaultPort;
+        var database = Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/'));
+
+        result = new ParsedConnectionString(provider, uri.Host, port, database, username, password);
+        return true;
+    }
+
+    private static bool TryParseKeyValue(string input, out ParsedConnectionString result, out string error)
+    {
+        result = default!;
+        error = string.Empty;
+
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rawPair in input.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var pair = rawPair.Trim();
+            if (pair.Length == 0)
+                continue;
+
+            var separator = pair.IndexOf('=');
+            if (separator <= 0)
+            {
+                error = $"Invalid key=value pair in connection string: \"{pair}\".";
+                return false;
+            }
+
+            var key = pair[..separator].Trim();
+            var value = pair[(separator + 1)..].Trim();
+            values[key] = value;
+        }
+
+        string? Get(params string[] aliases)
+        {
+            foreach (var alias in aliases)
+            {
+                if (values.TryGetValue(alias, out var value) && !string.IsNullOrWhiteSpace(value))
+                    return value;
+            }
+            return null;
+        }
+
+        var server = Get("server", "host", "serveraddress") ?? "";
+        var dataSource = Get("data source", "datasource", "filename", "file") ?? "";
+        var database = Get("database", "db", "initial catalog", "initialcatalog", "databasename") ?? "";
+        var username = Get("username", "user id", "userid", "user", "uid") ?? "";
+        var password = Get("password", "pwd") ?? "";
+
+        var host = server;
+        if (string.IsNullOrEmpty(host) && !string.IsNullOrEmpty(dataSource))
+        {
+            // Without an Initial Catalog, "Data Source=<value>" is treated as a
+            // host alias so SQL Server host strings still parse.
+            if (string.IsNullOrEmpty(database))
+                database = dataSource;
+            else
+                host = dataSource;
+        }
+
+        if (string.IsNullOrWhiteSpace(host) && string.IsNullOrWhiteSpace(database))
+        {
+            error = "Connection string is missing a host (Host, Server, or Data Source).";
+            return false;
+        }
+
+        var detectedProvider = DetectProvider(host, values);
+
+        // Allow SQL Server style "Server=host,1433".
+        var hostPort = host.Split(',', 2);
+        host = hostPort[0].Trim();
+        if (hostPort.Length == 2 && int.TryParse(hostPort[1], out var commaPort))
+        {
+            result = new ParsedConnectionString(detectedProvider, host, commaPort, database, username, password);
+            return true;
+        }
+
+        if (int.TryParse(Get("port") ?? "", out var portKey))
+        {
+            result = new ParsedConnectionString(detectedProvider, host, portKey, database, username, password);
+            return true;
+        }
+
+        result = new ParsedConnectionString(detectedProvider, host, 0, database, username, password);
+        return true;
+    }
+
+    /// <summary>
+    /// Best-effort provider detection for key=value connection strings.
+    /// Returns null when the format is ambiguous, so validation never falsely
+    /// rejects a string it cannot identify.
+    /// </summary>
+    private static DbProvider? DetectProvider(string host, Dictionary<string, string> values)
+    {
+        if (!string.IsNullOrEmpty(host) && values.ContainsKey("host"))
+            return DbProvider.PostgreSql;
+
+        var mySqlIdioms = values.ContainsKey("uid") || values.ContainsKey("pwd");
+        if (mySqlIdioms)
+            return DbProvider.MySql;
+
+        var hasSqlServerSignals =
+            values.ContainsKey("user id") ||
+            values.ContainsKey("userid") ||
+            values.ContainsKey("initial catalog") ||
+            values.ContainsKey("initialcatalog") ||
+            values.ContainsKey("integrated security") ||
+            values.ContainsKey("trusted_connection") ||
+            values.ContainsKey("trust server certificate") ||
+            values.ContainsKey("trustservercertificate") ||
+            values.ContainsKey("applicationintent") ||
+            values.ContainsKey("multipleactiveresultsets") ||
+            values.ContainsKey("encrypt") ||
+            (!string.IsNullOrEmpty(host) && (values.ContainsKey("data source") || values.ContainsKey("datasource"))) ||
+            host.Contains(',');
+
+        if (hasSqlServerSignals)
+            return DbProvider.SqlServer;
+
+        return null;
+    }
+}

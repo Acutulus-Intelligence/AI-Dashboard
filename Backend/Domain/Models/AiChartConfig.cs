@@ -26,6 +26,10 @@ public class AiChartConfig
     [JsonPropertyName("sqlQuery")]
     public string SqlQuery { get; set; } = string.Empty;
 
+    /// <summary>Structured query returned instead of SQL for uploaded data (collections).</summary>
+    [JsonPropertyName("dataModel")]
+    public DataQueryModel? DataModel { get; set; }
+
     /// <summary>Presentation the model picked; sanitized against the catalog before use.</summary>
     [JsonPropertyName("styleConfig")]
     public ChartStyleConfig? StyleConfig { get; set; }

@@ -8,5 +8,6 @@ public sealed record CompanyRoleResponse(
     bool CanManageUsers,
     bool CanManageRoles,
     bool CanManageDashboards,
+    bool CanManageConnections,
     List<string> AllowedTables,
     int UserCount);

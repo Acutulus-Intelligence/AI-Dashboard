@@ -6,4 +6,5 @@ public sealed record UpdateRoleRequest(
     bool CanManageUsers,
     bool CanManageRoles,
     bool CanManageDashboards,
+    bool CanManageConnections = false,
     List<string>? AllowedTables = null);

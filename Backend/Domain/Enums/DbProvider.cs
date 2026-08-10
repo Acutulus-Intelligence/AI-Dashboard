@@ -6,5 +6,7 @@ namespace Domain.Enums;
 public enum DbProvider
 {
     PostgreSql,
-    MySql
+    MySql,
+    SqlServer,
+    Sqlite
 }

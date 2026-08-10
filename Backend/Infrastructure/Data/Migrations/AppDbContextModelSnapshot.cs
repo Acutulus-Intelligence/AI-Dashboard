@@ -171,6 +171,9 @@ namespace Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text[]");
 
+                    b.Property<bool>("CanManageConnections")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("CanManageDashboards")
                         .HasColumnType("boolean");
 
@@ -337,10 +340,63 @@ namespace Infrastructure.Data.Migrations
                     b.ToTable("dashboard_widgets", (string)null);
                 });
 
+            modelBuilder.Entity("Domain.Models.DataCollection", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.PrimitiveCollection<List<Guid>>("AllowedRoleIds")
+                        .IsRequired()
+                        .HasColumnType("uuid[]");
+
+                    b.Property<Guid?>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Visibility")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "Name")
+                        .IsUnique()
+                        .HasFilter("\"CompanyId\" IS NOT NULL AND \"Visibility\" <> 'Private'");
+
+                    b.HasIndex("CreatedById", "Name")
+                        .IsUnique()
+                        .HasFilter("\"CompanyId\" IS NULL OR \"Visibility\" = 'Private'");
+
+                    b.ToTable("data_collections", (string)null);
+                });
+
             modelBuilder.Entity("Domain.Models.ExternalConnection", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.PrimitiveCollection<List<Guid>>("AllowedRoleIds")
+                        .IsRequired()
+                        .HasColumnType("uuid[]");
+
+                    b.Property<Guid?>("CompanyId")
                         .HasColumnType("uuid");
 
                     b.Property<DateTime>("CreatedAt")
@@ -366,10 +422,20 @@ namespace Infrastructure.Data.Migrations
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Visibility")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.HasKey("Id");
 
+                    b.HasIndex("CompanyId", "Name")
+                        .IsUnique()
+                        .HasFilter("\"CompanyId\" IS NOT NULL AND \"Visibility\" <> 'Private'");
+
                     b.HasIndex("UserId", "Name")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"CompanyId\" IS NULL OR \"Visibility\" = 'Private'");
 
                     b.ToTable("external_connections", (string)null);
                 });
@@ -441,6 +507,12 @@ namespace Infrastructure.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("DataModel")
+                        .HasColumnType("jsonb");
+
+                    b.Property<Guid?>("DatasetId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("GroupBy")
                         .HasColumnType("text");
 
@@ -481,6 +553,51 @@ namespace Infrastructure.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("saved_charts", (string)null);
+                });
+
+            modelBuilder.Entity("Domain.Models.SavedDataset", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CollectionId")
+                        .HasColumnType("uuid");
+
+                    b.PrimitiveCollection<string[]>("ColumnNames")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.PrimitiveCollection<string[]>("ColumnTypes")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("RowCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RowsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("TableName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CollectionId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("saved_datasets", (string)null);
                 });
 
             modelBuilder.Entity("Domain.Models.SubscriptionPlan", b =>
@@ -907,13 +1024,38 @@ namespace Infrastructure.Data.Migrations
                     b.Navigation("SavedChart");
                 });
 
+            modelBuilder.Entity("Domain.Models.DataCollection", b =>
+                {
+                    b.HasOne("Domain.Models.Company", "Company")
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Domain.Models.User", "CreatedBy")
+                        .WithMany()
+                        .HasForeignKey("CreatedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Company");
+
+                    b.Navigation("CreatedBy");
+                });
+
             modelBuilder.Entity("Domain.Models.ExternalConnection", b =>
                 {
+                    b.HasOne("Domain.Models.Company", "Company")
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Domain.Models.User", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("Company");
 
                     b.Navigation("User");
                 });
@@ -938,6 +1080,17 @@ namespace Infrastructure.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Domain.Models.SavedDataset", b =>
+                {
+                    b.HasOne("Domain.Models.DataCollection", "Collection")
+                        .WithMany("Files")
+                        .HasForeignKey("CollectionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Collection");
                 });
 
             modelBuilder.Entity("Domain.Models.User", b =>
@@ -1044,6 +1197,11 @@ namespace Infrastructure.Data.Migrations
             modelBuilder.Entity("Domain.Models.Dashboard", b =>
                 {
                     b.Navigation("Widgets");
+                });
+
+            modelBuilder.Entity("Domain.Models.DataCollection", b =>
+                {
+                    b.Navigation("Files");
                 });
 
             modelBuilder.Entity("Domain.Models.SubscriptionPlan", b =>

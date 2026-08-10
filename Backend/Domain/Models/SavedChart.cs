@@ -14,7 +14,11 @@ public class SavedChart
     public string Aggregation { get; set; } = "none";
     public string? GroupBy { get; set; }
     public string SqlQuery { get; set; } = string.Empty;
+
+    /// <summary>Structured query used by dataset-backed charts instead of SQL.</summary>
+    public DataQueryModel? DataModel { get; set; }
     public Guid? ConnectionId { get; set; }
+    public Guid? DatasetId { get; set; }
     public string? TableName { get; set; }
     public ChartStyleConfig? StyleConfig { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
