@@ -5,5 +5,6 @@ public sealed record GenerateChartRequest(
     string TableName,
     string? Prompt,
     string? PrefabChartType,
-    string Mode
+    string Mode,
+    ChartBaseline? CurrentChart = null
 );

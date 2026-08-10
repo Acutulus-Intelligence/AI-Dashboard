@@ -3,9 +3,9 @@ using Domain.Charts;
 namespace Application.DTos.Request;
 
 /// <summary>
-/// Replaces presentation and optionally the generated query/axes of an existing chart.
+/// Chart metadata sent as refine context. Never includes query result rows.
 /// </summary>
-public sealed record UpdateChartRequest(
+public sealed record ChartBaseline(
     string Title,
     string ChartType,
     string XAxis,

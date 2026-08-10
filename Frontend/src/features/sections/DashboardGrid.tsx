@@ -598,20 +598,18 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
 
           if (widget.kind === 'text') {
             const textShellClass =
-              'relative flex h-full w-full flex-col'
-              + (editMode
-                ? ' overflow-visible rounded-lg border border-outline-variant/50 bg-surface-container'
-                : ' overflow-hidden');
+              'relative flex h-full w-full flex-col rounded-xl bg-card text-card-foreground ring-1 ring-foreground/10'
+              + (editMode ? ' overflow-visible' : ' overflow-hidden');
 
             const textShellBody = (
               <>
                 {editMode && (
-                  <div className="text-drag-handle flex shrink-0 cursor-grab items-center justify-between border-b border-outline-variant/40 bg-surface-container-high px-2 py-1 active:cursor-grabbing">
-                    <GripHorizontal size={14} className="text-on-surface-variant" />
+                  <div className="text-drag-handle flex shrink-0 cursor-grab items-center justify-between border-b px-2 py-1 active:cursor-grabbing">
+                    <GripHorizontal size={14} className="text-muted-foreground" />
                     <button
                       type="button"
                       onClick={() => removeWidget(widget.id)}
-                      className="cursor-pointer rounded-md p-0.5 text-on-surface-variant transition-colors hover:text-error"
+                      className="cursor-pointer rounded-md p-0.5 text-muted-foreground transition-colors hover:text-error"
                     >
                       <X size={12} />
                     </button>

@@ -11,5 +11,6 @@ public sealed record ChartConfigResponse(
     string? GroupBy,
     string SqlQuery,
     List<Dictionary<string, object?>> QueryResult,
-    ChartStyleConfig? StyleConfig = null
+    ChartStyleConfig? StyleConfig = null,
+    AiGenerationDebug? AiDebug = null
 );

@@ -33,5 +33,27 @@ public class GenerateChartRequestValidator : AbstractValidator<GenerateChartRequ
                 .NotEmpty()
                 .WithMessage("PrefabChartType is required when mode is 'prefab'.");
         });
+
+        When(x => x.CurrentChart is not null, () =>
+        {
+            RuleFor(x => x.CurrentChart!.Title)
+                .NotEmpty()
+                .MaximumLength(200);
+
+            RuleFor(x => x.CurrentChart!.ChartType)
+                .NotEmpty()
+                .MaximumLength(100);
+
+            RuleFor(x => x.CurrentChart!.XAxis)
+                .NotEmpty()
+                .MaximumLength(200);
+
+            RuleFor(x => x.CurrentChart!.YAxis)
+                .NotEmpty();
+
+            RuleFor(x => x.CurrentChart!.SqlQuery)
+                .NotEmpty()
+                .MaximumLength(10_000);
+        });
     }
 }

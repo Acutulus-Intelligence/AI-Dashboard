@@ -62,6 +62,25 @@ public sealed class ProductRoutesTests
             new GenerateChartRequest(connectionId, "sales", "Show sales by category", null, "prompt"));
         generate.StatusCode.Should().Be(HttpStatusCode.OK);
 
+        var refine = await client.PostAsJsonAsync("/api/graphs/generate",
+            new GenerateChartRequest(
+                connectionId,
+                "sales",
+                "Make the title clearer",
+                null,
+                "prompt",
+                new ChartBaseline(
+                    "Sales by category",
+                    "bar",
+                    "category",
+                    ["amount"],
+                    "sum",
+                    "category",
+                    "SELECT category, SUM(amount) AS amount FROM sales GROUP BY category")));
+        refine.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var refineDoc = JsonDocument.Parse(await refine.Content.ReadAsStringAsync());
+        refineDoc.RootElement.GetProperty("title").GetString().Should().Be("Sales by category (refined)");
+
         var manual = await client.PostAsJsonAsync("/api/graphs/manual",
             new GenerateChartRequest(connectionId, "sales", "category", "bar", "prefab"));
         manual.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -79,6 +98,20 @@ public sealed class ProductRoutesTests
         saveChart.StatusCode.Should().Be(HttpStatusCode.OK);
         using var chartDoc = JsonDocument.Parse(await saveChart.Content.ReadAsStringAsync());
         var chartId = chartDoc.RootElement.GetProperty("id").GetGuid();
+
+        var updateChart = await client.PutAsJsonAsync($"/api/charts/{chartId}", new UpdateChartRequest(
+            "Sales chart updated",
+            "bar",
+            "category",
+            ["amount"],
+            "sum",
+            "category",
+            "SELECT category, SUM(amount) AS amount FROM sales GROUP BY category ORDER BY amount DESC"));
+        updateChart.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var updatedDoc = JsonDocument.Parse(await updateChart.Content.ReadAsStringAsync());
+        updatedDoc.RootElement.GetProperty("title").GetString().Should().Be("Sales chart updated");
+        updatedDoc.RootElement.GetProperty("sqlQuery").GetString().Should()
+            .Contain("ORDER BY amount DESC");
 
         (await client.GetAsync("/api/charts")).StatusCode.Should().Be(HttpStatusCode.OK);
         (await client.GetAsync($"/api/charts/{chartId}")).StatusCode.Should().Be(HttpStatusCode.OK);
