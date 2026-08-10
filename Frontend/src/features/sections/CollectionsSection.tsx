@@ -360,6 +360,7 @@ export default function CollectionsSection({ canManage, isCompany, roles }: Coll
         toast.success('Collection deleted.');
       } else {
         await deleteCollectionFile(deleteTarget.collectionId!, deleteTarget.id);
+        await refresh();
         setExpanded((prev) => {
           const entry = prev[deleteTarget.collectionId!];
           if (!entry) return prev;
