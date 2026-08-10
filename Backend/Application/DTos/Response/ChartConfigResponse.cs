@@ -13,5 +13,6 @@ public sealed record ChartConfigResponse(
     string SqlQuery,
     List<Dictionary<string, object?>> QueryResult,
     ChartStyleConfig? StyleConfig = null,
-    DataQueryModel? DataModel = null
+    DataQueryModel? DataModel = null,
+    AiGenerationDebug? AiDebug = null
 );

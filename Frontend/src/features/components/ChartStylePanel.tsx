@@ -14,7 +14,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { PALETTES } from '../charts/palette';
-import { DEFAULT_COMPANY_COLORS } from '../charts/companyColors';
+import { DEFAULT_COMPANY_COLORS, colorLabel } from '../charts/companyColors';
 import type { ChartDescriptor, ChartStyleConfig, DecimalMode, ParamSpec } from '../charts/types';
 
 interface ChartStylePanelProps {
@@ -312,8 +312,8 @@ export default function ChartStylePanel({
                       <button
                         key={swatch}
                         type="button"
-                        aria-label={`Colour ${swatch} for ${slotLabel}`}
-                        title={swatch}
+                        aria-label={`Colour ${colorLabel(swatch)} for ${slotLabel}`}
+                        title={colorLabel(swatch)}
                         onClick={() => setColor(i, swatch)}
                         className={cn(
                           'size-5 cursor-pointer rounded-full border border-black/10 transition-transform',

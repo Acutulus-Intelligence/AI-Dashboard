@@ -13,6 +13,7 @@ import {
   Loader2,
   Sparkles,
   Table2,
+  Undo2,
   XCircle,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -45,7 +46,12 @@ import {
   type CollectionFileResponse,
   type CollectionResponse,
 } from '../../services/collectionsApi';
-import { generateChart, type ChartConfigResponse } from '../../services/graphsApi';
+import {
+  generateChart,
+  type AiGenerationDebug,
+  type ChartBaseline,
+  type ChartConfigResponse,
+} from '../../services/graphsApi';
 import ChartRenderer from '../charts/ChartRenderer';
 import { DEFAULT_COMPANY_COLORS } from '../charts/companyColors';
 import { get, getAll } from '../charts/registry';
@@ -55,7 +61,7 @@ import ChartStylePanel from '../components/ChartStylePanel';
 import AddToDashboardDialog from '../components/AddToDashboardDialog';
 import AppShell from '../layouts/AppShell';
 import type { Crumb } from '../layouts/AppHeader';
-import { ROUTES } from '../routes';
+import { ROUTES, graphEditPath } from '../routes';
 import { useAuth } from '../store/useAuth';
 
 interface PreviewColumn {
@@ -77,6 +83,96 @@ function cloneStyle(style: ChartStyleConfig): ChartStyleConfig {
 
 function stylesEqual(a: ChartStyleConfig, b: ChartStyleConfig): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function cloneResult(result: ChartConfigResponse): ChartConfigResponse {
+  return structuredClone(result);
+}
+
+/** Style fields AI may set — colours/params stay out of the prompt. */
+function slimStyleForAi(style: ChartStyleConfig): ChartStyleConfig {
+  const slim: ChartStyleConfig = {};
+  if (style.variant != null) slim.variant = style.variant;
+  if (style.info != null) slim.info = style.info;
+  if (style.decimals != null) slim.decimals = style.decimals;
+  if (style.decimalMode != null) slim.decimalMode = style.decimalMode;
+  if (style.valuePrefix != null) slim.valuePrefix = style.valuePrefix;
+  if (style.valueSuffix != null) slim.valueSuffix = style.valueSuffix;
+  return slim;
+}
+
+/** After AI: keep user's colours; take AI variant/info/decimals/prefix/suffix.
+ *  On chart-type change, drop previous variant/params (they belong to the old type).
+ */
+function mergeAiStyleWithManual(
+  previous: ChartStyleConfig,
+  fromAi: ChartStyleConfig | null | undefined,
+  chartTypeChanged: boolean,
+): ChartStyleConfig {
+  const ai = fromAi ?? {};
+  const preserved = {
+    colors: previous.colors,
+    customColors: previous.customColors,
+    palette: previous.palette,
+    ...(chartTypeChanged ? {} : { params: previous.params }),
+  };
+
+  if (chartTypeChanged) {
+    return {
+      ...preserved,
+      ...(ai.variant !== undefined ? { variant: ai.variant } : {}),
+      ...(ai.info !== undefined ? { info: ai.info } : {}),
+      ...(ai.decimals !== undefined ? { decimals: ai.decimals } : {}),
+      ...(ai.decimalMode !== undefined ? { decimalMode: ai.decimalMode } : {}),
+      ...(ai.valuePrefix !== undefined ? { valuePrefix: ai.valuePrefix } : {}),
+      ...(ai.valueSuffix !== undefined ? { valueSuffix: ai.valueSuffix } : {}),
+    };
+  }
+
+  return {
+    ...previous,
+    ...(ai.variant !== undefined ? { variant: ai.variant } : {}),
+    ...(ai.info !== undefined ? { info: ai.info } : {}),
+    ...(ai.decimals !== undefined ? { decimals: ai.decimals } : {}),
+    ...(ai.decimalMode !== undefined ? { decimalMode: ai.decimalMode } : {}),
+    ...(ai.valuePrefix !== undefined ? { valuePrefix: ai.valuePrefix } : {}),
+    ...(ai.valueSuffix !== undefined ? { valueSuffix: ai.valueSuffix } : {}),
+    ...preserved,
+  };
+}
+
+/** Build AI refine baseline — SQL + slim style metadata only, never query rows. */
+function toBaseline(
+  result: ChartConfigResponse,
+  style: ChartStyleConfig,
+  title: string,
+): ChartBaseline {
+  return {
+    title: title.trim() || result.title,
+    chartType: result.chartType,
+    xAxis: result.xAxis,
+    yAxis: result.yAxis,
+    aggregation: result.aggregation,
+    groupBy: result.groupBy,
+    sqlQuery: result.sqlQuery,
+    styleConfig: slimStyleForAi(style),
+  };
+}
+
+function configEqual(a: ChartConfigResponse, b: ChartConfigResponse): boolean {
+  return (
+    a.chartType === b.chartType &&
+    a.xAxis === b.xAxis &&
+    JSON.stringify(a.yAxis) === JSON.stringify(b.yAxis) &&
+    a.aggregation === b.aggregation &&
+    a.groupBy === b.groupBy &&
+    a.sqlQuery === b.sqlQuery
+  );
+}
+
+function uniqueCopyTitle(title: string): string {
+  const base = title.trim() || 'Chart';
+  return `${base} (copy)`;
 }
 
 const MODES: { id: Mode; icon: typeof Sparkles; label: string; desc: string }[] = [
@@ -138,8 +234,10 @@ export default function GraphCreationPage() {
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<Mode>('auto');
   const [prompt, setPrompt] = useState('');
+  const [refinePrompt, setRefinePrompt] = useState('');
   const [prefabType, setPrefabType] = useState('');
   const [generating, setGenerating] = useState(false);
+  const [refining, setRefining] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedChartId, setSavedChartId] = useState<string | null>(routeChartId ?? null);
   const [result, setResult] = useState<ChartConfigResponse | null>(null);
@@ -148,9 +246,18 @@ export default function GraphCreationPage() {
   const [savedTitleSnapshot, setSavedTitleSnapshot] = useState<string | null>(null);
   const [styleConfig, setStyleConfig] = useState<ChartStyleConfig>({});
   const [savedStyleSnapshot, setSavedStyleSnapshot] = useState<ChartStyleConfig | null>(null);
+  const [savedResultSnapshot, setSavedResultSnapshot] = useState<ChartConfigResponse | null>(null);
+  /** Chart state from before the last successful AI refine — Undo restores this. */
+  const [preRefineSnapshot, setPreRefineSnapshot] = useState<{
+    result: ChartConfigResponse;
+    styleConfig: ChartStyleConfig;
+    title: string;
+  } | null>(null);
   const [companyColors, setCompanyColors] = useState<string[]>([...DEFAULT_COMPANY_COLORS]);
   const [addToDashboardOpen, setAddToDashboardOpen] = useState(false);
   const [error, setError] = useState('');
+  const [aiDebug, setAiDebug] = useState<AiGenerationDebug | null>(null);
+  const [aiDebugOpen, setAiDebugOpen] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -195,11 +302,14 @@ export default function GraphCreationPage() {
         }
         setSavedChartId(detail.id);
         setResult(executed);
+        setSavedResultSnapshot(cloneResult(executed));
         setEditableTitle(executed.title);
         setSavedTitleSnapshot(executed.title);
         const style = executed.styleConfig ?? detail.styleConfig ?? {};
         setStyleConfig(style);
         setSavedStyleSnapshot(cloneStyle(style));
+        setRefinePrompt('');
+        setPreRefineSnapshot(null);
       } catch (err: unknown) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Failed to load chart.');
@@ -317,7 +427,12 @@ export default function GraphCreationPage() {
     !stylesEqual(styleConfig, savedStyleSnapshot);
   const isTitleDirty =
     !!savedChartId && savedTitleSnapshot !== null && editableTitle.trim() !== savedTitleSnapshot;
-  const isDirty = isStyleDirty || isTitleDirty;
+  const isConfigDirty =
+    !!savedChartId &&
+    !!result &&
+    !!savedResultSnapshot &&
+    !configEqual(result, savedResultSnapshot);
+  const isDirty = isStyleDirty || isTitleDirty || isConfigDirty;
   const colorSlots = chartData
     ? Math.max(
         chartData.datasets.length,
@@ -452,7 +567,11 @@ export default function GraphCreationPage() {
     setSavedChartId(null);
     setSavedStyleSnapshot(null);
     setSavedTitleSnapshot(null);
+    setSavedResultSnapshot(null);
+    setPreRefineSnapshot(null);
     setEditingTitle(false);
+    setRefinePrompt('');
+    setAiDebug(null);
     try {
       const res =
         sourceType === 'collection'
@@ -468,14 +587,75 @@ export default function GraphCreationPage() {
               prefabChartType: mode === 'prefab' ? prefabType : undefined,
               mode,
             });
-      setResult(res);
+      const style = res.styleConfig ?? {};
+      setResult({ ...res, styleConfig: style });
       setEditableTitle(res.title);
-      setStyleConfig(res.styleConfig ?? {});
+      setStyleConfig(style);
+      setAiDebug(res.aiDebug ?? null);
+      if (res.aiDebug) setAiDebugOpen(true);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Generation failed');
     } finally {
       setGenerating(false);
     }
+  }
+
+  async function handleRefine() {
+    if (!result || !connectionId || !tableName || !refinePrompt.trim()) return;
+    const snapshot = {
+      result: cloneResult(result),
+      styleConfig: cloneStyle(styleConfig),
+      title: editableTitle,
+    };
+    setRefining(true);
+    setError('');
+    try {
+      const res = await generateChart({
+        connectionId,
+        tableName,
+        prompt: refinePrompt.trim(),
+        mode: 'prompt',
+        currentChart: toBaseline(result, styleConfig, editableTitle),
+      });
+      setPreRefineSnapshot(snapshot);
+      const chartTypeChanged = res.chartType !== result.chartType;
+      const style = mergeAiStyleWithManual(styleConfig, res.styleConfig, chartTypeChanged);
+      setResult({ ...res, styleConfig: style });
+      setEditableTitle(res.title);
+      setStyleConfig(style);
+      setRefinePrompt('');
+      setAiDebug(res.aiDebug ?? null);
+      if (res.aiDebug) setAiDebugOpen(true);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Adjustment failed');
+    } finally {
+      setRefining(false);
+    }
+  }
+
+  function handleUndoRefine() {
+    if (!preRefineSnapshot) return;
+    setResult(cloneResult(preRefineSnapshot.result));
+    setStyleConfig(cloneStyle(preRefineSnapshot.styleConfig));
+    setEditableTitle(preRefineSnapshot.title);
+    setPreRefineSnapshot(null);
+    setEditingTitle(false);
+    toast.message('Reverted to the version before the last AI adjustment.');
+  }
+
+  function applySavedSnapshots(
+    id: string,
+    title: string,
+    style: ChartStyleConfig,
+    chart: ChartConfigResponse,
+  ) {
+    setSavedChartId(id);
+    setEditableTitle(title);
+    setStyleConfig(style);
+    setSavedTitleSnapshot(title);
+    setSavedStyleSnapshot(cloneStyle(style));
+    setSavedResultSnapshot(cloneResult({ ...chart, title, styleConfig: style }));
+    setPreRefineSnapshot(null);
   }
 
   async function handleSave() {
@@ -492,14 +672,27 @@ export default function GraphCreationPage() {
         const updated = await updateChart(savedChartId, {
           title,
           chartType: result.chartType,
+          xAxis: result.xAxis,
+          yAxis: result.yAxis,
+          aggregation: result.aggregation,
+          groupBy: result.groupBy,
+          sqlQuery: result.sqlQuery,
           styleConfig,
         });
-        // Use the sanitized style from the API so preview matches the dashboard.
         const savedStyle = updated.styleConfig ?? {};
-        setStyleConfig(savedStyle);
-        setEditableTitle(updated.title);
-        setSavedTitleSnapshot(updated.title);
-        setSavedStyleSnapshot(cloneStyle(savedStyle));
+        const nextResult: ChartConfigResponse = {
+          ...result,
+          title: updated.title,
+          chartType: updated.chartType,
+          xAxis: updated.xAxis,
+          yAxis: updated.yAxis,
+          aggregation: updated.aggregation,
+          groupBy: updated.groupBy,
+          sqlQuery: updated.sqlQuery,
+          styleConfig: savedStyle,
+        };
+        setResult(nextResult);
+        applySavedSnapshots(savedChartId, updated.title, savedStyle, nextResult);
         toast.success('Chart saved.');
       } else {
         const res = await saveChart({
@@ -516,14 +709,21 @@ export default function GraphCreationPage() {
           dataModel: result.dataModel ?? null,
           styleConfig,
         });
-        // Re-fetch so we keep the same sanitized style the dashboard will render.
         const detail = await getChart(res.id);
         const savedStyle = detail.styleConfig ?? styleConfig;
-        setSavedChartId(res.id);
-        setStyleConfig(savedStyle);
-        setEditableTitle(detail.title);
-        setSavedTitleSnapshot(detail.title);
-        setSavedStyleSnapshot(cloneStyle(savedStyle));
+        const nextResult: ChartConfigResponse = {
+          ...result,
+          title: detail.title,
+          chartType: detail.chartType,
+          xAxis: detail.xAxis,
+          yAxis: detail.yAxis,
+          aggregation: detail.aggregation,
+          groupBy: detail.groupBy,
+          sqlQuery: detail.sqlQuery,
+          styleConfig: savedStyle,
+        };
+        setResult(nextResult);
+        applySavedSnapshots(res.id, detail.title, savedStyle, nextResult);
         toast.success('Chart saved.');
       }
     } catch (err: unknown) {
@@ -535,9 +735,59 @@ export default function GraphCreationPage() {
     }
   }
 
+  async function handleSaveAsNew() {
+    if (!result || !savedChartId) return;
+    const title = uniqueCopyTitle(editableTitle.trim() || result.title);
+    setSaving(true);
+    setError('');
+    try {
+      const res = await saveChart({
+        title,
+        chartType: result.chartType,
+        xAxis: result.xAxis,
+        yAxis: result.yAxis,
+        aggregation: result.aggregation,
+        groupBy: result.groupBy,
+        sqlQuery: result.sqlQuery,
+        connectionId: connectionId || null,
+        tableName: tableName || null,
+        styleConfig,
+      });
+      const detail = await getChart(res.id);
+      const savedStyle = detail.styleConfig ?? styleConfig;
+      const nextResult: ChartConfigResponse = {
+        ...result,
+        title: detail.title,
+        chartType: detail.chartType,
+        xAxis: detail.xAxis,
+        yAxis: detail.yAxis,
+        aggregation: detail.aggregation,
+        groupBy: detail.groupBy,
+        sqlQuery: detail.sqlQuery,
+        styleConfig: savedStyle,
+      };
+      setResult(nextResult);
+      applySavedSnapshots(res.id, detail.title, savedStyle, nextResult);
+      toast.success('Saved as new chart.');
+      navigate(graphEditPath(res.id), {
+        replace: true,
+        state: fromCharts ? { fromCharts: true } : undefined,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to save as new chart';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function handleCancelEdits() {
     if (savedStyleSnapshot) setStyleConfig(cloneStyle(savedStyleSnapshot));
     if (savedTitleSnapshot !== null) setEditableTitle(savedTitleSnapshot);
+    if (savedResultSnapshot) setResult(cloneResult(savedResultSnapshot));
+    setRefinePrompt('');
+    setPreRefineSnapshot(null);
     setEditingTitle(false);
   }
 
@@ -559,6 +809,9 @@ export default function GraphCreationPage() {
     setSavedChartId(null);
     setSavedStyleSnapshot(null);
     setSavedTitleSnapshot(null);
+    setSavedResultSnapshot(null);
+    setPreRefineSnapshot(null);
+    setRefinePrompt('');
     setError('');
   }
 
@@ -570,7 +823,7 @@ export default function GraphCreationPage() {
             {isEditingExisting ? 'Edit chart' : 'Create chart'}
           </h1>
           <p className="text-muted-foreground text-sm">
-            {isEditingExisting && (editableTitle || 'Update title, style and appearance.')}
+{isEditingExisting && (editableTitle || 'Update title, style, or adjust with AI.')}
             {!isEditingExisting && step === 'pick-connection' && 'Choose a data source to visualize.'}
             {!isEditingExisting && step === 'pick-table' && sourceType === 'connection' && (
               <>
@@ -599,9 +852,54 @@ export default function GraphCreationPage() {
       </div>
 
       {error && (
-        <div className="border-destructive/40 bg-destructive/10 text-destructive rounded-lg border px-3 py-2 text-sm">
+        <div className="border-destructive/40 bg-destructive/10 text-destructive rounded-lg border px-3 py-2 text-sm whitespace-pre-wrap break-words">
           {error}
         </div>
+      )}
+
+      {aiDebug && (
+        <details
+          className="border-border bg-muted/30 rounded-lg border px-3 py-2 text-sm"
+          open={aiDebugOpen}
+          onToggle={(e) => setAiDebugOpen((e.target as HTMLDetailsElement).open)}
+        >
+          <summary className="cursor-pointer font-medium select-none">
+            AI debug — last generation
+            {aiDebug.finishReason ? ` (finish: ${aiDebug.finishReason})` : ''}
+          </summary>
+          <div className="mt-2 space-y-2">
+            {aiDebug.notes && aiDebug.notes.length > 0 && (
+              <ul className="text-muted-foreground list-inside list-disc text-xs">
+                {aiDebug.notes.map((n) => (
+                  <li key={n}>{n}</li>
+                ))}
+              </ul>
+            )}
+            <p className="text-muted-foreground text-xs">
+              Final: <span className="text-foreground font-mono">{aiDebug.chartType}</span>
+            </p>
+            <div>
+              <p className="text-muted-foreground mb-1 text-xs font-medium">Final styleConfig</p>
+              <pre className="bg-background max-h-40 overflow-auto rounded border p-2 text-xs">
+                {JSON.stringify(aiDebug.styleConfig ?? null, null, 2)}
+              </pre>
+            </div>
+            <div>
+              <p className="text-muted-foreground mb-1 text-xs font-medium">Final SQL</p>
+              <pre className="bg-background max-h-32 overflow-auto rounded border p-2 text-xs whitespace-pre-wrap">
+                {aiDebug.sqlQuery}
+              </pre>
+            </div>
+            {aiDebug.rawJson && (
+              <div>
+                <p className="text-muted-foreground mb-1 text-xs font-medium">Raw model JSON</p>
+                <pre className="bg-background max-h-56 overflow-auto rounded border p-2 text-xs whitespace-pre-wrap">
+                  {aiDebug.rawJson}
+                </pre>
+              </div>
+            )}
+          </div>
+        </details>
       )}
 
       {step === 'pick-connection' && (
@@ -963,23 +1261,69 @@ export default function GraphCreationPage() {
                     </p>
                   )}
 
+                  <div className="mt-4 grid gap-2">
+                    <label className="text-sm font-medium" htmlFor="refine-prompt">
+                      Adjust with AI
+                    </label>
+                    <Textarea
+                      id="refine-prompt"
+                      value={refinePrompt}
+                      onChange={(e) => setRefinePrompt(e.target.value)}
+                      placeholder="Describe how to change this chart… (e.g. Switch to a line chart and use monthly totals)"
+                      rows={2}
+                      disabled={refining || generating}
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="w-fit"
+                        disabled={refining || generating || !refinePrompt.trim() || !connectionId || !tableName}
+                        onClick={() => void handleRefine()}
+                      >
+                        {refining ? <Loader2 className="animate-spin" /> : <Sparkles />}
+                        {refining ? 'Adjusting…' : 'Apply adjustment'}
+                      </Button>
+                      {preRefineSnapshot && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="w-fit"
+                          disabled={refining || generating || saving}
+                          onClick={handleUndoRefine}
+                        >
+                          <Undo2 />
+                          Undo last adjustment
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
                   <div className="mt-6 flex flex-wrap gap-2">
                     {!savedChartId && (
-                      <Button onClick={() => void handleSave()} disabled={saving}>
+                      <Button onClick={() => void handleSave()} disabled={saving || refining}>
                         {saving && <Loader2 className="animate-spin" />}
                         Save chart
                       </Button>
                     )}
                     {savedChartId && isDirty && (
                       <>
-                        <Button onClick={() => void handleSave()} disabled={saving}>
+                        <Button onClick={() => void handleSave()} disabled={saving || refining}>
                           {saving && <Loader2 className="animate-spin" />}
-                          Save changes
+                          Save
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          disabled={saving || refining}
+                          onClick={() => void handleSaveAsNew()}
+                        >
+                          Save as new
                         </Button>
                         <Button
                           type="button"
                           variant="outline"
-                          disabled={saving}
+                          disabled={saving || refining}
                           onClick={handleCancelEdits}
                         >
                           Cancel

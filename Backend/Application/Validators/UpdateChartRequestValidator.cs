@@ -17,6 +17,21 @@ public class UpdateChartRequestValidator : AbstractValidator<UpdateChartRequest>
             .Must(ChartCatalog.IsKnownType)
             .WithMessage(_ => $"Chart type must be one of: {string.Join(", ", ChartCatalog.TypeIds)}.");
 
+        RuleFor(x => x.XAxis)
+            .NotEmpty()
+            .MaximumLength(200);
+
+        RuleFor(x => x.YAxis)
+            .NotEmpty();
+
+        RuleFor(x => x.Aggregation)
+            .NotEmpty()
+            .MaximumLength(50);
+
+        RuleFor(x => x.SqlQuery)
+            .NotEmpty()
+            .MaximumLength(10_000);
+
         RuleFor(x => x.StyleConfig!.Variant)
             .Must((request, variant) =>
                 ChartCatalog.Find(request.ChartType)?.Variants

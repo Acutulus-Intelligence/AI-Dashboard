@@ -126,6 +126,11 @@ public class ChartService : IChartService
 
         chart.Title = request.Title.Trim();
         chart.ChartType = request.ChartType;
+        chart.XAxis = request.XAxis;
+        chart.YAxis = request.YAxis.ToArray();
+        chart.Aggregation = request.Aggregation;
+        chart.GroupBy = request.GroupBy;
+        chart.SqlQuery = request.SqlQuery;
         chart.StyleConfig = ChartStyleSanitizer.Sanitize(request.StyleConfig, request.ChartType);
         chart.UpdatedAt = DateTime.UtcNow;
 

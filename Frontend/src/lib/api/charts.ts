@@ -43,6 +43,11 @@ export interface DataQueryModel {
 export interface UpdateChartRequest {
   title: string;
   chartType: string;
+  xAxis: string;
+  yAxis: string[];
+  aggregation: string;
+  groupBy: string | null;
+  sqlQuery: string;
   styleConfig?: ChartStyleConfig | null;
 }
 

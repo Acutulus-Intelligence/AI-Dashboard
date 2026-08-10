@@ -1,9 +1,12 @@
 using Application.DTos.Request;
 using Application.DTos.Response;
 using Application.Interfaces;
+using Domain.Charts;
 using Domain.Enums;
+using Domain.Models;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
+
 namespace Application.Services;
 
 public class GraphGenerationService : IGraphGenerationService
@@ -14,6 +17,12 @@ public class GraphGenerationService : IGraphGenerationService
     private readonly ISqlValidator _sqlValidator;
     private readonly IQueryExecutor _queryExecutor;
     private readonly IConnectionAccessService _access;
+
+    private static readonly JsonSerializerOptions BaselineJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+    };
 
     public GraphGenerationService(
         IApplicationDbContext db,
@@ -55,10 +64,62 @@ public class GraphGenerationService : IGraphGenerationService
             _ => "Show me this data in a chart."
         };
 
-        var config = await _aiService.GenerateChartConfigAsync(schemaJson, prompt, dbProvider, request.PrefabChartType, ct);
+        // Slim baseline for the prompt — no colours/params noise.
+        var currentChartJson = request.CurrentChart is null
+            ? null
+            : JsonSerializer.Serialize(new
+            {
+                request.CurrentChart.Title,
+                request.CurrentChart.ChartType,
+                request.CurrentChart.XAxis,
+                request.CurrentChart.YAxis,
+                request.CurrentChart.Aggregation,
+                request.CurrentChart.GroupBy,
+                request.CurrentChart.SqlQuery,
+                StyleConfig = ChartRefineMerger.SlimStyleForAi(request.CurrentChart.StyleConfig),
+            }, BaselineJsonOptions);
 
-        if (!_sqlValidator.IsSelectOnly(config.SqlQuery, out var errorMessage))
-            throw new InvalidOperationException($"AI generated an invalid query: {errorMessage}");
+        var aiResult = await _aiService.GenerateChartConfigAsync(
+            schemaJson,
+            prompt,
+            dbProvider,
+            request.PrefabChartType,
+            currentChartJson,
+            ct);
+
+        var config = aiResult.Config;
+        var notes = new List<string>();
+
+        if (request.CurrentChart is not null)
+        {
+            if (string.IsNullOrWhiteSpace(aiResult.Config.ChartType)
+                || string.IsNullOrWhiteSpace(aiResult.Config.SqlQuery))
+            {
+                notes.Add("AI omitted chartType and/or sqlQuery; filled from baseline.");
+            }
+
+            // Preserve baseline colours/params; take AI variant/info/decimals/prefix/suffix only.
+            config = ChartRefineMerger.Apply(request.CurrentChart, config, prompt);
+            config.StyleConfig = ChartStyleSanitizer.Sanitize(config.StyleConfig, config.ChartType);
+            notes.Add("Merged AI style fields onto baseline; colours/params kept from baseline.");
+        }
+        else
+        {
+            // First generate: ignore any AI colours/params so UI defaults apply.
+            config.StyleConfig = ChartStyleSanitizer.Sanitize(
+                ChartRefineMerger.TakeAiControlledStyleFields(config.StyleConfig, config.ChartType),
+                config.ChartType);
+            notes.Add("First generate: stripped AI colours/params.");
+        }
+
+        if (string.IsNullOrWhiteSpace(config.ChartType) || string.IsNullOrWhiteSpace(config.SqlQuery))
+        {
+            throw new InvalidOperationException(
+                "Chart config is missing required fields (chartType, sqlQuery) after merge. " +
+                $"Raw: {Truncate(aiResult.RawJson, 400)}");
+        }
+
+        config = EnsureValidSql(config, request.CurrentChart, notes);
 
         var result = await _queryExecutor.ExecuteAsync(request.ConnectionId, userId, config.SqlQuery, ct);
 
@@ -71,7 +132,8 @@ public class GraphGenerationService : IGraphGenerationService
             config.GroupBy,
             config.SqlQuery,
             result,
-            config.StyleConfig
+            config.StyleConfig,
+            AiDebug: BuildDebug(aiResult, config, notes)
         );
     }
 
@@ -93,10 +155,15 @@ public class GraphGenerationService : IGraphGenerationService
 
         var prompt = $"Create a {request.PrefabChartType ?? "bar"} chart for this table. Use xAxis={request.Prompt ?? ""} for x-axis.";
 
-        var config = await _aiService.GenerateChartConfigAsync(schemaJson, prompt, dbProvider, request.PrefabChartType, ct);
+        var aiResult = await _aiService.GenerateChartConfigAsync(schemaJson, prompt, dbProvider, request.PrefabChartType, ct: ct);
+        var config = aiResult.Config;
+        var notes = new List<string> { "Manual generate path." };
 
-        if (!_sqlValidator.IsSelectOnly(config.SqlQuery, out var errorMessage))
-            throw new InvalidOperationException($"AI generated an invalid query: {errorMessage}");
+        config.StyleConfig = ChartStyleSanitizer.Sanitize(
+            ChartRefineMerger.TakeAiControlledStyleFields(config.StyleConfig, config.ChartType),
+            config.ChartType);
+
+        config = EnsureValidSql(config, baseline: null, notes);
 
         var result = await _queryExecutor.ExecuteAsync(request.ConnectionId, userId, config.SqlQuery, ct);
 
@@ -109,8 +176,57 @@ public class GraphGenerationService : IGraphGenerationService
             config.GroupBy,
             config.SqlQuery,
             result,
-            config.StyleConfig
+            config.StyleConfig,
+            AiDebug: BuildDebug(aiResult, config, notes)
         );
+    }
+
+    /// <summary>
+    /// Rejects invalid SQL. On refine with unchanged chart type, falls back to baseline SQL
+    /// when the model mangled the query during a style-only edit.
+    /// </summary>
+    private AiChartConfig EnsureValidSql(
+        AiChartConfig config,
+        ChartBaseline? baseline,
+        List<string> notes)
+    {
+        if (_sqlValidator.IsSelectOnly(config.SqlQuery, out var errorMessage))
+            return config;
+
+        var typeChanged = baseline is not null
+            && !string.Equals(config.ChartType, baseline.ChartType, StringComparison.OrdinalIgnoreCase);
+
+        if (baseline is not null
+            && !typeChanged
+            && _sqlValidator.IsSelectOnly(baseline.SqlQuery, out _))
+        {
+            notes.Add(
+                $"AI SQL failed validation ({errorMessage}); kept baseline SQL. Rejected SQL: {Truncate(config.SqlQuery, 240)}");
+            config.SqlQuery = baseline.SqlQuery;
+            return config;
+        }
+
+        throw new InvalidOperationException(
+            $"AI generated an invalid query: {errorMessage}. " +
+            $"chartType={config.ChartType}. SQL: {Truncate(config.SqlQuery, 400)}");
+    }
+
+    private static AiGenerationDebug BuildDebug(
+        AiChartResult aiResult,
+        AiChartConfig finalConfig,
+        List<string> notes) =>
+        new(
+            Truncate(aiResult.RawJson, 6000),
+            finalConfig.ChartType,
+            finalConfig.SqlQuery,
+            finalConfig.StyleConfig,
+            aiResult.FinishReason,
+            notes);
+
+    private static string Truncate(string? value, int max)
+    {
+        if (string.IsNullOrEmpty(value)) return value ?? "";
+        return value.Length <= max ? value : value[..max] + "…";
     }
 
     private async Task<DbProvider> GetDbProviderAsync(Guid connectionId, Guid userId, CancellationToken ct)

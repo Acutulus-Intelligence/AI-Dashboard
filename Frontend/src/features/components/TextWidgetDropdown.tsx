@@ -44,7 +44,7 @@ export default function TextWidgetDropdown({ onSelect }: TextWidgetDropdownProps
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-44 overflow-hidden rounded-xl border border-outline-variant bg-white shadow-lg">
+        <div className="absolute right-0 top-full z-50 mt-2 w-44 overflow-hidden rounded-xl border border-outline-variant bg-popover text-popover-foreground shadow-lg">
           <button
             type="button"
             onClick={() => { onSelect(TEXT_VARIANT.Header); setOpen(false); }}
