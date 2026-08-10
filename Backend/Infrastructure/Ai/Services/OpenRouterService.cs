@@ -35,7 +35,32 @@ public class OpenRouterService : IAiService
         CancellationToken ct = default)
     {
         var systemPrompt = BuildSystemPrompt(schemaJson, dbProvider, prefabChartType);
+        var config = await SendChatAsync(systemPrompt, prompt, ct);
 
+        if (string.IsNullOrEmpty(config.ChartType) || string.IsNullOrEmpty(config.SqlQuery))
+            throw new InvalidOperationException("AI response is missing required fields (chartType, sqlQuery).");
+
+        return FinalizeConfig(config);
+    }
+
+    public async Task<AiChartConfig> GenerateCollectionChartConfigAsync(
+        string schemaJson,
+        string prompt,
+        string? prefabChartType = null,
+        CancellationToken ct = default)
+    {
+        var systemPrompt = BuildCollectionSystemPrompt(schemaJson, prefabChartType);
+        var config = await SendChatAsync(systemPrompt, prompt, ct);
+
+        if (string.IsNullOrEmpty(config.ChartType) || config.DataModel is null)
+            throw new InvalidOperationException("AI response is missing required fields (chartType, dataModel).");
+
+        config.SqlQuery = string.Empty;
+        return FinalizeConfig(config);
+    }
+
+    private async Task<AiChartConfig> SendChatAsync(string systemPrompt, string prompt, CancellationToken ct)
+    {
         var requestBody = new
         {
             model = _settings.Model,
@@ -66,12 +91,12 @@ public class OpenRouterService : IAiService
         if (string.IsNullOrEmpty(content))
             throw new InvalidOperationException("AI returned an empty response.");
 
-        var config = JsonSerializer.Deserialize<AiChartConfig>(content)
+        return JsonSerializer.Deserialize<AiChartConfig>(content)
             ?? throw new InvalidOperationException("Failed to parse AI response as chart config.");
+    }
 
-        if (string.IsNullOrEmpty(config.ChartType) || string.IsNullOrEmpty(config.SqlQuery))
-            throw new InvalidOperationException("AI response is missing required fields (chartType, sqlQuery).");
-
+    private AiChartConfig FinalizeConfig(AiChartConfig config)
+    {
         if (!ChartCatalog.IsKnownType(config.ChartType))
             throw new InvalidOperationException(
                 $"AI returned unsupported chart type '{config.ChartType}'. " +
@@ -157,6 +182,78 @@ Rules:
             .Replace("__PALETTES__", string.Join(", ", ChartCatalog.Palettes.Select(p => p.Id)))
             .Replace("__TYPE_UNION__", string.Join(" | ", ChartCatalog.TypeIds.Select(id => $"\"{id}\"")))
             .Replace("__QUOTING_RULE__", quotingRule);
+    }
+
+    private static string BuildCollectionSystemPrompt(string schemaJson, string? prefabChartType)
+    {
+        var chartPreference = prefabChartType switch
+        {
+            not null => $"The user prefers the chart type: {prefabChartType}.",
+            null => "Choose the best chart type based on the data."
+        };
+
+        var template = @"
+You are a data visualization assistant. Given the schema of uploaded tabular data, generate a chart configuration.
+Return ONLY valid JSON — no markdown, no code fences, no extra text.
+
+Data schema (columns and their inferred types):
+__SCHEMA__
+
+__PREFERENCE__
+
+Available chart types, their variants and their adjustable parameters:
+__CATALOG__
+
+Available palettes: __PALETTES__
+
+This data lives in memory, not in a database. Do NOT generate SQL — instead build a structured query (dataModel) that is applied to the rows in memory.
+
+Return this exact JSON structure:
+{
+  ""chartType"": __TYPE_UNION__,
+  ""title"": ""string — concise chart title"",
+  ""xAxis"": ""column_name — the column used for labels / categories"",
+  ""yAxis"": [""column_name — columns used as values; must exist in the dataModel output""],
+  ""aggregation"": ""sum"" | ""avg"" | ""count"" | ""min"" | ""max"" | ""none"",
+  ""groupBy"": ""column_name | null — column to group by, or null"",
+  ""dataModel"": {
+    ""filters"": [
+      { ""column"": ""column_name"", ""operator"": ""eq""|""neq""|""gt""|""gte""|""lt""|""lte""|""contains""|""in""|""notin""|""isnull""|""isnotnull"", ""value"": ""string — raw filter value, e.g. a category name, number, or comma-separated list for in/notin"" }
+    ],
+    ""groupBy"": [""column_name — one or more group columns""],
+    ""aggregations"": [
+      { ""column"": ""column_name"", ""function"": ""count""|""sum""|""avg""|""min""|""max"" }
+    ],
+    ""orderBy"": [
+      { ""column"": ""column_name"", ""direction"": ""asc""|""desc"" }
+    ],
+    ""limit"": null
+  },
+  ""styleConfig"": {
+    ""variant"": ""one of the variant ids listed for the chosen chartType"",
+    ""palette"": ""one of the palette ids listed above"",
+    ""params"": { ""paramKey"": value }
+  }
+}
+
+Rules:
+- yAxis columns must be present in the dataModel output: groupBy columns plus aggregated columns. When an aggregation runs on a column, the output keeps the same column name.
+- Aggregated outputs reuse the source column name (e.g. SUM of ""amount"" produces a column named ""amount"").
+- For count with no obvious column, pick a column from the schema and function ""count"".
+- filters/orderBy column names must be from the schema; omit them when no filtering/ordering is meaningful.
+- Do NOT invent columns that are not in the schema.
+- If the data needs no grouping or aggregation, emit groupBy: [], aggregations: [], filters: [].
+- styleConfig.variant must be a variant of the chartType you chose; styleConfig.params may only use the parameter keys listed for that chartType
+- Omit styleConfig fields you have no opinion about rather than guessing
+- The JSON must be parseable and complete
+";
+
+        return template
+            .Replace("__SCHEMA__", schemaJson)
+            .Replace("__PREFERENCE__", chartPreference)
+            .Replace("__CATALOG__", DescribeCatalog())
+            .Replace("__PALETTES__", string.Join(", ", ChartCatalog.Palettes.Select(p => p.Id)))
+            .Replace("__TYPE_UNION__", string.Join(" | ", ChartCatalog.TypeIds.Select(id => $"\"{id}\"")));
     }
 
     /// <summary>

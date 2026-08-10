@@ -15,6 +15,7 @@ using Infrastructure.Ai.Services;
 using Infrastructure.Encryption;
 using Infrastructure.ExternalDb;
 using Infrastructure.ExternalDb.Services;
+using Infrastructure.Collections;
 using Infrastructure.Datasets;
 using Infrastructure.Payment;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -128,7 +129,9 @@ builder.Services.Configure<DatasetSettings>(builder.Configuration.GetSection(Dat
 builder.Services.AddSingleton<IDatasetFileParser, CsvFileParser>();
 builder.Services.AddSingleton<IDatasetFileParser, XlsxFileParser>();
 builder.Services.AddScoped<IDatasetQueryExecutor, SqliteDatasetExecutor>();
-builder.Services.AddScoped<IDatasetService, DatasetService>();
+builder.Services.AddScoped<IDataQueryExecutor, InMemoryDataQueryExecutor>();
+builder.Services.AddScoped<ICollectionAccessService, CollectionAccessService>();
+builder.Services.AddScoped<ICollectionService, CollectionService>();
 
 var corsOrigins = builder.Configuration
     .GetSection("Cors:AllowedOrigins")

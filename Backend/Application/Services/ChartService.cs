@@ -14,18 +14,24 @@ public class ChartService : IChartService
     private readonly IApplicationDbContext _db;
     private readonly IQueryExecutor _queryExecutor;
     private readonly IDatasetQueryExecutor _datasetQueryExecutor;
+    private readonly IDataQueryExecutor _dataQueryExecutor;
     private readonly IConnectionAccessService _access;
+    private readonly ICollectionAccessService _collectionAccess;
 
     public ChartService(
         IApplicationDbContext db,
         IQueryExecutor queryExecutor,
         IDatasetQueryExecutor datasetQueryExecutor,
-        IConnectionAccessService access)
+        IDataQueryExecutor dataQueryExecutor,
+        IConnectionAccessService access,
+        ICollectionAccessService collectionAccess)
     {
         _db = db;
         _queryExecutor = queryExecutor;
         _datasetQueryExecutor = datasetQueryExecutor;
+        _dataQueryExecutor = dataQueryExecutor;
         _access = access;
+        _collectionAccess = collectionAccess;
     }
 
     public async Task<ChartResponse> SaveChartAsync(Guid userId, SaveChartRequest request, CancellationToken ct = default)
@@ -43,11 +49,16 @@ public class ChartService : IChartService
 
         if (request.DatasetId.HasValue)
         {
-            var datasetExists = await _db.SavedDatasets
-                .AnyAsync(ds => ds.Id == request.DatasetId.Value && ds.UserId == userId, ct);
+            var dataset = await _db.SavedDatasets
+                .AsNoTracking()
+                .FirstOrDefaultAsync(ds => ds.Id == request.DatasetId.Value, ct);
 
-            if (!datasetExists)
+            if (dataset is null)
                 throw new KeyNotFoundException("Dataset not found.");
+
+            var canViewCollection = await _collectionAccess.CanViewAsync(dataset.CollectionId, userId, ct);
+            if (!canViewCollection)
+                throw new UnauthorizedAccessException("Dataset collection is not accessible to you.");
         }
 
         await EnsureUniqueTitleAsync(userId, request.Title, excludeId: null, ct);
@@ -66,6 +77,7 @@ public class ChartService : IChartService
             ConnectionId = request.ConnectionId,
             DatasetId = request.DatasetId,
             TableName = request.TableName,
+            DataModel = request.DataModel,
             StyleConfig = ChartStyleSanitizer.Sanitize(request.StyleConfig, request.ChartType),
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
@@ -156,16 +168,27 @@ public class ChartService : IChartService
         {
             var dataset = await _db.SavedDatasets
                 .AsNoTracking()
-                .FirstOrDefaultAsync(ds => ds.Id == chart.DatasetId.Value && ds.UserId == userId, ct)
+                .FirstOrDefaultAsync(ds => ds.Id == chart.DatasetId.Value, ct)
                 ?? throw new KeyNotFoundException("Dataset not found.");
 
-            result = await _datasetQueryExecutor.ExecuteAsync(
-                dataset.ColumnNames,
-                dataset.ColumnTypes,
-                DatasetRows.Decode(dataset),
-                dataset.TableName,
-                chart.SqlQuery,
-                ct);
+            var canViewCollection = await _collectionAccess.CanViewAsync(dataset.CollectionId, userId, ct);
+            if (!canViewCollection)
+                throw new UnauthorizedAccessException("Dataset collection is not accessible to you.");
+
+            var columnNames = dataset.ColumnNames;
+            var columnTypes = dataset.ColumnTypes;
+            var rows = DatasetRows.Decode(dataset);
+
+            if (chart.DataModel is not null)
+            {
+                result = await _dataQueryExecutor.ExecuteAsync(
+                    columnNames, columnTypes, rows, chart.DataModel, ct);
+            }
+            else
+            {
+                result = await _datasetQueryExecutor.ExecuteAsync(
+                    columnNames, columnTypes, rows, dataset.TableName, chart.SqlQuery, ct);
+            }
         }
         else
         {

@@ -8,6 +8,7 @@ import {
   CheckCircle,
   ChevronRight,
   Database,
+  Folder,
   Info,
   Loader2,
   Sparkles,
@@ -35,8 +36,15 @@ import {
   getTablePreview,
   type ConnectionResponse,
   type TableInfo,
-  type TablePreview,
 } from '../../services/connectionsApi';
+import {
+  generateCollectionChart,
+  getCollection,
+  getCollectionFile,
+  getCollections,
+  type CollectionFileResponse,
+  type CollectionResponse,
+} from '../../services/collectionsApi';
 import { generateChart, type ChartConfigResponse } from '../../services/graphsApi';
 import ChartRenderer from '../charts/ChartRenderer';
 import { DEFAULT_COMPANY_COLORS } from '../charts/companyColors';
@@ -49,6 +57,16 @@ import AppShell from '../layouts/AppShell';
 import type { Crumb } from '../layouts/AppHeader';
 import { ROUTES } from '../routes';
 import { useAuth } from '../store/useAuth';
+
+interface PreviewColumn {
+  columnName: string;
+  dataType: string;
+  isNullable?: boolean;
+}
+
+interface PreviewData {
+  columns: PreviewColumn[];
+}
 
 type Mode = 'prompt' | 'prefab' | 'auto';
 type WizardStep = 'pick-connection' | 'pick-table' | 'generate';
@@ -70,9 +88,13 @@ const MODES: { id: Mode; icon: typeof Sparkles; label: string; desc: string }[] 
 interface LocationState {
   connectionId?: string;
   table?: string;
+  collectionId?: string;
+  fileId?: string;
   fromConnections?: boolean;
   fromCharts?: boolean;
 }
+
+type SourceType = 'connection' | 'collection';
 
 export default function GraphCreationPage() {
   const location = useLocation();
@@ -86,20 +108,33 @@ export default function GraphCreationPage() {
   const isCompanyUser = user?.userType === 1;
 
   const [step, setStep] = useState<WizardStep>(() =>
-    routeChartId || (navState?.connectionId && navState?.table)
+    routeChartId ||
+    (navState?.connectionId && navState?.table) ||
+    (navState?.collectionId && navState?.fileId)
       ? 'generate'
       : 'pick-connection',
+  );
+  const [sourceType, setSourceType] = useState<SourceType>(() =>
+    navState?.collectionId ? 'collection' : 'connection',
   );
   const [connectionId, setConnectionId] = useState(navState?.connectionId ?? '');
   const [tableName, setTableName] = useState(navState?.table ?? '');
   const [connectionName, setConnectionName] = useState('');
+  const [collectionId, setCollectionId] = useState(navState?.collectionId ?? '');
+  const [fileId, setFileId] = useState(navState?.fileId ?? '');
+  const [collectionName, setCollectionName] = useState('');
+  const [fileName, setFileName] = useState('');
 
   const [connections, setConnections] = useState<ConnectionResponse[]>([]);
   const [connectionsLoading, setConnectionsLoading] = useState(false);
+  const [collections, setCollections] = useState<CollectionResponse[]>([]);
+  const [collectionsLoading, setCollectionsLoading] = useState(false);
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [tablesLoading, setTablesLoading] = useState(false);
+  const [files, setFiles] = useState<CollectionFileResponse[]>([]);
+  const [filesLoading, setFilesLoading] = useState(false);
 
-  const [preview, setPreview] = useState<TablePreview | null>(null);
+  const [preview, setPreview] = useState<PreviewData | null>(null);
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<Mode>('auto');
   const [prompt, setPrompt] = useState('');
@@ -154,6 +189,10 @@ export default function GraphCreationPage() {
         if (cancelled) return;
         setConnectionId(detail.connectionId ?? '');
         setTableName(detail.tableName ?? '');
+        if (detail.datasetId) {
+          setSourceType('collection');
+          setFileId(detail.datasetId);
+        }
         setSavedChartId(detail.id);
         setResult(executed);
         setEditableTitle(executed.title);
@@ -185,40 +224,90 @@ export default function GraphCreationPage() {
         setError('Failed to load connections.');
       })
       .finally(() => setConnectionsLoading(false));
+
+    setCollectionsLoading(true);
+    getCollections()
+      .then(setCollections)
+      .catch(() => {
+        setCollections([]);
+        setError('Failed to load collections.');
+      })
+      .finally(() => setCollectionsLoading(false));
   }, [step]);
 
   useEffect(() => {
-    if (step !== 'pick-table' || !connectionId) return;
-    setTablesLoading(true);
-    getTables(connectionId)
-      .then(setTables)
-      .catch(() => {
-        setTables([]);
-        setError('Failed to load tables.');
-      })
-      .finally(() => setTablesLoading(false));
-  }, [step, connectionId]);
+    if (step !== 'pick-table') return;
+    if (sourceType === 'connection') {
+      if (!connectionId) return;
+      setTablesLoading(true);
+      getTables(connectionId)
+        .then(setTables)
+        .catch(() => {
+          setTables([]);
+          setError('Failed to load tables.');
+        })
+        .finally(() => setTablesLoading(false));
+    } else {
+      if (!collectionId) return;
+      setFilesLoading(true);
+      getCollection(collectionId)
+        .then((d) => setFiles(d.files))
+        .catch(() => {
+          setFiles([]);
+          setError('Failed to load collection files.');
+        })
+        .finally(() => setFilesLoading(false));
+    }
+  }, [step, sourceType, connectionId, collectionId]);
 
   useEffect(() => {
     if (isEditingExisting) return;
-    if (step !== 'generate' || !connectionId || !tableName) return;
+    if (step !== 'generate') return;
     setLoading(true);
     setError('');
-    getTablePreview(connectionId, tableName)
-      .then(setPreview)
-      .catch(() => setError('Failed to load table schema'))
+
+    const task =
+      sourceType === 'connection'
+        ? connectionId && tableName
+          ? getTablePreview(connectionId, tableName).then((p): PreviewData => ({
+              columns: p.columns.map((c) => ({
+                columnName: c.columnName,
+                dataType: c.dataType,
+                isNullable: c.isNullable,
+              })),
+            }))
+          : Promise.resolve(null)
+        : fileId
+          ? getCollectionFile(collectionId, fileId).then((f): PreviewData => ({
+              columns: f.columns.map((c) => ({ columnName: c.name, dataType: c.type })),
+            }))
+          : Promise.resolve(null);
+
+    task
+      .then((previewData) => {
+        if (previewData) setPreview(previewData);
+      })
+      .catch((err: unknown) =>
+        setError(err instanceof Error ? err.message : 'Failed to load schema'),
+      )
       .finally(() => setLoading(false));
-  }, [step, connectionId, tableName, isEditingExisting]);
+  }, [step, sourceType, connectionId, tableName, collectionId, fileId, isEditingExisting]);
 
   useEffect(() => {
-    if (!connectionId || connectionName) return;
-    getConnections()
-      .then((list) => {
-        const found = list.find((c) => c.id === connectionId);
-        if (found) setConnectionName(found.name);
-      })
-      .catch(() => {});
-  }, [connectionId, connectionName]);
+    if (!connectionName && connectionId) {
+      getConnections()
+        .then((list) => {
+          const found = list.find((c) => c.id === connectionId);
+          if (found) setConnectionName(found.name);
+        })
+        .catch(() => {});
+    }
+    if (sourceType === 'collection' && !collectionName && collectionId) {
+      getCollection(collectionId)
+        .then((d) => setCollectionName(d.name))
+        .catch(() => {});
+    }
+  }, [connectionId, connectionName, collectionId, collectionName, sourceType]);
 
   const chartData = useMemo(() => (result ? transformResult(result) : null), [result]);
   const descriptor = result ? get(result.chartType) : undefined;
@@ -260,23 +349,54 @@ export default function GraphCreationPage() {
       ? [{ label: 'Charts', to: ROUTES.CHARTS }, { label: 'New chart' }]
       : [{ label: 'New chart' }];
     if (step === 'pick-table' || step === 'generate') {
-      crumbs.push({ label: connectionName || 'Database' });
+      crumbs.push({ label: sourceType === 'collection' ? collectionName || 'Collection' : connectionName || 'Database' });
     }
-    if (step === 'generate' && tableName) {
-      crumbs.push({ label: tableName });
+    if (step === 'generate' && (tableName || fileName)) {
+      crumbs.push({ label: fileName || tableName });
     }
     return crumbs;
-  }, [isEditingExisting, fromCharts, editableTitle, step, connectionName, tableName]);
+  }, [isEditingExisting, fromCharts, editableTitle, step, connectionName, collectionName, sourceType, tableName, fileName]);
 
   function selectConnection(conn: ConnectionResponse) {
+    setSourceType('connection');
     setConnectionId(conn.id);
     setConnectionName(conn.name);
     setTableName('');
     setTables([]);
+    setCollectionId('');
+    setFileId('');
     setPreview(null);
     setResult(null);
     setError('');
     setStep('pick-table');
+  }
+
+  function selectCollection(coll: CollectionResponse) {
+    setSourceType('collection');
+    setCollectionId(coll.id);
+    setCollectionName(coll.name);
+    setFileId('');
+    setFiles([]);
+    setConnectionId('');
+    setTableName('');
+    setPreview(null);
+    setResult(null);
+    setError('');
+    setStep('pick-table');
+  }
+
+  function selectFile(file: CollectionFileResponse) {
+    setFileId(file.id);
+    setFileName(file.name);
+    setPreview(null);
+    setResult(null);
+    setEditableTitle('');
+    setEditingTitle(false);
+    setSavedChartId(null);
+    setSavedStyleSnapshot(null);
+    setSavedTitleSnapshot(null);
+    setError('');
+    setStep('generate');
   }
 
   function selectTable(table: string) {
@@ -299,23 +419,23 @@ export default function GraphCreationPage() {
     }
     if (step === 'generate') {
       if (fromConnections) {
-        navigate(ROUTES.CONNECTIONS, { state: { expandConnectionId: connectionId } });
+        navigate(sourceType === 'collection' ? ROUTES.CONNECTIONS : ROUTES.CONNECTIONS, {
+          state: sourceType === 'connection' ? { expandConnectionId: connectionId } : undefined,
+        });
         return;
       }
-      setResult(null);
-      setEditableTitle('');
-      setEditingTitle(false);
-      setStyleConfig({});
-      setSavedChartId(null);
-      setSavedStyleSnapshot(null);
-      setSavedTitleSnapshot(null);
-      setPreview(null);
+      resetResult();
       setStep('pick-table');
       return;
     }
     if (step === 'pick-table') {
-      setTableName('');
-      setTables([]);
+      if (sourceType === 'collection') {
+        setFileId('');
+        setFileName('');
+      } else {
+        setTableName('');
+        setTables([]);
+      }
       setStep('pick-connection');
       return;
     }
@@ -325,6 +445,8 @@ export default function GraphCreationPage() {
   }
 
   async function handleGenerate() {
+    if (sourceType === 'collection' && (!collectionId || !fileId)) return;
+    if (sourceType === 'connection' && (!connectionId || !tableName)) return;
     setError('');
     setGenerating(true);
     setSavedChartId(null);
@@ -332,13 +454,20 @@ export default function GraphCreationPage() {
     setSavedTitleSnapshot(null);
     setEditingTitle(false);
     try {
-      const res = await generateChart({
-        connectionId,
-        tableName,
-        prompt: mode === 'prompt' ? prompt : undefined,
-        prefabChartType: mode === 'prefab' ? prefabType : undefined,
-        mode,
-      });
+      const res =
+        sourceType === 'collection'
+          ? await generateCollectionChart(collectionId, fileId, {
+              prompt: mode === 'prompt' ? prompt : undefined,
+              prefabChartType: mode === 'prefab' ? prefabType : undefined,
+              mode,
+            })
+          : await generateChart({
+              connectionId,
+              tableName,
+              prompt: mode === 'prompt' ? prompt : undefined,
+              prefabChartType: mode === 'prefab' ? prefabType : undefined,
+              mode,
+            });
       setResult(res);
       setEditableTitle(res.title);
       setStyleConfig(res.styleConfig ?? {});
@@ -381,8 +510,10 @@ export default function GraphCreationPage() {
           aggregation: result.aggregation,
           groupBy: result.groupBy,
           sqlQuery: result.sqlQuery,
-          connectionId,
-          tableName,
+          connectionId: sourceType === 'connection' ? connectionId : null,
+          tableName: sourceType === 'connection' ? tableName : null,
+          datasetId: sourceType === 'collection' ? fileId : (result.dataModel ? undefined : null),
+          dataModel: result.dataModel ?? null,
           styleConfig,
         });
         // Re-fetch so we keep the same sanitized style the dashboard will render.
@@ -440,15 +571,21 @@ export default function GraphCreationPage() {
           </h1>
           <p className="text-muted-foreground text-sm">
             {isEditingExisting && (editableTitle || 'Update title, style and appearance.')}
-            {!isEditingExisting && step === 'pick-connection' && 'Choose a database to visualize.'}
-            {!isEditingExisting && step === 'pick-table' && (
+            {!isEditingExisting && step === 'pick-connection' && 'Choose a data source to visualize.'}
+            {!isEditingExisting && step === 'pick-table' && sourceType === 'connection' && (
               <>
                 Tables in <span className="text-foreground font-medium">{connectionName || 'database'}</span>
               </>
             )}
+            {!isEditingExisting && step === 'pick-table' && sourceType === 'collection' && (
+              <>
+                Files in <span className="text-foreground font-medium">{collectionName || 'collection'}</span>
+              </>
+            )}
             {!isEditingExisting && step === 'generate' && (
               <>
-                Table <span className="text-foreground font-medium">{tableName}</span>
+                {sourceType === 'collection' ? 'File' : 'Table'}{' '}
+                <span className="text-foreground font-medium">{fileName || tableName}</span>
               </>
             )}
           </p>
@@ -468,81 +605,162 @@ export default function GraphCreationPage() {
       )}
 
       {step === 'pick-connection' && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {connectionsLoading && (
-            <p className="text-muted-foreground col-span-full text-sm">Loading databases…</p>
-          )}
-          {!connectionsLoading &&
-            connections.map((conn) => (
-              <button
-                key={conn.id}
-                type="button"
-                onClick={() => selectConnection(conn)}
-                className="border-border bg-card hover:border-primary/40 hover:bg-muted/40 flex cursor-pointer flex-col gap-3 rounded-xl border p-5 text-left transition-colors"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="bg-primary/10 text-primary flex size-10 items-center justify-center rounded-lg">
-                    <Database className="size-5" />
-                  </div>
-                  {conn.isVerified ? (
-                    <CheckCircle className="size-4 text-green-600" />
-                  ) : (
-                    <XCircle className="size-4 text-red-400" />
-                  )}
-                </div>
-                <div>
-                  <p className="font-semibold">{conn.name}</p>
-                  <p className="text-muted-foreground text-sm">
-                    {conn.dbProvider === 'PostgreSql' ? 'PostgreSQL' : 'MySQL'}
-                  </p>
-                </div>
-                <span className="text-muted-foreground flex items-center gap-1 text-xs">
-                  Browse tables <ChevronRight className="size-3.5" />
-                </span>
-              </button>
-            ))}
-          {!connectionsLoading && connections.length === 0 && (
-            <Card className="col-span-full">
-              <CardHeader>
-                <CardTitle>No databases yet</CardTitle>
-                <CardDescription>
-                  Ask an admin to add a connection, or open Settings / Admin settings if you manage
-                  connections.
-                </CardDescription>
-              </CardHeader>
-            </Card>
-          )}
+        <div className="grid gap-6">
+          <div>
+            <h2 className="text-muted-foreground mb-2 text-xs font-semibold uppercase tracking-wide">
+              Database connections
+            </h2>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {connectionsLoading && (
+                <p className="text-muted-foreground col-span-full text-sm">Loading databases…</p>
+              )}
+              {!connectionsLoading &&
+                connections.map((conn) => (
+                  <button
+                    key={conn.id}
+                    type="button"
+                    onClick={() => selectConnection(conn)}
+                    className="border-border bg-card hover:border-primary/40 hover:bg-muted/40 flex cursor-pointer flex-col gap-3 rounded-xl border p-5 text-left transition-colors"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="bg-primary/10 text-primary flex size-10 items-center justify-center rounded-lg">
+                        <Database className="size-5" />
+                      </div>
+                      {conn.isVerified ? (
+                        <CheckCircle className="size-4 text-green-600" />
+                      ) : (
+                        <XCircle className="size-4 text-red-400" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="font-semibold">{conn.name}</p>
+                      <p className="text-muted-foreground text-sm">
+                        {conn.dbProvider === 'PostgreSql' ? 'PostgreSQL' : 'MySQL'}
+                      </p>
+                    </div>
+                    <span className="text-muted-foreground flex items-center gap-1 text-xs">
+                      Browse tables <ChevronRight className="size-3.5" />
+                    </span>
+                  </button>
+                ))}
+              {!connectionsLoading && connections.length === 0 && (
+                <p className="text-muted-foreground col-span-full text-sm">
+                  No database connections yet. Ask an admin to add one.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <h2 className="text-muted-foreground mb-2 text-xs font-semibold uppercase tracking-wide">
+              Data collections
+            </h2>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {collectionsLoading && (
+                <p className="text-muted-foreground col-span-full text-sm">Loading collections…</p>
+              )}
+              {!collectionsLoading &&
+                collections.map((coll) => (
+                  <button
+                    key={coll.id}
+                    type="button"
+                    onClick={() => selectCollection(coll)}
+                    className="border-border bg-card hover:border-brand/40 hover:bg-muted/40 flex cursor-pointer flex-col gap-3 rounded-xl border p-5 text-left transition-colors"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="bg-brand/10 text-brand flex size-10 items-center justify-center rounded-lg">
+                        <Folder className="size-5" />
+                      </div>
+                      <span className="text-muted-foreground text-xs">
+                        {coll.fileCount} file{coll.fileCount === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                    <div>
+                      <p className="font-semibold">{coll.name}</p>
+                      <p className="text-muted-foreground text-sm">
+                        {coll.description || `${coll.rowCount.toLocaleString()} rows`}
+                      </p>
+                    </div>
+                    <span className="text-muted-foreground flex items-center gap-1 text-xs">
+                      Browse files <ChevronRight className="size-3.5" />
+                    </span>
+                  </button>
+                ))}
+              {!collectionsLoading && collections.length === 0 && (
+                <p className="text-muted-foreground col-span-full text-sm">
+                  No data collections yet. Add one on the Connections page.
+                </p>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
       {step === 'pick-table' && (
         <Card>
           <CardHeader>
-            <CardTitle>Tables</CardTitle>
-            <CardDescription>Pick a table to generate a chart from.</CardDescription>
+            <CardTitle>{sourceType === 'collection' ? 'Files' : 'Tables'}</CardTitle>
+            <CardDescription>
+              {sourceType === 'collection'
+                ? 'Pick a file in this collection to generate a chart from.'
+                : 'Pick a table to generate a chart from.'}
+            </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-2">
-            {tablesLoading && <p className="text-muted-foreground text-sm">Loading tables…</p>}
-            {!tablesLoading &&
-              tables.map((t) => (
-                <button
-                  key={t.tableName}
-                  type="button"
-                  onClick={() => selectTable(t.tableName)}
-                  className="hover:bg-muted flex w-full cursor-pointer items-center justify-between rounded-lg border px-4 py-3 text-left transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <Table2 className="text-brand size-4" />
-                    <div>
-                      <p className="font-medium">{t.tableName}</p>
-                      <p className="text-muted-foreground text-xs">{t.columns.length} columns</p>
-                    </div>
-                  </div>
-                  <ChevronRight className="text-muted-foreground size-4" />
-                </button>
-              ))}
-            {!tablesLoading && tables.length === 0 && (
-              <p className="text-muted-foreground text-sm">No tables found in this database.</p>
+            {sourceType === 'connection' && (
+              <>
+                {tablesLoading && <p className="text-muted-foreground text-sm">Loading tables…</p>}
+                {!tablesLoading &&
+                  tables.map((t) => (
+                    <button
+                      key={t.tableName}
+                      type="button"
+                      onClick={() => selectTable(t.tableName)}
+                      className="hover:bg-muted flex w-full cursor-pointer items-center justify-between rounded-lg border px-4 py-3 text-left transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Table2 className="text-brand size-4" />
+                        <div>
+                          <p className="font-medium">{t.tableName}</p>
+                          <p className="text-muted-foreground text-xs">{t.columns.length} columns</p>
+                        </div>
+                      </div>
+                      <ChevronRight className="text-muted-foreground size-4" />
+                    </button>
+                  ))}
+                {!tablesLoading && tables.length === 0 && (
+                  <p className="text-muted-foreground text-sm">No tables found in this database.</p>
+                )}
+              </>
+            )}
+            {sourceType === 'collection' && (
+              <>
+                {filesLoading && <p className="text-muted-foreground text-sm">Loading files…</p>}
+                {!filesLoading &&
+                  files.map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => selectFile(f)}
+                      className="hover:bg-muted flex w-full cursor-pointer items-center justify-between rounded-lg border px-4 py-3 text-left transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Table2 className="text-brand size-4" />
+                        <div>
+                          <p className="font-medium">{f.name}</p>
+                          <p className="text-muted-foreground text-xs">
+                            {f.columnCount} column{f.columnCount === 1 ? '' : 's'} ·{' '}
+                            {f.rowCount.toLocaleString()} rows
+                          </p>
+                        </div>
+                      </div>
+                      <ChevronRight className="text-muted-foreground size-4" />
+                    </button>
+                  ))}
+                {!filesLoading && files.length === 0 && (
+                  <p className="text-muted-foreground text-sm">No files found in this collection.</p>
+                )}
+              </>
             )}
           </CardContent>
         </Card>
@@ -730,14 +948,20 @@ export default function GraphCreationPage() {
                     />
                   </div>
 
-                  <details className="mt-4">
-                    <summary className="text-muted-foreground hover:text-foreground cursor-pointer text-sm font-medium">
-                      Show SQL
-                    </summary>
-                    <pre className="bg-muted mt-2 overflow-x-auto rounded-lg p-3 text-xs">
-                      {result.sqlQuery}
-                    </pre>
-                  </details>
+                  {result.sqlQuery ? (
+                    <details className="mt-4">
+                      <summary className="text-muted-foreground hover:text-foreground cursor-pointer text-sm font-medium">
+                        Show SQL
+                      </summary>
+                      <pre className="bg-muted mt-2 overflow-x-auto rounded-lg p-3 text-xs">
+                        {result.sqlQuery}
+                      </pre>
+                    </details>
+                  ) : (
+                    <p className="text-muted-foreground mt-4 text-xs">
+                      Generated from an uploaded data file via a query model.
+                    </p>
+                  )}
 
                   <div className="mt-6 flex flex-wrap gap-2">
                     {!savedChartId && (

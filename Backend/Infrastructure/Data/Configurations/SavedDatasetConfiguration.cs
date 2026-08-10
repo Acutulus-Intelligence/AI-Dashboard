@@ -32,11 +32,11 @@ public class SavedDatasetConfiguration : IEntityTypeConfiguration<SavedDataset>
         builder.Property(ds => ds.RowCount)
             .IsRequired();
 
-        builder.HasOne(ds => ds.User)
-            .WithMany()
-            .HasForeignKey(ds => ds.UserId)
+        builder.HasOne(ds => ds.Collection)
+            .WithMany(c => c.Files)
+            .HasForeignKey(ds => ds.CollectionId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        builder.HasIndex(ds => new { ds.UserId, ds.Name }).IsUnique();
+        builder.HasIndex(ds => new { ds.CollectionId, ds.Name }).IsUnique();
     }
 }

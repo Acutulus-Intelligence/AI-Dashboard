@@ -46,6 +46,7 @@ import {
   type TableInfo,
   type UpdateConnectionRequest,
 } from '../../services/connectionsApi';
+import CollectionsSection from '../sections/CollectionsSection';
 
 const DB_PROVIDERS = [
   { value: 'PostgreSql', label: 'PostgreSQL' },
@@ -166,6 +167,7 @@ export default function ConnectionsPage() {
   const realConnectionStringRef = useRef('');
   const [validateState, setValidateState] = useState<{ ok: boolean; text: string } | null>(null);
   const [validating, setValidating] = useState(false);
+  const [activeTab, setActiveTab] = useState<'connections' | 'collections'>('connections');
 
   const isOwner = isCompany && company !== null && user?.userId === company.ownerId;
   const me = users.find((u) => u.id === user?.userId);
@@ -537,6 +539,39 @@ export default function ConnectionsPage() {
         )}
       </div>
 
+      <div className="mt-6 flex gap-1 border-b">
+        <button
+          type="button"
+          onClick={() => setActiveTab('connections')}
+          className={cn(
+            'cursor-pointer border-b-2 px-4 pb-2 text-sm font-medium transition-colors',
+            activeTab === 'connections'
+              ? 'border-brand text-foreground'
+              : 'border-transparent text-muted-foreground hover:text-foreground',
+          )}
+        >
+          Database connections
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('collections')}
+          className={cn(
+            'cursor-pointer border-b-2 px-4 pb-2 text-sm font-medium transition-colors',
+            activeTab === 'collections'
+              ? 'border-brand text-foreground'
+              : 'border-transparent text-muted-foreground hover:text-foreground',
+          )}
+        >
+          Data collections
+        </button>
+      </div>
+
+      {activeTab === 'collections' ? (
+        <div className="mt-4">
+          <CollectionsSection canManage={canManageConnections} isCompany={isCompany} roles={roles} />
+        </div>
+      ) : (
+        <>
       {loadError && (
         <div className="bg-destructive/10 text-destructive mt-4 rounded-lg p-3 text-sm">{loadError}</div>
       )}
@@ -854,6 +889,8 @@ export default function ConnectionsPage() {
           </div>
         )}
       </div>
+        </>
+      )}
 
       <ConfirmDialog
         open={!!deleteTarget}

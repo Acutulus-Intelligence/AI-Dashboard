@@ -14,6 +14,7 @@ public interface IApplicationDbContext
     DbSet<ExternalConnection> ExternalConnections { get; }
     DbSet<SavedChart> SavedCharts { get; }
     DbSet<SavedDataset> SavedDatasets { get; }
+    DbSet<DataCollection> DataCollections { get; }
     DbSet<RefreshToken> RefreshTokens { get; }
     DbSet<SubscriptionPlan> SubscriptionPlans { get; }
     DbSet<UserSubscription> UserSubscriptions { get; }

@@ -10,6 +10,7 @@ export interface ChartConfigResponse {
   sqlQuery: string;
   queryResult: Record<string, unknown>[];
   styleConfig?: import('../features/charts/types').ChartStyleConfig | null;
+  dataModel?: import('../lib/api/charts').DataQueryModel | null;
 }
 
 export interface GenerateChartRequest {

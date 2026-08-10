@@ -1,15 +1,15 @@
 namespace Domain.Models;
 
 /// <summary>
-/// User-uploaded tabular data (currently CSV; XLSX later). Rows are stored
-/// row-major as a JSON string so the same shape can back charts without a
-/// database connection.
+/// One uploaded tabular file inside a <see cref="DataCollection"/> (CSV or
+/// XLSX). Rows are stored row-major as a JSON string so the same shape can back
+/// charts without a database connection.
 /// </summary>
 public class SavedDataset
 {
     public Guid Id { get; set; }
-    public Guid UserId { get; set; }
-    public User User { get; set; } = null!;
+    public Guid CollectionId { get; set; }
+    public DataCollection Collection { get; set; } = null!;
     public string Name { get; set; } = string.Empty;
 
     /// <summary>Sanitized identifier used as the table name in generated SQL.</summary>

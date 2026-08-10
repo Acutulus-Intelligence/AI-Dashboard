@@ -1,4 +1,5 @@
 using Domain.Charts;
+using Domain.Models;
 
 namespace Application.DTos.Response;
 
@@ -15,5 +16,6 @@ public sealed record ChartDetailResponse(
     Guid? DatasetId,
     string? TableName,
     DateTime CreatedAt,
-    ChartStyleConfig? StyleConfig = null
+    ChartStyleConfig? StyleConfig = null,
+    DataQueryModel? DataModel = null
 );

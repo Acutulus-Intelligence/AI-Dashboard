@@ -43,36 +43,45 @@ public sealed class XlsxDatasetRoutesTests
         return content;
     }
 
+    private static async Task<Guid> CreateCollectionAsync(HttpClient client, string name)
+    {
+        var response = await client.PostAsJsonAsync("/api/collections", new { Name = name });
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return doc.RootElement.GetProperty("id").GetGuid();
+    }
+
     [Fact]
-    public async Task Xlsx_upload_list_detail_generate_save_execute_delete_happy_path()
+    public async Task Xlsx_upload_generate_save_execute_delete_happy_path()
     {
         var client = CreateClient();
         var email = $"dsx_{Guid.NewGuid():N}@example.com";
         await client.RegisterAndLoginAsync(email);
         await _factory.SeedActiveSubscriptionAsync(email);
 
+        var collectionId = await CreateCollectionAsync(client, "Uploads");
+
         using var upload = await client.PostAsync(
-            "/api/datasets/upload",
+            $"/api/collections/{collectionId}/files",
             Upload("sales.xlsx", BuildSalesWorkbook()));
         upload.StatusCode.Should().Be(HttpStatusCode.OK);
 
         using var uploadDoc = JsonDocument.Parse(await upload.Content.ReadAsStringAsync());
-        var datasetId = uploadDoc.RootElement.GetProperty("id").GetGuid();
+        var fileId = uploadDoc.RootElement.GetProperty("id").GetGuid();
         uploadDoc.RootElement.GetProperty("name").GetString().Should().Be("sales");
         uploadDoc.RootElement.GetProperty("rowCount").GetInt32().Should().Be(3);
 
-        var detail = await client.GetAsync($"/api/datasets/{datasetId}");
+        var detail = await client.GetAsync($"/api/collections/{collectionId}/files/{fileId}");
         detail.StatusCode.Should().Be(HttpStatusCode.OK);
         using var detailDoc = JsonDocument.Parse(await detail.Content.ReadAsStringAsync());
         detailDoc.RootElement.GetProperty("columns").GetArrayLength().Should().Be(2);
 
         var generate = await client.PostAsJsonAsync(
-            $"/api/datasets/{datasetId}/generate",
+            $"/api/collections/{collectionId}/files/{fileId}/generate",
             new { Prompt = "Show sales by category", PrefabChartType = (string?)null, Mode = "auto" });
         generate.StatusCode.Should().Be(HttpStatusCode.OK);
         using var genDoc = JsonDocument.Parse(await generate.Content.ReadAsStringAsync());
         genDoc.RootElement.GetProperty("queryResult").GetArrayLength().Should().Be(2);
-        var sql = genDoc.RootElement.GetProperty("sqlQuery").GetString();
 
         var saveChart = await client.PostAsJsonAsync("/api/charts", new
         {
@@ -82,10 +91,18 @@ public sealed class XlsxDatasetRoutesTests
             YAxis = new[] { "amount" },
             Aggregation = "sum",
             GroupBy = "category",
-            SqlQuery = sql,
+            SqlQuery = "",
             ConnectionId = (Guid?)null,
-            DatasetId = datasetId,
-            TableName = "sales"
+            DatasetId = fileId,
+            TableName = "sales",
+            DataModel = new
+            {
+                Filters = Array.Empty<object>(),
+                GroupBy = new[] { "category" },
+                Aggregations = new[] { new { Column = "amount", Function = "sum" } },
+                OrderBy = new[] { new { Column = "amount", Direction = "desc" } },
+                Limit = 10
+            }
         });
         saveChart.StatusCode.Should().Be(HttpStatusCode.OK);
         using var chartDoc = JsonDocument.Parse(await saveChart.Content.ReadAsStringAsync());
@@ -96,9 +113,10 @@ public sealed class XlsxDatasetRoutesTests
         using var executeDoc = JsonDocument.Parse(await execute.Content.ReadAsStringAsync());
         executeDoc.RootElement.GetProperty("queryResult").GetArrayLength().Should().Be(2);
 
-        var delete = await client.DeleteAsync($"/api/datasets/{datasetId}");
-        delete.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        var deleteFile = await client.DeleteAsync($"/api/collections/{collectionId}/files/{fileId}");
+        deleteFile.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
-        (await client.GetAsync($"/api/datasets/{datasetId}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var delete = await client.DeleteAsync($"/api/collections/{collectionId}");
+        delete.StatusCode.Should().Be(HttpStatusCode.NoContent);
     }
 }

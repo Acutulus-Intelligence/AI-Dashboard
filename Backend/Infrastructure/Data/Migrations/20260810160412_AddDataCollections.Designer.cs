@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Infrastructure.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260810160412_AddDataCollections")]
+    partial class AddDataCollections
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -346,10 +349,6 @@ namespace Infrastructure.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.PrimitiveCollection<List<Guid>>("AllowedRoleIds")
-                        .IsRequired()
-                        .HasColumnType("uuid[]");
-
                     b.Property<Guid?>("CompanyId")
                         .HasColumnType("uuid");
 
@@ -368,20 +367,15 @@ namespace Infrastructure.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
-                    b.Property<string>("Visibility")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
                     b.HasKey("Id");
 
                     b.HasIndex("CompanyId", "Name")
                         .IsUnique()
-                        .HasFilter("\"CompanyId\" IS NOT NULL AND \"Visibility\" <> 'Private'");
+                        .HasFilter("\"CompanyId\" IS NOT NULL");
 
                     b.HasIndex("CreatedById", "Name")
                         .IsUnique()
-                        .HasFilter("\"CompanyId\" IS NULL OR \"Visibility\" = 'Private'");
+                        .HasFilter("\"CompanyId\" IS NULL");
 
                     b.ToTable("data_collections", (string)null);
                 });

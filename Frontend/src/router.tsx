@@ -11,7 +11,6 @@ import { ROUTES } from './features/routes';
 const LandingPage = lazy(() => import('./features/pages/LandingPage'));
 const DashboardPage = lazy(() => import('./features/pages/DashboardPage'));
 const ConnectionsPage = lazy(() => import('./features/pages/ConnectionsPage'));
-const DatasetsPage = lazy(() => import('./features/pages/DatasetsPage'));
 const ChartsPage = lazy(() => import('./features/pages/ChartsPage'));
 const GraphCreationPage = lazy(() => import('./features/pages/GraphCreationPage'));
 const AdminPage = lazy(() => import('./features/pages/AdminPage'));
@@ -127,7 +126,6 @@ export default function Router() {
                 }
               />
               <Route path={ROUTES.CONNECTIONS} element={<ProtectedRoute><LazyPage><ConnectionsPage /></LazyPage></ProtectedRoute>} />
-              <Route path={ROUTES.DATASETS} element={<ProtectedRoute><LazyPage><DatasetsPage /></LazyPage></ProtectedRoute>} />
               <Route path={ROUTES.CHARTS} element={<ProtectedRoute><LazyPage><ChartsPage /></LazyPage></ProtectedRoute>} />
               <Route path={ROUTES.GRAPHS_NEW} element={<ProtectedRoute><LazyPage><GraphCreationPage /></LazyPage></ProtectedRoute>} />
               <Route path={ROUTES.GRAPHS_EDIT} element={<ProtectedRoute><LazyPage><GraphCreationPage /></LazyPage></ProtectedRoute>} />

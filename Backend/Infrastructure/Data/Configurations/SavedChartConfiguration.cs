@@ -49,6 +49,13 @@ public class SavedChartConfiguration : IEntityTypeConfiguration<SavedChart>
                 v => v == null ? null : JsonSerializer.Serialize(v, StyleConfigJson),
                 v => v == null ? null : JsonSerializer.Deserialize<ChartStyleConfig>(v, StyleConfigJson));
 
+        // Structured query for dataset-backed charts (instead of SqlQuery).
+        builder.Property(sc => sc.DataModel)
+            .HasColumnType("jsonb")
+            .HasConversion(
+                v => v == null ? null : JsonSerializer.Serialize(v, StyleConfigJson),
+                v => v == null ? null : JsonSerializer.Deserialize<DataQueryModel>(v, StyleConfigJson));
+
         builder.HasOne(sc => sc.User)
             .WithMany()
             .HasForeignKey(sc => sc.UserId)

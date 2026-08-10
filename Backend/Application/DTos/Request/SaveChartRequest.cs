@@ -1,4 +1,5 @@
 using Domain.Charts;
+using Domain.Models;
 
 namespace Application.DTos.Request;
 
@@ -13,5 +14,6 @@ public sealed record SaveChartRequest(
     Guid? ConnectionId,
     Guid? DatasetId,
     string? TableName,
-    ChartStyleConfig? StyleConfig = null
+    ChartStyleConfig? StyleConfig = null,
+    DataQueryModel? DataModel = null
 );
