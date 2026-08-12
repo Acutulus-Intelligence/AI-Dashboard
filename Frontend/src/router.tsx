@@ -5,6 +5,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { AuthProvider } from './features/store/AuthContext.tsx';
 import { ThemeProvider } from './features/store/ThemeContext';
 import ProtectedRoute from './features/components/ProtectedRoute';
+import AdminRoute from './features/components/AdminRoute';
 import ScrollToTop from './features/components/ScrollToTop';
 import { ROUTES } from './features/routes';
 
@@ -16,6 +17,9 @@ const GraphCreationPage = lazy(() => import('./features/pages/GraphCreationPage'
 const AdminPage = lazy(() => import('./features/pages/AdminPage'));
 const AdminUsersPage = lazy(() => import('./features/pages/AdminUsersPage'));
 const AdminStylePage = lazy(() => import('./features/pages/AdminStylePage'));
+const AdminPlansPage = lazy(() => import('./features/pages/AdminPlansPage'));
+const AdminMainPage = lazy(() => import('./features/pages/AdminMainPage'));
+const AdminAccountsPage = lazy(() => import('./features/pages/AdminAccountsPage'));
 const LoginPage = lazy(() => import('./features/pages/LoginPage'));
 const RegisterPage = lazy(() => import('./features/pages/RegisterPage'));
 const PricingPage = lazy(() => import('./features/pages/PricingPage'));
@@ -115,6 +119,30 @@ export default function Router() {
                   <ProtectedRoute requireSubscription={false}>
                     <LazyPage><AdminPage /></LazyPage>
                   </ProtectedRoute>
+                }
+              />
+              <Route
+                path={ROUTES.ADMIN_MAIN}
+                element={
+                  <AdminRoute>
+                    <LazyPage><AdminMainPage /></LazyPage>
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path={ROUTES.ADMIN_PLANS}
+                element={
+                  <AdminRoute>
+                    <LazyPage><AdminPlansPage /></LazyPage>
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path={ROUTES.ADMIN_ACCOUNTS}
+                element={
+                  <AdminRoute>
+                    <LazyPage><AdminAccountsPage /></LazyPage>
+                  </AdminRoute>
                 }
               />
               <Route

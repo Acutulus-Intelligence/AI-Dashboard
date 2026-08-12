@@ -33,6 +33,7 @@ public class StripeService : IPaymentService
         Guid planId,
         string planName,
         decimal price,
+        string? priceId,
         BillingPeriod billingPeriod,
         int trialDays,
         string successUrl,
@@ -62,23 +63,7 @@ public class StripeService : IPaymentService
             },
             LineItems =
             [
-                new SessionLineItemOptions
-                {
-                    PriceData = new SessionLineItemPriceDataOptions
-                    {
-                        Currency = "usd",
-                        UnitAmountDecimal = price * 100,
-                        ProductData = new SessionLineItemPriceDataProductDataOptions
-                        {
-                            Name = planName
-                        },
-                        Recurring = new SessionLineItemPriceDataRecurringOptions
-                        {
-                            Interval = billingPeriod == BillingPeriod.Monthly ? "month" : "year"
-                        }
-                    },
-                    Quantity = 1
-                }
+                BuildLineItem(planName, price, priceId, billingPeriod)
             ]
         };
 
@@ -94,6 +79,7 @@ public class StripeService : IPaymentService
         Guid planId,
         string planName,
         decimal price,
+        string? priceId,
         BillingPeriod billingPeriod,
         int trialDays,
         string successUrl,
@@ -124,29 +110,47 @@ public class StripeService : IPaymentService
             },
             LineItems =
             [
-                new SessionLineItemOptions
-                {
-                    PriceData = new SessionLineItemPriceDataOptions
-                    {
-                        Currency = "usd",
-                        UnitAmountDecimal = price * 100,
-                        ProductData = new SessionLineItemPriceDataProductDataOptions
-                        {
-                            Name = planName
-                        },
-                        Recurring = new SessionLineItemPriceDataRecurringOptions
-                        {
-                            Interval = billingPeriod == BillingPeriod.Monthly ? "month" : "year"
-                        }
-                    },
-                    Quantity = 1
-                }
+                BuildLineItem(planName, price, priceId, billingPeriod)
             ]
         };
 
         var service = new SessionService(StripeClient);
         var session = await service.CreateAsync(options, cancellationToken: ct);
         return new CheckoutResponse(session.Url, session.Id);
+    }
+
+    private static SessionLineItemOptions BuildLineItem(
+        string planName,
+        decimal price,
+        string? priceId,
+        BillingPeriod billingPeriod)
+    {
+        if (!string.IsNullOrWhiteSpace(priceId))
+        {
+            return new SessionLineItemOptions
+            {
+                Price = priceId,
+                Quantity = 1
+            };
+        }
+
+        return new SessionLineItemOptions
+        {
+            PriceData = new SessionLineItemPriceDataOptions
+            {
+                Currency = "usd",
+                UnitAmountDecimal = price * 100,
+                ProductData = new SessionLineItemPriceDataProductDataOptions
+                {
+                    Name = planName
+                },
+                Recurring = new SessionLineItemPriceDataRecurringOptions
+                {
+                    Interval = billingPeriod == BillingPeriod.Monthly ? "month" : "year"
+                }
+            },
+            Quantity = 1
+        };
     }
 
     public async Task<PaymentWebhookEvent?> RetrieveCheckoutSessionAsync(string sessionId, CancellationToken ct = default)
@@ -252,6 +256,26 @@ public class StripeService : IPaymentService
         await service.CancelAsync(stripeSubscriptionId, cancellationToken: ct);
     }
 
+    public async Task SwitchSubscriptionPriceAsync(string stripeSubscriptionId, string priceId, CancellationToken ct = default)
+    {
+        var service = new SubscriptionService(StripeClient);
+        var subscription = await service.GetAsync(stripeSubscriptionId, cancellationToken: ct);
+        var item = subscription.Items?.Data?.FirstOrDefault();
+        if (item is null)
+            return;
+
+        var options = new SubscriptionUpdateOptions
+        {
+            ProrationBehavior = "create_prorations",
+            Items = new List<SubscriptionItemOptions>
+            {
+                new() { Id = item.Id, Price = priceId }
+            }
+        };
+
+        await service.UpdateAsync(stripeSubscriptionId, options, cancellationToken: ct);
+    }
+
     public async Task<string?> GetPaymentMethodFingerprintAsync(string paymentMethodId, CancellationToken ct = default)
     {
         var service = new PaymentMethodService(StripeClient);
@@ -332,5 +356,73 @@ public class StripeService : IPaymentService
         {
             return await GetOrCreateCustomerAsync(email, userId, ct);
         }
+    }
+
+    public async Task<string> CreateProductAsync(string name, string planId, CancellationToken ct = default)
+    {
+        var service = new ProductService(StripeClient);
+        var product = await service.CreateAsync(new ProductCreateOptions
+        {
+            Name = name,
+            Metadata = new Dictionary<string, string>
+            {
+                { "planId", planId }
+            }
+        }, cancellationToken: ct);
+
+        return product.Id;
+    }
+
+    public async Task<string> CreatePriceAsync(string productId, decimal amount, BillingPeriod billingPeriod, CancellationToken ct = default)
+    {
+        var service = new PriceService(StripeClient);
+        var price = await service.CreateAsync(new PriceCreateOptions
+        {
+            Product = productId,
+            Currency = "usd",
+            UnitAmountDecimal = amount * 100,
+            Recurring = new PriceRecurringOptions
+            {
+                Interval = billingPeriod == BillingPeriod.Monthly ? "month" : "year"
+            }
+        }, cancellationToken: ct);
+
+        return price.Id;
+    }
+
+    public async Task UpdateProductAsync(string productId, string name, CancellationToken ct = default)
+    {
+        var service = new ProductService(StripeClient);
+        await service.UpdateAsync(productId, new ProductUpdateOptions
+        {
+            Name = name
+        }, cancellationToken: ct);
+    }
+
+    public async Task DeactivateProductAsync(string productId, CancellationToken ct = default)
+    {
+        var service = new ProductService(StripeClient);
+        await service.UpdateAsync(productId, new ProductUpdateOptions
+        {
+            Active = false
+        }, cancellationToken: ct);
+    }
+
+    public async Task ActivateProductAsync(string productId, CancellationToken ct = default)
+    {
+        var service = new ProductService(StripeClient);
+        await service.UpdateAsync(productId, new ProductUpdateOptions
+        {
+            Active = true
+        }, cancellationToken: ct);
+    }
+
+    public async Task DeactivatePriceAsync(string priceId, CancellationToken ct = default)
+    {
+        var service = new PriceService(StripeClient);
+        await service.UpdateAsync(priceId, new PriceUpdateOptions
+        {
+            Active = false
+        }, cancellationToken: ct);
     }
 }

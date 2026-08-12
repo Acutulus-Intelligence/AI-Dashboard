@@ -114,8 +114,10 @@ public class SubscriptionService : ISubscriptionService
             await _db.SaveChangesAsync(ct);
         }
 
+        var priceId = period == BillingPeriod.Monthly ? plan.StripeMonthlyPriceId : plan.StripeYearlyPriceId;
+
         return await _paymentService.CreateCheckoutSessionAsync(
-            customerId, user.Id, planId, plan.Name, price, period,
+            customerId, user.Id, planId, plan.Name, price, priceId, period,
             trialDays, successUrl, cancelUrl, ct);
     }
 
@@ -189,8 +191,10 @@ public class SubscriptionService : ISubscriptionService
             await _db.SaveChangesAsync(ct);
         }
 
+        var priceId = period == BillingPeriod.Monthly ? plan.StripeMonthlyPriceId : plan.StripeYearlyPriceId;
+
         return await _paymentService.CreateCompanyCheckoutSessionAsync(
-            customerId, owner.Id, companyId, planId, plan.Name, price, period,
+            customerId, owner.Id, companyId, planId, plan.Name, price, priceId, period,
             trialDays, successUrl, cancelUrl, ct);
     }
 
@@ -266,8 +270,10 @@ public class SubscriptionService : ISubscriptionService
             await _db.SaveChangesAsync(ct);
         }
 
+        var priceId = period == BillingPeriod.Monthly ? plan.StripeMonthlyPriceId : plan.StripeYearlyPriceId;
+
         return await _paymentService.CreateCompanyCheckoutSessionAsync(
-            customerId, user.Id, companyResponse.Id, planId, plan.Name, price, period,
+            customerId, user.Id, companyResponse.Id, planId, plan.Name, price, priceId, period,
             trialDays, successUrl, cancelUrl, ct);
     }
 
@@ -558,8 +564,13 @@ public class SubscriptionService : ISubscriptionService
 
             if (existing is not null)
             {
+                var plan = await _db.SubscriptionPlans.FindAsync([planId], ct);
                 existing.PlanId = planId;
+                existing.Price = plan is not null
+                    ? (billingPeriod == BillingPeriod.Monthly ? plan.MonthlyPrice : plan.YearlyPrice)
+                    : 0;
                 existing.BillingPeriod = billingPeriod;
+                existing.MaxUsers = plan?.MaxUsers;
                 existing.StartDate = now;
                 existing.EndDate = now.AddDays(trialDays);
                 existing.Status = SubscriptionStatus.Trial;
@@ -596,7 +607,11 @@ public class SubscriptionService : ISubscriptionService
 
             if (existing is not null)
             {
+                var plan = await _db.SubscriptionPlans.FindAsync([planId], ct);
                 existing.PlanId = planId;
+                existing.Price = plan is not null
+                    ? (billingPeriod == BillingPeriod.Monthly ? plan.MonthlyPrice : plan.YearlyPrice)
+                    : 0;
                 existing.BillingPeriod = billingPeriod;
                 existing.StartDate = now;
                 existing.EndDate = now.AddDays(trialDays);

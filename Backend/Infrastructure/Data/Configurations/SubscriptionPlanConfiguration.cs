@@ -24,5 +24,14 @@ public class SubscriptionPlanConfiguration : IEntityTypeConfiguration<Subscripti
 
         builder.Property(sp => sp.YearlyPrice)
             .HasPrecision(18, 2);
+
+        builder.Property(sp => sp.StripeProductId)
+            .HasMaxLength(255);
+
+        builder.Property(sp => sp.StripeMonthlyPriceId)
+            .HasMaxLength(255);
+
+        builder.Property(sp => sp.StripeYearlyPriceId)
+            .HasMaxLength(255);
     }
 }

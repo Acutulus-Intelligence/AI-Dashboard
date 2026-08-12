@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AlertCircle, ArrowRight } from 'lucide-react';
+import { toast } from 'sonner';
 import Header from '../layouts/Header';
 import Footer from '../layouts/Footer';
 import Button from '../components/Button';
@@ -65,6 +66,11 @@ export default function PricingPage() {
   async function handleChoosePlan(plan: SubscriptionPlan) {
     if (isEnterprisePlan(plan)) {
       navigate(ROUTES.CONTACT);
+      return;
+    }
+
+    if (user?.roles.includes('Admin')) {
+      toast.error('Admins do not need a subscription.');
       return;
     }
 

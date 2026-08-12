@@ -36,6 +36,9 @@ public class SubscriptionController : ControllerBase
     [Authorize]
     public async Task<IActionResult> CreateCheckout([FromBody] SubscribeRequest request, CancellationToken ct)
     {
+        if (User.IsInRole("Admin"))
+            return Forbid();
+
         var userId = GetUserId();
         var response = await _subscriptionService.CreateUserCheckoutSessionAsync(
             userId, request.PlanId, request.BillingPeriod, request.SuccessUrl, request.CancelUrl, ct);
@@ -46,6 +49,9 @@ public class SubscriptionController : ControllerBase
     [Authorize]
     public async Task<IActionResult> CreateCompanyCheckout(Guid companyId, [FromBody] SubscribeRequest request, CancellationToken ct)
     {
+        if (User.IsInRole("Admin"))
+            return Forbid();
+
         var actorId = GetUserId();
         var response = await _subscriptionService.CreateCompanyCheckoutSessionAsync(
             companyId, request.PlanId, request.BillingPeriod, actorId, request.SuccessUrl, request.CancelUrl, ct);
@@ -56,6 +62,9 @@ public class SubscriptionController : ControllerBase
     [Authorize]
     public async Task<IActionResult> UpgradeToCompany([FromBody] UpgradeToCompanyRequest request, CancellationToken ct)
     {
+        if (User.IsInRole("Admin"))
+            return Forbid();
+
         var userId = GetUserId();
         var response = await _subscriptionService.UpgradeToCompanyAsync(
             userId, request.CompanyName, request.PlanId, request.BillingPeriod, request.SuccessUrl, request.CancelUrl, ct);

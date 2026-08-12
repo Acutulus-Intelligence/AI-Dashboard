@@ -110,6 +110,62 @@ public sealed class SubscriptionRoutesTests
     }
 
     [Fact]
+    public async Task Admin_cannot_start_user_checkout()
+    {
+        var client = CreateClient();
+        var email = $"admin_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        await _factory.EnsureAdminRoleAsync(email);
+        await client.LoginAsync(email);
+
+        var plans = await (await client.GetAsync("/api/subscriptions/plans?userType=0")).ReadJsonAsync<List<SubscriptionPlanResponse>>();
+        var plan = plans.First(p => p.UserType == UserType.Individual);
+
+        var checkout = await client.PostAsJsonAsync("/api/subscriptions/create-checkout",
+            new SubscribeRequest(plan.Id, BillingPeriod.Monthly, "http://localhost/ok", "http://localhost/cancel"));
+        checkout.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Admin_cannot_start_company_checkout()
+    {
+        var client = CreateClient();
+        var email = $"admin_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        await _factory.EnsureAdminRoleAsync(email);
+        await client.LoginAsync(email);
+
+        var companyResp = await client.PostAsJsonAsync("/api/companies", new CreateCompanyRequest($"AdminCo-{Guid.NewGuid():N}"));
+        companyResp.EnsureSuccessStatusCode();
+        var company = await companyResp.ReadJsonAsync<CompanyResponse>();
+
+        var plans = await (await client.GetAsync("/api/subscriptions/plans?userType=1")).ReadJsonAsync<List<SubscriptionPlanResponse>>();
+        var plan = plans.First(p => p.UserType == UserType.Company);
+
+        var checkout = await client.PostAsJsonAsync($"/api/subscriptions/company/{company.Id}/create-checkout",
+            new SubscribeRequest(plan.Id, BillingPeriod.Monthly, "http://localhost/ok", "http://localhost/cancel"));
+        checkout.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Admin_cannot_upgrade_to_company()
+    {
+        var client = CreateClient();
+        var email = $"admin_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        await _factory.EnsureAdminRoleAsync(email);
+        await client.LoginAsync(email);
+
+        var plans = await (await client.GetAsync("/api/subscriptions/plans?userType=1")).ReadJsonAsync<List<SubscriptionPlanResponse>>();
+        var plan = plans.First(p => p.UserType == UserType.Company);
+
+        var upgrade = await client.PostAsJsonAsync("/api/subscriptions/upgrade-to-company",
+            new UpgradeToCompanyRequest($"AdminUpCo-{Guid.NewGuid():N}", plan.Id, BillingPeriod.Monthly,
+                "http://localhost/ok", "http://localhost/cancel"));
+        upgrade.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
     public async Task Stripe_webhook_invalid_signature_returns_400()
     {
         var client = CreateClient();

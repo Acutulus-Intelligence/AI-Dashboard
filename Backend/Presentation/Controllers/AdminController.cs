@@ -11,10 +11,12 @@ namespace Presentation.Controllers;
 public class AdminController : ControllerBase
 {
     private readonly IAdminService _adminService;
+    private readonly IAdminUserService _adminUserService;
 
-    public AdminController(IAdminService adminService)
+    public AdminController(IAdminService adminService, IAdminUserService adminUserService)
     {
         _adminService = adminService;
+        _adminUserService = adminUserService;
     }
 
     [HttpGet("subscription-plans")]
@@ -50,5 +52,35 @@ public class AdminController : ControllerBase
     {
         await _adminService.DeletePlanAsync(id, ct);
         return NoContent();
+    }
+
+    [HttpPost("subscription-plans/{id:guid}/move")]
+    public async Task<IActionResult> MovePlan(Guid id, [FromBody] MoveSubscriptionPlanRequest request, CancellationToken ct)
+    {
+        await _adminService.MovePlanAsync(id, request.TargetPlanId, ct);
+        return NoContent();
+    }
+
+    [HttpGet("users")]
+    public async Task<IActionResult> GetUsers([FromQuery] string? search, [FromQuery] int? take, CancellationToken ct)
+    {
+        var users = await _adminUserService.GetUsersAsync(search, take, ct);
+        return Ok(users);
+    }
+
+    [HttpPut("users/{id:guid}/admin-role")]
+    public async Task<IActionResult> SetAdminRole(Guid id, [FromBody] UpdateAdminRoleRequest request, CancellationToken ct)
+    {
+        var actorId = GetActorUserId();
+        var user = await _adminUserService.SetAdminRoleAsync(actorId, id, request.IsAdmin, ct);
+        return Ok(user);
+    }
+
+    private Guid GetActorUserId()
+    {
+        var claim = User.FindFirst("userId")?.Value;
+        if (claim is null || !Guid.TryParse(claim, out var actorId))
+            throw new UnauthorizedAccessException("User is not authenticated.");
+        return actorId;
     }
 }

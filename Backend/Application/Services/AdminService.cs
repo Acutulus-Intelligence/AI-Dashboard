@@ -1,6 +1,7 @@
 using Application.DTos.Request;
 using Application.DTos.Response;
 using Application.Interfaces;
+using Domain.Enums;
 using Domain.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,19 +10,21 @@ namespace Application.Services;
 public class AdminService : IAdminService
 {
     private readonly IApplicationDbContext _db;
+    private readonly IPaymentService _paymentService;
 
-    public AdminService(IApplicationDbContext db)
+    public AdminService(IApplicationDbContext db, IPaymentService paymentService)
     {
         _db = db;
+        _paymentService = paymentService;
     }
 
-    public async Task<List<SubscriptionPlanResponse>> GetAllPlansAsync(CancellationToken ct = default)
+    public async Task<List<AdminSubscriptionPlanResponse>> GetAllPlansAsync(CancellationToken ct = default)
     {
         return await _db.SubscriptionPlans
             .AsNoTracking()
             .OrderBy(p => p.UserType)
             .ThenBy(p => p.MonthlyPrice)
-            .Select(p => new SubscriptionPlanResponse(
+            .Select(p => new AdminSubscriptionPlanResponse(
                 p.Id,
                 p.Name,
                 p.Description,
@@ -31,33 +34,25 @@ public class AdminService : IAdminService
                 p.MaxUsers,
                 p.MaxDashboards,
                 p.MaxAiQueriesPerMonth,
-                p.IsActive
+                p.IsActive,
+                p.StripeProductId,
+                p.StripeMonthlyPriceId,
+                p.StripeYearlyPriceId
             ))
             .ToListAsync(ct);
     }
 
-    public async Task<SubscriptionPlanResponse> GetPlanByIdAsync(Guid planId, CancellationToken ct = default)
+    public async Task<AdminSubscriptionPlanResponse> GetPlanByIdAsync(Guid planId, CancellationToken ct = default)
     {
         var plan = await _db.SubscriptionPlans
             .AsNoTracking()
             .FirstOrDefaultAsync(p => p.Id == planId, ct)
             ?? throw new KeyNotFoundException("Subscription plan not found.");
 
-        return new SubscriptionPlanResponse(
-            plan.Id,
-            plan.Name,
-            plan.Description,
-            plan.UserType,
-            plan.MonthlyPrice,
-            plan.YearlyPrice,
-            plan.MaxUsers,
-            plan.MaxDashboards,
-            plan.MaxAiQueriesPerMonth,
-            plan.IsActive
-        );
+        return ToResponse(plan);
     }
 
-    public async Task<SubscriptionPlanResponse> CreatePlanAsync(CreateSubscriptionPlanRequest request, CancellationToken ct = default)
+    public async Task<AdminSubscriptionPlanResponse> CreatePlanAsync(CreateSubscriptionPlanRequest request, CancellationToken ct = default)
     {
         var plan = new SubscriptionPlan
         {
@@ -73,28 +68,57 @@ public class AdminService : IAdminService
             IsActive = true
         };
 
+        var productId = await _paymentService.CreateProductAsync(plan.Name, plan.Id.ToString(), ct);
+        var monthlyPriceId = await _paymentService.CreatePriceAsync(productId, plan.MonthlyPrice, BillingPeriod.Monthly, ct);
+        var yearlyPriceId = await _paymentService.CreatePriceAsync(productId, plan.YearlyPrice, BillingPeriod.Yearly, ct);
+
+        plan.StripeProductId = productId;
+        plan.StripeMonthlyPriceId = monthlyPriceId;
+        plan.StripeYearlyPriceId = yearlyPriceId;
+
         _db.SubscriptionPlans.Add(plan);
         await _db.SaveChangesAsync(ct);
 
-        return new SubscriptionPlanResponse(
-            plan.Id,
-            plan.Name,
-            plan.Description,
-            plan.UserType,
-            plan.MonthlyPrice,
-            plan.YearlyPrice,
-            plan.MaxUsers,
-            plan.MaxDashboards,
-            plan.MaxAiQueriesPerMonth,
-            plan.IsActive
-        );
+        return ToResponse(plan);
     }
 
-    public async Task<SubscriptionPlanResponse> UpdatePlanAsync(Guid planId, UpdateSubscriptionPlanRequest request, CancellationToken ct = default)
+    public async Task<AdminSubscriptionPlanResponse> UpdatePlanAsync(Guid planId, UpdateSubscriptionPlanRequest request, CancellationToken ct = default)
     {
         var plan = await _db.SubscriptionPlans
             .FirstOrDefaultAsync(p => p.Id == planId, ct)
             ?? throw new KeyNotFoundException("Subscription plan not found.");
+
+        var monthlyChanged = plan.MonthlyPrice != request.MonthlyPrice;
+        var yearlyChanged = plan.YearlyPrice != request.YearlyPrice;
+        var nameChanged = plan.Name != request.Name;
+
+        if (string.IsNullOrWhiteSpace(plan.StripeProductId))
+        {
+            plan.StripeProductId = await _paymentService.CreateProductAsync(request.Name, plan.Id.ToString(), ct);
+        }
+        else if (nameChanged)
+        {
+            await _paymentService.UpdateProductAsync(plan.StripeProductId, request.Name, ct);
+        }
+
+        if (monthlyChanged || string.IsNullOrWhiteSpace(plan.StripeMonthlyPriceId))
+        {
+            if (!string.IsNullOrWhiteSpace(plan.StripeMonthlyPriceId))
+                await _paymentService.DeactivatePriceAsync(plan.StripeMonthlyPriceId, ct);
+            plan.StripeMonthlyPriceId = await _paymentService.CreatePriceAsync(plan.StripeProductId, request.MonthlyPrice, BillingPeriod.Monthly, ct);
+        }
+
+        if (yearlyChanged || string.IsNullOrWhiteSpace(plan.StripeYearlyPriceId))
+        {
+            if (!string.IsNullOrWhiteSpace(plan.StripeYearlyPriceId))
+                await _paymentService.DeactivatePriceAsync(plan.StripeYearlyPriceId, ct);
+            plan.StripeYearlyPriceId = await _paymentService.CreatePriceAsync(plan.StripeProductId, request.YearlyPrice, BillingPeriod.Yearly, ct);
+        }
+
+        if (plan.IsActive && !request.IsActive)
+            await _paymentService.DeactivateProductAsync(plan.StripeProductId, ct);
+        else if (!plan.IsActive && request.IsActive)
+            await _paymentService.ActivateProductAsync(plan.StripeProductId, ct);
 
         plan.Name = request.Name;
         plan.Description = request.Description;
@@ -108,7 +132,102 @@ public class AdminService : IAdminService
 
         await _db.SaveChangesAsync(ct);
 
-        return new SubscriptionPlanResponse(
+        return ToResponse(plan);
+    }
+
+    public async Task DeletePlanAsync(Guid planId, CancellationToken ct = default)
+    {
+        var plan = await _db.SubscriptionPlans
+            .FirstOrDefaultAsync(p => p.Id == planId, ct)
+            ?? throw new KeyNotFoundException("Subscription plan not found.");
+
+        if (plan.IsActive)
+            throw new InvalidOperationException("Deactivate the plan before removing it.");
+
+        var userSubscriptions = await _db.UserSubscriptions
+            .Where(s => s.PlanId == planId && s.StripeSubscriptionId != null)
+            .ToListAsync(ct);
+
+        foreach (var subscription in userSubscriptions)
+        {
+            if (subscription.StripeSubscriptionId is not null)
+                await _paymentService.CancelSubscriptionAtPeriodEndAsync(subscription.StripeSubscriptionId, ct);
+        }
+
+        var companySubscriptions = await _db.CompanySubscriptions
+            .Where(s => s.PlanId == planId && s.StripeSubscriptionId != null)
+            .ToListAsync(ct);
+
+        foreach (var subscription in companySubscriptions)
+        {
+            if (subscription.StripeSubscriptionId is not null)
+                await _paymentService.CancelSubscriptionAtPeriodEndAsync(subscription.StripeSubscriptionId, ct);
+        }
+    }
+
+    public async Task MovePlanAsync(Guid sourcePlanId, Guid targetPlanId, CancellationToken ct = default)
+    {
+        if (sourcePlanId == targetPlanId)
+            throw new InvalidOperationException("Source and target plans must be different.");
+
+        var source = await _db.SubscriptionPlans
+            .FirstOrDefaultAsync(p => p.Id == sourcePlanId, ct)
+            ?? throw new KeyNotFoundException("Subscription plan not found.");
+
+        if (source.IsActive)
+            throw new InvalidOperationException("Deactivate the plan before moving its subscriptions.");
+
+        var target = await _db.SubscriptionPlans
+            .FirstOrDefaultAsync(p => p.Id == targetPlanId, ct)
+            ?? throw new KeyNotFoundException("Target plan not found.");
+
+        if (!target.IsActive)
+            throw new InvalidOperationException("Target plan must be active.");
+
+        if (target.UserType != source.UserType)
+            throw new InvalidOperationException("Target plan must be the same type.");
+
+        var userSubscriptions = await _db.UserSubscriptions
+            .Where(s => s.PlanId == sourcePlanId &&
+                (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active))
+            .ToListAsync(ct);
+
+        foreach (var subscription in userSubscriptions)
+        {
+            var price = subscription.BillingPeriod == BillingPeriod.Monthly ? target.MonthlyPrice : target.YearlyPrice;
+            var priceId = subscription.BillingPeriod == BillingPeriod.Monthly ? target.StripeMonthlyPriceId : target.StripeYearlyPriceId;
+
+            if (subscription.StripeSubscriptionId is not null && !string.IsNullOrWhiteSpace(priceId))
+                await _paymentService.SwitchSubscriptionPriceAsync(subscription.StripeSubscriptionId, priceId, ct);
+
+            subscription.PlanId = targetPlanId;
+            subscription.Price = price;
+        }
+
+        var companySubscriptions = await _db.CompanySubscriptions
+            .Where(s => s.PlanId == sourcePlanId &&
+                (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active))
+            .ToListAsync(ct);
+
+        foreach (var subscription in companySubscriptions)
+        {
+            var price = subscription.BillingPeriod == BillingPeriod.Monthly ? target.MonthlyPrice : target.YearlyPrice;
+            var priceId = subscription.BillingPeriod == BillingPeriod.Monthly ? target.StripeMonthlyPriceId : target.StripeYearlyPriceId;
+
+            if (subscription.StripeSubscriptionId is not null && !string.IsNullOrWhiteSpace(priceId))
+                await _paymentService.SwitchSubscriptionPriceAsync(subscription.StripeSubscriptionId, priceId, ct);
+
+            subscription.PlanId = targetPlanId;
+            subscription.Price = price;
+            subscription.MaxUsers = target.MaxUsers;
+        }
+
+        await _db.SaveChangesAsync(ct);
+    }
+
+    private static AdminSubscriptionPlanResponse ToResponse(SubscriptionPlan plan)
+    {
+        return new AdminSubscriptionPlanResponse(
             plan.Id,
             plan.Name,
             plan.Description,
@@ -118,17 +237,10 @@ public class AdminService : IAdminService
             plan.MaxUsers,
             plan.MaxDashboards,
             plan.MaxAiQueriesPerMonth,
-            plan.IsActive
+            plan.IsActive,
+            plan.StripeProductId,
+            plan.StripeMonthlyPriceId,
+            plan.StripeYearlyPriceId
         );
-    }
-
-    public async Task DeletePlanAsync(Guid planId, CancellationToken ct = default)
-    {
-        var plan = await _db.SubscriptionPlans
-            .FirstOrDefaultAsync(p => p.Id == planId, ct)
-            ?? throw new KeyNotFoundException("Subscription plan not found.");
-
-        plan.IsActive = false;
-        await _db.SaveChangesAsync(ct);
     }
 }

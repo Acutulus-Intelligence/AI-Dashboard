@@ -11,6 +11,7 @@ public interface IPaymentService
         Guid planId,
         string planName,
         decimal price,
+        string? priceId,
         BillingPeriod billingPeriod,
         int trialDays,
         string successUrl,
@@ -24,6 +25,7 @@ public interface IPaymentService
         Guid planId,
         string planName,
         decimal price,
+        string? priceId,
         BillingPeriod billingPeriod,
         int trialDays,
         string successUrl,
@@ -38,6 +40,8 @@ public interface IPaymentService
 
     Task CancelSubscriptionImmediatelyAsync(string stripeSubscriptionId, CancellationToken ct = default);
 
+    Task SwitchSubscriptionPriceAsync(string stripeSubscriptionId, string priceId, CancellationToken ct = default);
+
     Task<string> GetOrCreateCustomerAsync(string email, Guid userId, CancellationToken ct = default);
 
     Task<string> EnsureCustomerExistsAsync(string customerId, string email, Guid userId, CancellationToken ct = default);
@@ -49,4 +53,16 @@ public interface IPaymentService
     Task EndTrialImmediatelyAsync(string stripeSubscriptionId, CancellationToken ct = default);
 
     Task UpdateSubscriptionTrialEndAsync(string stripeSubscriptionId, DateTime trialEnd, CancellationToken ct = default);
+
+    Task<string> CreateProductAsync(string name, string planId, CancellationToken ct = default);
+
+    Task<string> CreatePriceAsync(string productId, decimal amount, BillingPeriod billingPeriod, CancellationToken ct = default);
+
+    Task UpdateProductAsync(string productId, string name, CancellationToken ct = default);
+
+    Task DeactivateProductAsync(string productId, CancellationToken ct = default);
+
+    Task ActivateProductAsync(string productId, CancellationToken ct = default);
+
+    Task DeactivatePriceAsync(string priceId, CancellationToken ct = default);
 }

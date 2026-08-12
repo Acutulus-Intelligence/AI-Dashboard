@@ -99,7 +99,6 @@ public static class SeedData
             if (createResult.Succeeded)
             {
                 await userManager.AddToRoleAsync(adminUser, "Admin");
-                await userManager.AddToRoleAsync(adminUser, "User");
             }
         }
     }

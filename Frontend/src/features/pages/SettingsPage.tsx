@@ -97,6 +97,12 @@ export default function SettingsPage() {
     }
   }, [user?.userType]);
 
+  useEffect(() => {
+    if (user?.roles.includes('Admin')) {
+      navigate(ROUTES.ADMIN_MAIN, { replace: true });
+    }
+  }, [user?.roles, navigate]);
+
   async function handleCancel() {
     setCancelling(true);
     setError('');

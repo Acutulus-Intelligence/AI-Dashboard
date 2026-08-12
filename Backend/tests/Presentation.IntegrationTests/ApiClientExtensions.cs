@@ -3,8 +3,10 @@ using System.Text.Json;
 using Application.DTos.Request;
 using Domain.Enums;
 using Domain.Models;
+using FluentAssertions;
 using Infrastructure.Data;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Presentation.IntegrationTests;
@@ -59,17 +61,28 @@ public static class ApiClientExtensions
 
         var plan = db.SubscriptionPlans.First(p => p.UserType == UserType.Individual && p.IsActive);
 
+        await SeedSubscriptionForPlanAsync(factory, user.Id, plan.Id, "sub_seed");
+    }
+
+    public static async Task SeedSubscriptionForPlanAsync(
+        this ApiFactory factory, Guid userId, Guid planId, string subPrefix = "sub_seed")
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var plan = db.SubscriptionPlans.First(p => p.Id == planId);
+
         db.UserSubscriptions.Add(new UserSubscription
         {
             Id = Guid.NewGuid(),
-            UserId = user.Id,
-            PlanId = plan.Id,
+            UserId = userId,
+            PlanId = planId,
             Price = plan.MonthlyPrice,
             BillingPeriod = BillingPeriod.Monthly,
             StartDate = DateTime.UtcNow,
             EndDate = DateTime.UtcNow.AddDays(7),
             Status = SubscriptionStatus.Trial,
-            StripeSubscriptionId = $"sub_seed_{Guid.NewGuid():N}",
+            StripeSubscriptionId = $"{subPrefix}_{Guid.NewGuid():N}",
             TrialEndDate = DateTime.UtcNow.AddDays(7),
         });
 
@@ -107,6 +120,27 @@ public static class ApiClientExtensions
         var user = await users.FindByEmailAsync(email)
             ?? throw new InvalidOperationException($"User {email} not found.");
         return user.Id;
+    }
+
+    public static async Task VerifySubscriptionStillActiveAsync(this ApiFactory factory, Guid userId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var subscription = await db.UserSubscriptions
+            .FirstOrDefaultAsync(s => s.UserId == userId);
+        subscription.Should().NotBeNull();
+        subscription!.Status.Should().Be(SubscriptionStatus.Trial);
+    }
+
+    public static async Task VerifySubscriptionOnPlanAsync(this ApiFactory factory, Guid userId, Guid planId, decimal price)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var subscription = await db.UserSubscriptions
+            .FirstOrDefaultAsync(s => s.UserId == userId);
+        subscription.Should().NotBeNull();
+        subscription!.PlanId.Should().Be(planId);
+        subscription.Price.Should().Be(price);
     }
 
     public static async Task EnsureAdminRoleAsync(this ApiFactory factory, string email)

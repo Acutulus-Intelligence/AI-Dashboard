@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
+  BadgeDollarSign,
   BarChart3,
   CreditCard,
   LayoutDashboard,
   type LucideIcon,
   Shield,
+  UserCog,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -42,6 +44,7 @@ export default function AppSidebar() {
   const [companyName, setCompanyName] = useState<string | null>(null);
   const isCompany = user?.userType === 1;
   const isOwner = user?.companyRoleName === 'Owner';
+  const isAdmin = user?.roles.includes('Admin');
 
   useEffect(() => {
     if (!isCompany) return;
@@ -57,7 +60,7 @@ export default function AppSidebar() {
     };
   }, [isCompany]);
 
-  const { mainGroups, adminGroup } = useMemo(() => {
+  const { mainGroups, adminGroup, platformAdminGroup } = useMemo(() => {
     const main: NavGroup[] = [
       {
         label: 'Overview',
@@ -82,8 +85,20 @@ export default function AppSidebar() {
       };
     }
 
-    return { mainGroups: main, adminGroup: admin };
-  }, [hasActiveSubscription, isCompany, isOwner]);
+    let platformAdmin: NavGroup | null = null;
+    if (user?.roles.includes('Admin')) {
+      platformAdmin = {
+        label: 'Admin',
+        items: [
+          { title: 'Overview', url: ROUTES.ADMIN_MAIN, icon: LayoutDashboard },
+          { title: 'Plans', url: ROUTES.ADMIN_PLANS, icon: BadgeDollarSign },
+          { title: 'Users', url: ROUTES.ADMIN_ACCOUNTS, icon: UserCog },
+        ],
+      };
+    }
+
+    return { mainGroups: main, adminGroup: admin, platformAdminGroup: platformAdmin };
+  }, [hasActiveSubscription, isCompany, isOwner, user?.roles]);
 
   const label = useMemo(() => {
     if (isCompany) return companyName ?? 'Company';
@@ -124,7 +139,7 @@ export default function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild size="lg" tooltip={label}>
-              <Link to={ROUTES.DASHBOARD}>
+              <Link to={isAdmin ? ROUTES.ADMIN_MAIN : ROUTES.DASHBOARD}>
                 <img
                   src={logoSrc}
                   alt=""
@@ -141,12 +156,15 @@ export default function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent className="justify-between">
-        <div className="flex flex-col gap-0">{mainGroups.map((group) => renderGroup(group))}</div>
-        {adminGroup && renderGroup(adminGroup)}
+        <div className="flex flex-col gap-0">
+          {!isAdmin && mainGroups.map((group) => renderGroup(group))}
+          {adminGroup && renderGroup(adminGroup)}
+        </div>
+        {platformAdminGroup && renderGroup(platformAdminGroup)}
       </SidebarContent>
 
       <SidebarFooter>
-        {!hasActiveSubscription && (
+        {!isAdmin && !hasActiveSubscription && (
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton asChild tooltip="Upgrade plan">

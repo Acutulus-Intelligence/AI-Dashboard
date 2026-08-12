@@ -15,6 +15,7 @@ public sealed class FakePaymentService : IPaymentService
         Guid planId,
         string planName,
         decimal price,
+        string? priceId,
         BillingPeriod billingPeriod,
         int trialDays,
         string successUrl,
@@ -46,6 +47,7 @@ public sealed class FakePaymentService : IPaymentService
         Guid planId,
         string planName,
         decimal price,
+        string? priceId,
         BillingPeriod billingPeriod,
         int trialDays,
         string successUrl,
@@ -94,6 +96,9 @@ public sealed class FakePaymentService : IPaymentService
     public Task CancelSubscriptionImmediatelyAsync(string stripeSubscriptionId, CancellationToken ct = default)
         => Task.CompletedTask;
 
+    public Task SwitchSubscriptionPriceAsync(string stripeSubscriptionId, string priceId, CancellationToken ct = default)
+        => Task.CompletedTask;
+
     public Task<string> GetOrCreateCustomerAsync(string email, Guid userId, CancellationToken ct = default)
         => Task.FromResult($"cus_test_{userId:N}");
 
@@ -113,5 +118,23 @@ public sealed class FakePaymentService : IPaymentService
         string stripeSubscriptionId,
         DateTime trialEnd,
         CancellationToken ct = default)
+        => Task.CompletedTask;
+
+    public Task<string> CreateProductAsync(string name, string planId, CancellationToken ct = default)
+        => Task.FromResult($"prod_test_{planId:N}");
+
+    public Task<string> CreatePriceAsync(string productId, decimal amount, BillingPeriod billingPeriod, CancellationToken ct = default)
+        => Task.FromResult($"price_test_{productId}_{billingPeriod}");
+
+    public Task UpdateProductAsync(string productId, string name, CancellationToken ct = default)
+        => Task.CompletedTask;
+
+    public Task DeactivateProductAsync(string productId, CancellationToken ct = default)
+        => Task.CompletedTask;
+
+    public Task ActivateProductAsync(string productId, CancellationToken ct = default)
+        => Task.CompletedTask;
+
+    public Task DeactivatePriceAsync(string priceId, CancellationToken ct = default)
         => Task.CompletedTask;
 }
