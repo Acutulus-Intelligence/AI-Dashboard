@@ -15,7 +15,7 @@ public static class SeedData
         var db = serviceProvider.GetRequiredService<AppDbContext>();
         var configuration = serviceProvider.GetRequiredService<IConfiguration>();
 
-        var roles = new[] { "Admin", "User" };
+        var roles = new[] { "Admin", "Moderator", "User" };
 
         foreach (var role in roles)
         {

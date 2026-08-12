@@ -10,11 +10,14 @@ interface AdminRouteProps {
 export default function AdminRoute({ children }: AdminRouteProps) {
   const { isAuthenticated, isLoading, user } = useAuth();
 
+  const isStaff =
+    user?.roles.includes('Admin') || user?.roles.includes('Moderator');
+
   if (!isLoading && !isAuthenticated) {
     return <Navigate to={ROUTES.LOGIN} replace />;
   }
 
-  if (!isLoading && isAuthenticated && !user?.roles.includes('Admin')) {
+  if (!isLoading && isAuthenticated && !isStaff) {
     return <Navigate to={ROUTES.DASHBOARD} replace />;
   }
 

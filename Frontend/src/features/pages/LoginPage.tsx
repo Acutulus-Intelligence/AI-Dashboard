@@ -28,7 +28,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const u = await login(email, password);
-      if (u?.roles.includes('Admin')) {
+      if (u?.roles.includes('Admin') || u?.roles.includes('Moderator')) {
         navigate(ROUTES.ADMIN_MAIN);
         return;
       }

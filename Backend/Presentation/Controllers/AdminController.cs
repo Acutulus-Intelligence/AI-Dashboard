@@ -7,7 +7,7 @@ namespace Presentation.Controllers;
 
 [ApiController]
 [Route("api/admin")]
-[Authorize(Roles = "Admin")]
+[Authorize(Roles = "Admin,Moderator")]
 public class AdminController : ControllerBase
 {
     private readonly IAdminService _adminService;
@@ -61,6 +61,7 @@ public class AdminController : ControllerBase
         return NoContent();
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpGet("users")]
     public async Task<IActionResult> GetUsers([FromQuery] string? search, [FromQuery] int? take, CancellationToken ct)
     {
@@ -68,11 +69,45 @@ public class AdminController : ControllerBase
         return Ok(users);
     }
 
+    [Authorize(Roles = "Admin")]
+    [HttpPost("users")]
+    public async Task<IActionResult> CreateUser([FromBody] CreateUserRequest request, CancellationToken ct)
+    {
+        var user = await _adminUserService.CreateUserAsync(request, ct);
+        return Ok(user);
+    }
+
+    [HttpGet("stats")]
+    public async Task<IActionResult> GetStats(CancellationToken ct)
+    {
+        var stats = await _adminUserService.GetStatsAsync(ct);
+        return Ok(stats);
+    }
+
+    [Authorize(Roles = "Admin")]
     [HttpPut("users/{id:guid}/admin-role")]
     public async Task<IActionResult> SetAdminRole(Guid id, [FromBody] UpdateAdminRoleRequest request, CancellationToken ct)
     {
         var actorId = GetActorUserId();
         var user = await _adminUserService.SetAdminRoleAsync(actorId, id, request.IsAdmin, ct);
+        return Ok(user);
+    }
+
+    [Authorize(Roles = "Admin")]
+    [HttpPut("users/{id:guid}/moderator-role")]
+    public async Task<IActionResult> SetModeratorRole(Guid id, [FromBody] UpdateModeratorRoleRequest request, CancellationToken ct)
+    {
+        var actorId = GetActorUserId();
+        var user = await _adminUserService.SetModeratorRoleAsync(actorId, id, request.IsModerator, ct);
+        return Ok(user);
+    }
+
+    [Authorize(Roles = "Admin")]
+    [HttpPost("users/{id:guid}/transfer-admin")]
+    public async Task<IActionResult> TransferAdminRole(Guid id, CancellationToken ct)
+    {
+        var actorId = GetActorUserId();
+        var user = await _adminUserService.TransferAdminRoleAsync(actorId, id, ct);
         return Ok(user);
     }
 

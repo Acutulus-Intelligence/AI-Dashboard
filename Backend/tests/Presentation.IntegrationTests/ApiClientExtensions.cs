@@ -153,6 +153,16 @@ public static class ApiClientExtensions
             await users.AddToRoleAsync(user, "Admin");
     }
 
+    public static async Task EnsureModeratorRoleAsync(this ApiFactory factory, string email)
+    {
+        using var scope = factory.Services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
+        var user = await users.FindByEmailAsync(email)
+            ?? throw new InvalidOperationException($"User {email} not found.");
+        if (!await users.IsInRoleAsync(user, "Moderator"))
+            await users.AddToRoleAsync(user, "Moderator");
+    }
+
     public static async Task<T> ReadJsonAsync<T>(this HttpResponseMessage response)
     {
         var payload = await response.Content.ReadFromJsonAsync<T>(JsonOptions);

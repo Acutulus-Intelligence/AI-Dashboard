@@ -1,28 +1,91 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Loader2, Search, ShieldCheck, ShieldOff } from 'lucide-react';
+import { Navigate, useNavigate } from 'react-router-dom';
+import { Crown, Loader2, Plus, Search, UserMinus } from 'lucide-react';
 import { toast } from 'sonner';
 import AppShell from '../layouts/AppShell';
 import Button from '../components/Button';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { ROUTES } from '../routes';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useAuth } from '../store/useAuth';
-import { getAdminUsers, setAdminRole, type AdminUser } from '../../lib/api/admin';
+import {
+  getAdminUsers,
+  createAdminUser,
+  setModeratorRole,
+  transferAdminRole,
+  type AdminUser,
+  type UserRole,
+} from '../../lib/api/admin';
+import { USER_TYPE, type UserType } from '../../lib/api/subscription';
+
+interface CreateForm {
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+  userType: UserType;
+  role: UserRole;
+}
+
+const emptyForm: CreateForm = {
+  email: '',
+  password: '',
+  firstName: '',
+  lastName: '',
+  userType: USER_TYPE.Individual,
+  role: 'User',
+};
+
+const roleOptions: { value: UserRole; label: string; hint: string }[] = [
+  { value: 'User', label: 'User', hint: 'Standard account, no admin access.' },
+  { value: 'Moderator', label: 'Moderator', hint: 'Can manage plans and see the overview.' },
+  { value: 'Admin', label: 'Admin', hint: 'Head admin — full control, can create admins and moderators.' },
+];
+
+function roleBadgeClasses(role: string) {
+  if (role === 'Admin') return 'bg-green-50 text-green-700';
+  if (role === 'Moderator') return 'bg-amber-50 text-amber-700';
+  return 'bg-surface-container-low text-on-surface-variant';
+}
 
 export default function AdminAccountsPage() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [pending, setPending] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState<AdminUser | null>(null);
-  const [confirmLoading, setConfirmLoading] = useState(false);
+  const [transferTarget, setTransferTarget] = useState<AdminUser | null>(null);
+  const [transferLoading, setTransferLoading] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<AdminUser | null>(null);
+  const [removeLoading, setRemoveLoading] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createForm, setCreateForm] = useState<CreateForm>(emptyForm);
+
+  const isAdminUser = user?.roles.includes('Admin');
+
+  useEffect(() => {
+    if (!isAdminUser) return;
+    getAdminUsers()
+      .then((data) => setUsers(data))
+      .catch((err) => toast.error(err instanceof Error ? err.message : 'Could not load users.'))
+      .finally(() => setLoading(false));
+  }, [isAdminUser]);
 
   const filtered = useMemo(() => {
-    const admins = users.filter((u) => u.isAdmin);
+    const staff = users.filter((u) => u.isAdmin || u.isModerator);
     const term = search.trim().toLowerCase();
-    if (!term) return admins;
-    return admins.filter(
+    if (!term) return staff;
+    return staff.filter(
       (u) =>
         u.email.toLowerCase().includes(term) ||
         (u.firstName ?? '').toLowerCase().includes(term) ||
@@ -30,33 +93,83 @@ export default function AdminAccountsPage() {
     );
   }, [users, search]);
 
-  useEffect(() => {
-    getAdminUsers()
-      .then((data) => setUsers(data))
-      .catch((err) => toast.error(err instanceof Error ? err.message : 'Could not load users.'))
-      .finally(() => setLoading(false));
-  }, []);
-
-  async function toggleRole(target: AdminUser) {
-    if (target.isAdmin) {
-      setConfirming(target);
-      return;
-    }
-    await applyRole(target, true);
+  if (!isAdminUser) {
+    return <Navigate to={ROUTES.ADMIN_MAIN} replace />;
   }
 
-  async function applyRole(target: AdminUser, isAdmin: boolean) {
-    setPending(target.id);
+  async function loadUsers() {
     try {
-      const updated = await setAdminRole(target.id, isAdmin);
-      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
-      toast.success(isAdmin ? `${target.email} is now an admin.` : `Admin role revoked from ${target.email}.`);
-      setConfirming(null);
+      setUsers(await getAdminUsers());
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not update admin role.');
+      toast.error(err instanceof Error ? err.message : 'Could not load users.');
+    }
+  }
+
+  async function handleTransfer() {
+    if (!transferTarget) return;
+    setTransferLoading(true);
+    try {
+      await transferAdminRole(transferTarget.id);
+      toast.success(`Admin role handed to ${transferTarget.email}. You are now a moderator.`);
+      setTransferTarget(null);
+      navigate(ROUTES.ADMIN_MAIN);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not transfer the admin role.');
     } finally {
-      setPending(null);
-      setConfirmLoading(false);
+      setTransferLoading(false);
+    }
+  }
+
+  async function handleRemoveModerator() {
+    if (!removeTarget) return;
+    setRemoveLoading(true);
+    try {
+      await setModeratorRole(removeTarget.id, false);
+      toast.success(`Moderator access removed from ${removeTarget.email}.`);
+      setRemoveTarget(null);
+      await loadUsers();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not remove moderator access.');
+    } finally {
+      setRemoveLoading(false);
+    }
+  }
+
+  function updateCreateField<K extends keyof CreateForm>(key: K, value: CreateForm[K]) {
+    setCreateForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function handleCreate() {
+    if (!createForm.email.trim()) {
+      toast.error('Email is required.');
+      return;
+    }
+    if (createForm.password.length < 8) {
+      toast.error('Password must be at least 8 characters.');
+      return;
+    }
+    if (createForm.role !== 'User' && createForm.userType === USER_TYPE.Company) {
+      toast.error('Staff accounts (moderator or admin) must be individual users.');
+      return;
+    }
+    setCreating(true);
+    try {
+      const created = await createAdminUser({
+        email: createForm.email.trim(),
+        password: createForm.password,
+        firstName: createForm.firstName.trim(),
+        lastName: createForm.lastName.trim(),
+        userType: createForm.userType,
+        role: createForm.role,
+      });
+      toast.success(`${created.email} created as ${created.isAdmin ? 'admin' : created.isModerator ? 'moderator' : 'user'}.`);
+      setCreateOpen(false);
+      setCreateForm(emptyForm);
+      await loadUsers();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not create user.');
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -71,17 +184,23 @@ export default function AdminAccountsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Users</h1>
           <p className="text-muted-foreground text-sm">
-            View admin accounts and revoke the global admin role.
+            Manage admin and moderator accounts, and create new users.
           </p>
         </div>
-        <div className="relative w-full max-w-xs">
-          <Search size={16} className="absolute top-1/2 left-3 -translate-y-1/2 text-on-surface-variant" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by email or name"
-            className="pl-9"
-          />
+        <div className="flex items-center gap-3">
+          <div className="relative w-full max-w-xs">
+            <Search size={16} className="absolute top-1/2 left-3 -translate-y-1/2 text-on-surface-variant" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by email or name"
+              className="pl-9"
+            />
+          </div>
+          <Button onClick={() => setCreateOpen(true)} className="shrink-0 whitespace-nowrap">
+            <Plus size={16} className="mr-1" />
+            New user
+          </Button>
         </div>
       </div>
 
@@ -99,7 +218,7 @@ export default function AdminAccountsPage() {
                   <th className="px-4 py-3 font-medium">Email</th>
                   <th className="px-4 py-3 font-medium">Type</th>
                   <th className="px-4 py-3 font-medium">Roles</th>
-                  <th className="px-4 py-3 font-medium text-right">Admin</th>
+                  <th className="px-4 py-3 font-medium text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-outline-variant/50">
@@ -119,7 +238,7 @@ export default function AdminAccountsPage() {
                           {u.roles.map((role) => (
                             <span
                               key={role}
-                              className="inline-flex items-center rounded-full bg-surface-container-low px-2 py-0.5 text-label-xs font-medium text-on-surface-variant"
+                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-label-xs font-medium ${roleBadgeClasses(role)}`}
                             >
                               {role}
                             </span>
@@ -127,24 +246,31 @@ export default function AdminAccountsPage() {
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex justify-end">
-                          <Button
-                            variant={u.isAdmin ? 'outline' : 'surface'}
-                            className={`min-h-9 px-3 py-1.5 text-body-sm ${
-                              u.isAdmin ? 'border-green-300 text-green-700 hover:bg-green-50' : ''
-                            }`}
-                            disabled={pending === u.id || (isSelf && u.isAdmin)}
-                            onClick={() => void toggleRole(u)}
-                          >
-                            {pending === u.id ? (
-                              <Loader2 size={14} className="animate-spin" />
-                            ) : u.isAdmin ? (
-                              <ShieldOff size={14} />
-                            ) : (
-                              <ShieldCheck size={14} />
-                            )}
-                            {u.isAdmin ? 'Revoke' : 'Grant'}
-                          </Button>
+                        <div className="flex justify-end gap-2">
+                          {u.isAdmin ? (
+                            <span className="text-label-xs text-on-surface-variant">
+                              {isSelf ? 'You' : 'Permanent'}
+                            </span>
+                          ) : (
+                            <>
+                              <Button
+                                variant="outline"
+                                className="min-h-9 px-3 py-1.5 text-body-sm"
+                                onClick={() => setTransferTarget(u)}
+                              >
+                                <Crown size={14} />
+                                Transfer admin
+                              </Button>
+                              <Button
+                                variant="outline"
+                                className="min-h-9 border-red-300 px-3 py-1.5 text-body-sm text-red-600 hover:bg-red-50"
+                                onClick={() => setRemoveTarget(u)}
+                              >
+                                <UserMinus size={14} />
+                                Remove
+                              </Button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -153,7 +279,7 @@ export default function AdminAccountsPage() {
                 {filtered.length === 0 && (
                   <tr>
                     <td colSpan={5} className="px-4 py-8 text-center text-on-surface-variant">
-                      No users found.
+                      No staff accounts found.
                     </td>
                   </tr>
                 )}
@@ -164,19 +290,148 @@ export default function AdminAccountsPage() {
       )}
 
       <ConfirmDialog
-        open={confirming !== null}
-        onOpenChange={(open) => !confirmLoading && setConfirming(open ? confirming : null)}
-        title="Revoke admin role?"
-        description={`${confirming?.email ?? ''} will lose access to the admin area. You can grant it again later.`}
-        confirmLabel="Revoke role"
-        variant="destructive"
-        loading={confirmLoading}
-        onConfirm={() => {
-          if (!confirming) return;
-          setConfirmLoading(true);
-          void applyRole(confirming, false);
-        }}
+        open={transferTarget !== null}
+        onOpenChange={(open) => !transferLoading && setTransferTarget(open ? transferTarget : null)}
+        title="Hand over the admin role?"
+        description={`${transferTarget?.email ?? ''} becomes an admin. You become a moderator and can no longer manage users.`}
+        confirmLabel="Transfer admin role"
+        loading={transferLoading}
+        onConfirm={handleTransfer}
       />
+
+      <ConfirmDialog
+        open={removeTarget !== null}
+        onOpenChange={(open) => !removeLoading && setRemoveTarget(open ? removeTarget : null)}
+        title="Remove moderator access?"
+        description={`${removeTarget?.email ?? ''} will lose admin-area access and become a regular user.`}
+        confirmLabel="Remove moderator"
+        variant="destructive"
+        loading={removeLoading}
+        onConfirm={handleRemoveModerator}
+      />
+
+      <Dialog open={createOpen} onOpenChange={(open) => !creating && setCreateOpen(open)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Create user</DialogTitle>
+            <DialogDescription>
+              Adds a new account. Share the credentials with the user after creation.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-1">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="create-first-name">First name</Label>
+                <Input
+                  id="create-first-name"
+                  value={createForm.firstName}
+                  onChange={(e) => updateCreateField('firstName', e.target.value)}
+                  placeholder="Jane"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="create-last-name">Last name</Label>
+                <Input
+                  id="create-last-name"
+                  value={createForm.lastName}
+                  onChange={(e) => updateCreateField('lastName', e.target.value)}
+                  placeholder="Doe"
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="create-email">Email</Label>
+              <Input
+                id="create-email"
+                type="email"
+                value={createForm.email}
+                onChange={(e) => updateCreateField('email', e.target.value)}
+                placeholder="user@example.com"
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="create-password">Password</Label>
+              <Input
+                id="create-password"
+                type="password"
+                value={createForm.password}
+                onChange={(e) => updateCreateField('password', e.target.value)}
+                placeholder="At least 8 characters"
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Role</Label>
+              <div className="grid gap-2">
+                {roleOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => updateCreateField('role', option.value)}
+                    className={`rounded-xl border px-4 py-2.5 text-left transition-colors ${
+                      createForm.role === option.value
+                        ? 'border-primary bg-primary/5'
+                        : 'border-outline-variant hover:bg-surface-container-low'
+                    }`}
+                  >
+                    <span className="block text-body-md font-medium text-on-background">
+                      {option.label}
+                    </span>
+                    <span className="block text-body-sm text-on-surface-variant">{option.hint}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Account type</Label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => updateCreateField('userType', USER_TYPE.Individual)}
+                  className={`flex-1 rounded-xl border px-4 py-2.5 text-body-md font-medium transition-colors ${
+                    createForm.userType === USER_TYPE.Individual
+                      ? 'border-primary bg-primary/5 text-primary'
+                      : 'border-outline-variant text-on-surface-variant hover:bg-surface-container-low'
+                  }`}
+                >
+                  Individual
+                </button>
+                <button
+                  type="button"
+                  disabled={createForm.role !== 'User'}
+                  onClick={() => updateCreateField('userType', USER_TYPE.Company)}
+                  className={`flex-1 rounded-xl border px-4 py-2.5 text-body-md font-medium transition-colors ${
+                    createForm.userType === USER_TYPE.Company
+                      ? 'border-primary bg-primary/5 text-primary'
+                      : 'border-outline-variant text-on-surface-variant hover:bg-surface-container-low'
+                  } disabled:cursor-not-allowed disabled:opacity-40`}
+                >
+                  Company
+                </button>
+              </div>
+              {createForm.role !== 'User' && (
+                <p className="text-body-xs text-on-surface-variant">
+                  Staff accounts must be individual users.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" disabled={creating} onClick={() => setCreateOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => void handleCreate()} disabled={creating}>
+              {creating && <Loader2 className="size-4 animate-spin" />}
+              Create user
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }

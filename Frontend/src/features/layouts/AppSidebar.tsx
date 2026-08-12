@@ -45,6 +45,7 @@ export default function AppSidebar() {
   const isCompany = user?.userType === 1;
   const isOwner = user?.companyRoleName === 'Owner';
   const isAdmin = user?.roles.includes('Admin');
+  const isStaff = isAdmin || user?.roles.includes('Moderator');
 
   useEffect(() => {
     if (!isCompany) return;
@@ -86,19 +87,19 @@ export default function AppSidebar() {
     }
 
     let platformAdmin: NavGroup | null = null;
-    if (user?.roles.includes('Admin')) {
+    if (isStaff) {
       platformAdmin = {
         label: 'Admin',
         items: [
           { title: 'Overview', url: ROUTES.ADMIN_MAIN, icon: LayoutDashboard },
           { title: 'Plans', url: ROUTES.ADMIN_PLANS, icon: BadgeDollarSign },
-          { title: 'Users', url: ROUTES.ADMIN_ACCOUNTS, icon: UserCog },
+          ...(isAdmin ? [{ title: 'Users', url: ROUTES.ADMIN_ACCOUNTS, icon: UserCog }] : []),
         ],
       };
     }
 
     return { mainGroups: main, adminGroup: admin, platformAdminGroup: platformAdmin };
-  }, [hasActiveSubscription, isCompany, isOwner, user?.roles]);
+  }, [hasActiveSubscription, isAdmin, isCompany, isOwner, isStaff]);
 
   const label = useMemo(() => {
     if (isCompany) return companyName ?? 'Company';
@@ -139,7 +140,7 @@ export default function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild size="lg" tooltip={label}>
-              <Link to={isAdmin ? ROUTES.ADMIN_MAIN : ROUTES.DASHBOARD}>
+              <Link to={isStaff ? ROUTES.ADMIN_MAIN : ROUTES.DASHBOARD}>
                 <img
                   src={logoSrc}
                   alt=""
@@ -157,14 +158,14 @@ export default function AppSidebar() {
 
       <SidebarContent className="justify-between">
         <div className="flex flex-col gap-0">
-          {!isAdmin && mainGroups.map((group) => renderGroup(group))}
+          {!isStaff && mainGroups.map((group) => renderGroup(group))}
           {adminGroup && renderGroup(adminGroup)}
         </div>
         {platformAdminGroup && renderGroup(platformAdminGroup)}
       </SidebarContent>
 
       <SidebarFooter>
-        {!isAdmin && !hasActiveSubscription && (
+        {!isStaff && !hasActiveSubscription && (
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton asChild tooltip="Upgrade plan">

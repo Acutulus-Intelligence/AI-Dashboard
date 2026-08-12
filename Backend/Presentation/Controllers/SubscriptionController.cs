@@ -36,7 +36,7 @@ public class SubscriptionController : ControllerBase
     [Authorize]
     public async Task<IActionResult> CreateCheckout([FromBody] SubscribeRequest request, CancellationToken ct)
     {
-        if (User.IsInRole("Admin"))
+        if (IsStaff())
             return Forbid();
 
         var userId = GetUserId();
@@ -49,7 +49,7 @@ public class SubscriptionController : ControllerBase
     [Authorize]
     public async Task<IActionResult> CreateCompanyCheckout(Guid companyId, [FromBody] SubscribeRequest request, CancellationToken ct)
     {
-        if (User.IsInRole("Admin"))
+        if (IsStaff())
             return Forbid();
 
         var actorId = GetUserId();
@@ -62,7 +62,7 @@ public class SubscriptionController : ControllerBase
     [Authorize]
     public async Task<IActionResult> UpgradeToCompany([FromBody] UpgradeToCompanyRequest request, CancellationToken ct)
     {
-        if (User.IsInRole("Admin"))
+        if (IsStaff())
             return Forbid();
 
         var userId = GetUserId();
@@ -152,6 +152,11 @@ public class SubscriptionController : ControllerBase
         if (userId is null || !Guid.TryParse(userId, out var parsed))
             throw new UnauthorizedAccessException("User ID not found in token.");
         return parsed;
+    }
+
+    private bool IsStaff()
+    {
+        return User.IsInRole("Admin") || User.IsInRole("Moderator");
     }
 
 }

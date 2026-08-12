@@ -204,6 +204,23 @@ public sealed class SubscriptionRoutesTests
     }
 
     [Fact]
+    public async Task Moderator_cannot_start_user_checkout()
+    {
+        var client = CreateClient();
+        var email = $"mod_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        await _factory.EnsureModeratorRoleAsync(email);
+        await client.LoginAsync(email);
+
+        var plans = await (await client.GetAsync("/api/subscriptions/plans?userType=0")).ReadJsonAsync<List<SubscriptionPlanResponse>>();
+        var plan = plans.First(p => p.UserType == UserType.Individual);
+
+        var checkout = await client.PostAsJsonAsync("/api/subscriptions/create-checkout",
+            new SubscribeRequest(plan.Id, BillingPeriod.Monthly, "http://localhost/ok", "http://localhost/cancel"));
+        checkout.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
     public async Task Authorized_routes_require_auth()
     {
         var client = CreateClient();

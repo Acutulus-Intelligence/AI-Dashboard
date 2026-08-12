@@ -121,7 +121,7 @@ export default function AppHeader({
                   <Shield />
                   {user?.companyRoleName === 'Owner' ? 'Admin settings' : 'Company'}
                 </DropdownMenuItem>
-              ) : user?.roles.includes('Admin') ? (
+              ) : user?.roles.includes('Admin') || user?.roles.includes('Moderator') ? (
                 <DropdownMenuItem onSelect={() => navigate(ROUTES.ADMIN_MAIN)}>
                   <Shield />
                   Administration

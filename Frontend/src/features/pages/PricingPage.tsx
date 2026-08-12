@@ -69,8 +69,8 @@ export default function PricingPage() {
       return;
     }
 
-    if (user?.roles.includes('Admin')) {
-      toast.error('Admins do not need a subscription.');
+    if (user?.roles.includes('Admin') || user?.roles.includes('Moderator')) {
+      toast.error('Admins and moderators do not need a subscription.');
       return;
     }
 

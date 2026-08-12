@@ -98,7 +98,7 @@ export default function SettingsPage() {
   }, [user?.userType]);
 
   useEffect(() => {
-    if (user?.roles.includes('Admin')) {
+    if (user?.roles.includes('Admin') || user?.roles.includes('Moderator')) {
       navigate(ROUTES.ADMIN_MAIN, { replace: true });
     }
   }, [user?.roles, navigate]);

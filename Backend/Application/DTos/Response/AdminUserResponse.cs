@@ -9,4 +9,5 @@ public sealed record AdminUserResponse(
     string? LastName,
     UserType UserType,
     bool IsAdmin,
+    bool IsModerator,
     IReadOnlyList<string> Roles);
