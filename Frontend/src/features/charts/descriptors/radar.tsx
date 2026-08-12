@@ -4,8 +4,8 @@ import {
   ChartContainer,
   ChartLegend,
   ChartLegendContent,
-  ChartTooltip,
 } from '@/components/ui/chart';
+import ChartHoverTooltip from '../ChartHoverTooltip';
 import { toChartConfig, toRows } from '../transform';
 import { cssColorVar } from '../colorKey';
 import { param, type ChartDescriptor, type ParamSpec } from '../types';
@@ -45,7 +45,7 @@ export const radarChart: ChartDescriptor = {
       <ChartContainer config={config} className="h-full w-full aspect-auto">
         <RadarChart data={rows}>
           {param(style, 'showTooltip', true) && (
-            <ChartTooltip cursor={false} content={<StyledChartTooltip style={style} />} />
+            <ChartHoverTooltip cursor={false} content={<StyledChartTooltip style={style} />} />
           )}
           {param(style, 'showGrid', true) && <PolarGrid />}
           <PolarAngleAxis dataKey="name" />
