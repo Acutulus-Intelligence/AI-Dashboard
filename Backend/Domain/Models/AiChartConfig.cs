@@ -33,4 +33,12 @@ public class AiChartConfig
     /// <summary>Presentation the model picked; sanitized against the catalog before use.</summary>
     [JsonPropertyName("styleConfig")]
     public ChartStyleConfig? StyleConfig { get; set; }
+
+    /// <summary>
+    /// When the model returns <c>styleConfig.colors</c> as a name→colour object,
+    /// held until <see cref="YAxis"/> (or baseline yAxis) is known for expansion.
+    /// Not part of the API wire format.
+    /// </summary>
+    [JsonIgnore]
+    public Dictionary<string, string>? NamedColorMap { get; set; }
 }

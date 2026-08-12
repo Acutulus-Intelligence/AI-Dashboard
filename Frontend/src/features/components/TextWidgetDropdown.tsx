@@ -48,7 +48,7 @@ export default function TextWidgetDropdown({ onSelect }: TextWidgetDropdownProps
           <button
             type="button"
             onClick={() => { onSelect(TEXT_VARIANT.Header); setOpen(false); }}
-            className="block w-full px-4 py-3 text-left transition-colors hover:bg-surface-container-low"
+            className="block w-full cursor-pointer px-4 py-3 text-left transition-colors hover:bg-surface-container-low"
           >
             <span className="block text-headline-md font-semibold text-on-background">Heading</span>
             <span className="mt-0.5 block text-body-sm text-on-surface-variant">Large title text</span>
@@ -57,7 +57,7 @@ export default function TextWidgetDropdown({ onSelect }: TextWidgetDropdownProps
           <button
             type="button"
             onClick={() => { onSelect(TEXT_VARIANT.Body); setOpen(false); }}
-            className="block w-full px-4 py-3 text-left transition-colors hover:bg-surface-container-low"
+            className="block w-full cursor-pointer px-4 py-3 text-left transition-colors hover:bg-surface-container-low"
           >
             <span className="block text-body-sm text-on-surface-variant">Body text</span>
             <span className="mt-0.5 block text-body-sm text-on-surface-variant/70">Smaller paragraph text</span>

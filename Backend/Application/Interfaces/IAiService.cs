@@ -11,6 +11,7 @@ public interface IAiService
         DbProvider dbProvider,
         string? prefabChartType = null,
         string? currentChartJson = null,
+        IReadOnlyList<string>? allowedColors = null,
         CancellationToken ct = default);
 
     /// <summary>

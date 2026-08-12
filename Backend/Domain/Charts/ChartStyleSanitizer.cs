@@ -50,6 +50,30 @@ public static partial class ChartStyleSanitizer
             DecimalMode = decimals is null ? null : SanitizeDecimalMode(config.DecimalMode),
         };
 
+        // Theme palette and per-slice colours are mutually exclusive.
+        if (!string.IsNullOrWhiteSpace(result.Palette))
+            result.Colors = null;
+        else if (result.Colors is { Count: > 0 })
+            result.Palette = null;
+
+        var typeSpec = ChartCatalog.Find(chartType);
+        if (typeSpec is not null)
+        {
+            if (!typeSpec.SupportsColors)
+            {
+                result.Palette = null;
+                result.Colors = null;
+            }
+
+            if (!typeSpec.SupportsValueFormat)
+            {
+                result.ValuePrefix = null;
+                result.ValueSuffix = null;
+                result.Decimals = null;
+                result.DecimalMode = null;
+            }
+        }
+
         var isEmpty = result.Variant is null
             && result.Palette is null
             && result.Colors is null
