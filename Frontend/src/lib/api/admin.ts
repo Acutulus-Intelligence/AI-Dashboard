@@ -50,7 +50,7 @@ export interface AdminUser {
   roles: string[];
 }
 
-export type UserRole = 'User' | 'Moderator' | 'Admin';
+export type UserRole = 'User' | 'Moderator';
 
 export interface CreateUserRequest {
   email: string;
@@ -92,9 +92,12 @@ export function movePlan(id: string, targetPlanId: string): Promise<void> {
   });
 }
 
-export function getAdminUsers(search?: string): Promise<AdminUser[]> {
-  const query = search ? `?search=${encodeURIComponent(search)}` : '';
-  return apiFetch<AdminUser[]>(`/api/admin/users${query}`);
+export function getAdminUsers(search?: string, staffOnly = true): Promise<AdminUser[]> {
+  const params = new URLSearchParams();
+  if (search) params.set('search', search);
+  if (staffOnly) params.set('staffOnly', 'true');
+  const query = params.toString();
+  return apiFetch<AdminUser[]>(`/api/admin/users${query ? `?${query}` : ''}`);
 }
 
 export function createAdminUser(data: CreateUserRequest): Promise<AdminUser> {
@@ -119,11 +122,4 @@ export function transferAdminRole(id: string): Promise<AdminUser> {
 
 export function getAdminStats(): Promise<AdminStats> {
   return apiFetch<AdminStats>('/api/admin/stats');
-}
-
-export function setAdminRole(id: string, isAdmin: boolean): Promise<AdminUser> {
-  return apiFetch<AdminUser>(`/api/admin/users/${id}/admin-role`, {
-    method: 'PUT',
-    body: JSON.stringify({ isAdmin }),
-  });
 }

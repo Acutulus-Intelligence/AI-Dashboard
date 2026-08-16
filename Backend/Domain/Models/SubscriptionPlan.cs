@@ -14,6 +14,7 @@ public class SubscriptionPlan
     public int? MaxDashboards { get; set; }
     public int? MaxAiQueriesPerMonth { get; set; }
     public bool IsActive { get; set; } = true;
+    public bool IsArchived { get; set; }
     public string? StripeProductId { get; set; }
     public string? StripeMonthlyPriceId { get; set; }
     public string? StripeYearlyPriceId { get; set; }

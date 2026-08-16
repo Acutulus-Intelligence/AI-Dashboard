@@ -721,6 +721,8 @@ public class CompanyService : ICompanyService
                     subscription.PlanId,
                     subscription.Plan.Name,
                     subscription.Price,
+                    subscription.NextPrice,
+                    subscription.NextPriceEffectiveDate,
                     subscription.BillingPeriod,
                     subscription.MaxUsers,
                     subscription.StartDate,

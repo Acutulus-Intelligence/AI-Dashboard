@@ -18,16 +18,38 @@ public class AdminUserService : IAdminUserService
 
     private readonly IApplicationDbContext _db;
     private readonly UserManager<User> _userManager;
+    private readonly IRefreshTokenService _refreshTokenService;
 
-    public AdminUserService(IApplicationDbContext db, UserManager<User> userManager)
+    public AdminUserService(
+        IApplicationDbContext db,
+        UserManager<User> userManager,
+        IRefreshTokenService refreshTokenService)
     {
         _db = db;
         _userManager = userManager;
+        _refreshTokenService = refreshTokenService;
     }
 
-    public async Task<List<AdminUserResponse>> GetUsersAsync(string? search = null, int? take = null, CancellationToken ct = default)
+    public async Task<List<AdminUserResponse>> GetUsersAsync(
+        string? search = null,
+        int? take = null,
+        bool staffOnly = false,
+        CancellationToken ct = default)
     {
+        var adminIds = (await _userManager.GetUsersInRoleAsync(AdminRole))
+            .Select(u => u.Id)
+            .ToHashSet();
+        var moderatorIds = (await _userManager.GetUsersInRoleAsync(ModeratorRole))
+            .Select(u => u.Id)
+            .ToHashSet();
+
         IQueryable<User> query = _db.Users.AsNoTracking().OrderBy(u => u.Email);
+
+        if (staffOnly)
+        {
+            var staffIds = adminIds.Concat(moderatorIds).ToHashSet();
+            query = query.Where(u => staffIds.Contains(u.Id));
+        }
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -38,37 +60,29 @@ public class AdminUserService : IAdminUserService
                 (u.LastName != null && u.LastName.Contains(term)));
         }
 
-        var users = await query.Take(take ?? DefaultTake).ToListAsync(ct);
+        var users = await query.Take(Math.Clamp(take ?? DefaultTake, 1, 500)).ToListAsync(ct);
 
         var result = new List<AdminUserResponse>(users.Count);
         foreach (var user in users)
         {
-            result.Add(await ToResponseAsync(user, ct));
+            var roles = new List<string> { UserRole };
+            if (adminIds.Contains(user.Id))
+                roles.Add(AdminRole);
+            if (moderatorIds.Contains(user.Id))
+                roles.Add(ModeratorRole);
+
+            result.Add(new AdminUserResponse(
+                user.Id,
+                user.Email ?? string.Empty,
+                user.FirstName,
+                user.LastName,
+                user.UserType,
+                roles.Contains(AdminRole),
+                roles.Contains(ModeratorRole),
+                roles));
         }
 
         return result;
-    }
-
-    public async Task<AdminUserResponse> SetAdminRoleAsync(Guid actorId, Guid userId, bool isAdmin, CancellationToken ct = default)
-    {
-        if (!isAdmin)
-            throw new InvalidOperationException("Admins cannot be removed by other admins. Hand over the role to a moderator instead.");
-
-        if (actorId == userId)
-            throw new InvalidOperationException("You cannot change your own admin role.");
-
-        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct)
-            ?? throw new KeyNotFoundException("User not found.");
-
-        var isCurrentlyAdmin = await _userManager.IsInRoleAsync(user, AdminRole);
-        if (isAdmin && !isCurrentlyAdmin)
-        {
-            var addResult = await _userManager.AddToRoleAsync(user, AdminRole);
-            if (!addResult.Succeeded)
-                throw new InvalidOperationException("Failed to grant the admin role.");
-        }
-
-        return await ToResponseAsync(user, ct);
     }
 
     public async Task<AdminUserResponse> SetModeratorRoleAsync(Guid actorId, Guid userId, bool isModerator, CancellationToken ct = default)
@@ -117,22 +131,49 @@ public class AdminUserService : IAdminUserService
         if (!await _userManager.IsInRoleAsync(target, ModeratorRole))
             throw new InvalidOperationException("The admin role can only be handed to a moderator.");
 
-        if (!(await _userManager.RemoveFromRoleAsync(actor, AdminRole)).Succeeded ||
-            !(await _userManager.AddToRoleAsync(actor, ModeratorRole)).Succeeded)
-            throw new InvalidOperationException("Failed to downgrade the current admin.");
+        if (await IsThereAnotherAdminAsync(actorId, ct))
+            throw new InvalidOperationException(
+                "Only one admin role is allowed. Resolve the other admin account before transferring.");
 
-        if (!(await _userManager.RemoveFromRoleAsync(target, ModeratorRole)).Succeeded ||
-            !(await _userManager.AddToRoleAsync(target, AdminRole)).Succeeded)
+        var promoted = await _userManager.RemoveFromRoleAsync(target, ModeratorRole) is { Succeeded: true };
+        if (!promoted || !(await _userManager.AddToRoleAsync(target, AdminRole)).Succeeded)
+        {
+            if (promoted)
+                await _userManager.AddToRoleAsync(target, ModeratorRole);
             throw new InvalidOperationException("Failed to promote the moderator.");
+        }
+
+        try
+        {
+            var demoted = await _userManager.RemoveFromRoleAsync(actor, AdminRole) is { Succeeded: true };
+            if (!demoted || !(await _userManager.AddToRoleAsync(actor, ModeratorRole)).Succeeded)
+                throw new InvalidOperationException("Failed to downgrade the current admin.");
+        }
+        catch
+        {
+            await _userManager.RemoveFromRoleAsync(target, AdminRole);
+            await _userManager.AddToRoleAsync(target, ModeratorRole);
+            throw;
+        }
+
+        // Invalidate every session for both users so they must sign in again with their new roles.
+        await _refreshTokenService.RevokeAllRefreshTokensAsync(actorId);
+        await _refreshTokenService.RevokeAllRefreshTokensAsync(targetUserId);
 
         return await ToResponseAsync(target, ct);
+    }
+
+    private async Task<bool> IsThereAnotherAdminAsync(Guid actorId, CancellationToken ct)
+    {
+        var admins = await _userManager.GetUsersInRoleAsync(AdminRole);
+        return admins.Any(u => u.Id != actorId);
     }
 
     public async Task<AdminUserResponse> CreateUserAsync(CreateUserRequest request, CancellationToken ct = default)
     {
         var role = request.Role ?? UserRole;
-        if (role is not (AdminRole or ModeratorRole or UserRole))
-            throw new ArgumentException("Role must be one of: User, Moderator, Admin.");
+        if (role is not (ModeratorRole or UserRole))
+            throw new ArgumentException("Role must be one of: User, Moderator. The admin role can only be handed over to a moderator.");
 
         if (role != UserRole && request.UserType == UserType.Company)
             throw new InvalidOperationException("Staff accounts (admin or moderator) must be individual users.");
@@ -161,12 +202,6 @@ public class AdminUserService : IAdminUserService
             var roleResult = await _userManager.AddToRoleAsync(user, ModeratorRole);
             if (!roleResult.Succeeded)
                 throw new InvalidOperationException("Failed to grant the moderator role.");
-        }
-        else if (role == AdminRole)
-        {
-            var roleResult = await _userManager.AddToRoleAsync(user, AdminRole);
-            if (!roleResult.Succeeded)
-                throw new InvalidOperationException("Failed to grant the admin role.");
         }
 
         return await ToResponseAsync(user, ct);

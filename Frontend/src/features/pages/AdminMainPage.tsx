@@ -4,7 +4,7 @@ import { BadgeDollarSign, Building2, UserCheck, Users, UserX, UserCog } from 'lu
 import AppShell from '../layouts/AppShell';
 import { ROUTES } from '../routes';
 import { useAuth } from '../store/useAuth';
-import { getAdminPlans, getAdminStats, getAdminUsers } from '../../lib/api/admin';
+import { getAdminPlans, getAdminStats } from '../../lib/api/admin';
 
 interface StatsCard {
   label: string;
@@ -16,22 +16,16 @@ export default function AdminMainPage() {
   const { user } = useAuth();
   const isAdmin = user?.roles.includes('Admin');
   const [planCount, setPlanCount] = useState<number | null>(null);
-  const [userCount, setUserCount] = useState<number | null>(null);
   const [stats, setStats] = useState<{ totalUsers: number; individualSubscribedUsers: number; companySubscribedUsers: number; usersWithoutSubscription: number } | null>(null);
 
   useEffect(() => {
     getAdminPlans()
       .then((plans) => setPlanCount(plans.length))
       .catch(() => {});
-    if (isAdmin) {
-      getAdminUsers()
-        .then((users) => setUserCount(users.length))
-        .catch(() => {});
-    }
     getAdminStats()
       .then(setStats)
       .catch(() => {});
-  }, [isAdmin]);
+  }, []);
 
   const cards: StatsCard[] = stats
     ? [
@@ -92,9 +86,9 @@ export default function AdminMainPage() {
               <UserCog size={24} />
             </div>
             <h2 className="mb-2 text-body-lg font-semibold text-on-background">Users</h2>
-            <p className="text-body-sm text-on-surface-variant">Create accounts, view admins and grant or revoke admin access.</p>
-            {userCount !== null && (
-              <p className="mt-3 text-body-sm font-medium text-primary">{userCount} users</p>
+            <p className="text-body-sm text-on-surface-variant">Create accounts and manage moderators. The admin role can only be handed to a moderator.</p>
+            {stats !== null && (
+              <p className="mt-3 text-body-sm font-medium text-primary">{stats.totalUsers} users</p>
             )}
           </Link>
         )}

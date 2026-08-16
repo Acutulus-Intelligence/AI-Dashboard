@@ -25,6 +25,12 @@ public class SubscriptionPlanConfiguration : IEntityTypeConfiguration<Subscripti
         builder.Property(sp => sp.YearlyPrice)
             .HasPrecision(18, 2);
 
+        builder.Property(sp => sp.IsActive)
+            .HasDefaultValue(true);
+
+        builder.Property(sp => sp.IsArchived)
+            .HasDefaultValue(false);
+
         builder.Property(sp => sp.StripeProductId)
             .HasMaxLength(255);
 

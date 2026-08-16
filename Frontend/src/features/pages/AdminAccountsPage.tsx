@@ -48,7 +48,6 @@ const emptyForm: CreateForm = {
 const roleOptions: { value: UserRole; label: string; hint: string }[] = [
   { value: 'User', label: 'User', hint: 'Standard account, no admin access.' },
   { value: 'Moderator', label: 'Moderator', hint: 'Can manage plans and see the overview.' },
-  { value: 'Admin', label: 'Admin', hint: 'Head admin — full control, can create admins and moderators.' },
 ];
 
 function roleBadgeClasses(role: string) {
@@ -59,7 +58,7 @@ function roleBadgeClasses(role: string) {
 
 export default function AdminAccountsPage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -75,17 +74,24 @@ export default function AdminAccountsPage() {
 
   useEffect(() => {
     if (!isAdminUser) return;
-    getAdminUsers()
-      .then((data) => setUsers(data))
-      .catch((err) => toast.error(err instanceof Error ? err.message : 'Could not load users.'))
-      .finally(() => setLoading(false));
-  }, [isAdminUser]);
+    let active = true;
+    const timer = setTimeout(() => {
+      setLoading(true);
+      getAdminUsers(search.trim() || undefined, true)
+        .then((data) => active && setUsers(data))
+        .catch((err) => toast.error(err instanceof Error ? err.message : 'Could not load users.'))
+        .finally(() => active && setLoading(false));
+    }, 300);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [isAdminUser, search]);
 
   const filtered = useMemo(() => {
-    const staff = users.filter((u) => u.isAdmin || u.isModerator);
     const term = search.trim().toLowerCase();
-    if (!term) return staff;
-    return staff.filter(
+    if (!term) return users;
+    return users.filter(
       (u) =>
         u.email.toLowerCase().includes(term) ||
         (u.firstName ?? '').toLowerCase().includes(term) ||
@@ -99,7 +105,7 @@ export default function AdminAccountsPage() {
 
   async function loadUsers() {
     try {
-      setUsers(await getAdminUsers());
+      setUsers(await getAdminUsers(search.trim() || undefined, true));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not load users.');
     }
@@ -110,9 +116,10 @@ export default function AdminAccountsPage() {
     setTransferLoading(true);
     try {
       await transferAdminRole(transferTarget.id);
-      toast.success(`Admin role handed to ${transferTarget.email}. You are now a moderator.`);
       setTransferTarget(null);
-      navigate(ROUTES.ADMIN_MAIN);
+      toast.success(`Admin role handed to ${transferTarget.email}. You have been signed out — please sign in again.`);
+      await logout();
+      navigate(ROUTES.LOGIN);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not transfer the admin role.');
     } finally {
@@ -184,7 +191,7 @@ export default function AdminAccountsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Users</h1>
           <p className="text-muted-foreground text-sm">
-            Manage admin and moderator accounts, and create new users.
+            Manage moderators and create users. The admin role can only be handed over to a moderator.
           </p>
         </div>
         <div className="flex items-center gap-3">

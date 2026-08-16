@@ -40,7 +40,11 @@ public interface IPaymentService
 
     Task CancelSubscriptionImmediatelyAsync(string stripeSubscriptionId, CancellationToken ct = default);
 
-    Task SwitchSubscriptionPriceAsync(string stripeSubscriptionId, string priceId, CancellationToken ct = default);
+    Task SwitchSubscriptionPriceAsync(
+        string stripeSubscriptionId,
+        string priceId,
+        string prorationBehavior = "create_prorations",
+        CancellationToken ct = default);
 
     Task<string> GetOrCreateCustomerAsync(string email, Guid userId, CancellationToken ct = default);
 

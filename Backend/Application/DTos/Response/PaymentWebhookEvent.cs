@@ -5,4 +5,5 @@ public sealed record PaymentWebhookEvent(
     IReadOnlyDictionary<string, string> Metadata,
     string? StripeSubscriptionId,
     string? StripeCustomerId,
-    string? StripePaymentMethodId = null);
+    string? StripePaymentMethodId = null,
+    string? StripeStatus = null);

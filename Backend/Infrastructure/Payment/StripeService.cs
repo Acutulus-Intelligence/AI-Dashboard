@@ -221,6 +221,22 @@ public class StripeService : IPaymentService
                 );
             }
 
+            case "customer.subscription.updated":
+            {
+                var subscription = stripeEvent.Data.Object as Subscription;
+                if (subscription is null)
+                    break;
+
+                return new PaymentWebhookEvent(
+                    stripeEvent.Type,
+                    subscription.Metadata,
+                    subscription.Id,
+                    subscription.CustomerId,
+                    null,
+                    subscription.Status
+                );
+            }
+
             case "customer.subscription.deleted":
             {
                 var subscription = stripeEvent.Data.Object as Subscription;
@@ -256,7 +272,11 @@ public class StripeService : IPaymentService
         await service.CancelAsync(stripeSubscriptionId, cancellationToken: ct);
     }
 
-    public async Task SwitchSubscriptionPriceAsync(string stripeSubscriptionId, string priceId, CancellationToken ct = default)
+    public async Task SwitchSubscriptionPriceAsync(
+        string stripeSubscriptionId,
+        string priceId,
+        string prorationBehavior = "create_prorations",
+        CancellationToken ct = default)
     {
         var service = new SubscriptionService(StripeClient);
         var subscription = await service.GetAsync(stripeSubscriptionId, cancellationToken: ct);
@@ -266,7 +286,7 @@ public class StripeService : IPaymentService
 
         var options = new SubscriptionUpdateOptions
         {
-            ProrationBehavior = "create_prorations",
+            ProrationBehavior = prorationBehavior,
             Items = new List<SubscriptionItemOptions>
             {
                 new() { Id = item.Id, Price = priceId }

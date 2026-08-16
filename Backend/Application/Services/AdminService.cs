@@ -22,6 +22,7 @@ public class AdminService : IAdminService
     {
         return await _db.SubscriptionPlans
             .AsNoTracking()
+            .Where(p => !p.IsArchived)
             .OrderBy(p => p.UserType)
             .ThenBy(p => p.MonthlyPrice)
             .Select(p => new AdminSubscriptionPlanResponse(
@@ -46,7 +47,7 @@ public class AdminService : IAdminService
     {
         var plan = await _db.SubscriptionPlans
             .AsNoTracking()
-            .FirstOrDefaultAsync(p => p.Id == planId, ct)
+            .FirstOrDefaultAsync(p => p.Id == planId && !p.IsArchived, ct)
             ?? throw new KeyNotFoundException("Subscription plan not found.");
 
         return ToResponse(plan);
@@ -85,7 +86,7 @@ public class AdminService : IAdminService
     public async Task<AdminSubscriptionPlanResponse> UpdatePlanAsync(Guid planId, UpdateSubscriptionPlanRequest request, CancellationToken ct = default)
     {
         var plan = await _db.SubscriptionPlans
-            .FirstOrDefaultAsync(p => p.Id == planId, ct)
+            .FirstOrDefaultAsync(p => p.Id == planId && !p.IsArchived, ct)
             ?? throw new KeyNotFoundException("Subscription plan not found.");
 
         var monthlyChanged = plan.MonthlyPrice != request.MonthlyPrice;
@@ -101,19 +102,33 @@ public class AdminService : IAdminService
             await _paymentService.UpdateProductAsync(plan.StripeProductId, request.Name, ct);
         }
 
+        var oldMonthlyPriceId = plan.StripeMonthlyPriceId;
+        var oldYearlyPriceId = plan.StripeYearlyPriceId;
+
         if (monthlyChanged || string.IsNullOrWhiteSpace(plan.StripeMonthlyPriceId))
         {
-            if (!string.IsNullOrWhiteSpace(plan.StripeMonthlyPriceId))
-                await _paymentService.DeactivatePriceAsync(plan.StripeMonthlyPriceId, ct);
             plan.StripeMonthlyPriceId = await _paymentService.CreatePriceAsync(plan.StripeProductId, request.MonthlyPrice, BillingPeriod.Monthly, ct);
         }
 
         if (yearlyChanged || string.IsNullOrWhiteSpace(plan.StripeYearlyPriceId))
         {
-            if (!string.IsNullOrWhiteSpace(plan.StripeYearlyPriceId))
-                await _paymentService.DeactivatePriceAsync(plan.StripeYearlyPriceId, ct);
             plan.StripeYearlyPriceId = await _paymentService.CreatePriceAsync(plan.StripeProductId, request.YearlyPrice, BillingPeriod.Yearly, ct);
         }
+
+        // Existing subscribers keep their current price for the ongoing period; the new
+        // price only applies from the next renewal (proration "none" = no immediate charge).
+        if (monthlyChanged && !string.IsNullOrWhiteSpace(plan.StripeMonthlyPriceId))
+            await SwitchSubscriptionsAtRenewalAsync(planId, BillingPeriod.Monthly, plan.StripeMonthlyPriceId, request.MonthlyPrice, ct);
+
+        if (yearlyChanged && !string.IsNullOrWhiteSpace(plan.StripeYearlyPriceId))
+            await SwitchSubscriptionsAtRenewalAsync(planId, BillingPeriod.Yearly, plan.StripeYearlyPriceId, request.YearlyPrice, ct);
+
+        // Old prices are only retired after every active subscription has moved to the new one.
+        if (monthlyChanged && !string.IsNullOrWhiteSpace(oldMonthlyPriceId))
+            await _paymentService.DeactivatePriceAsync(oldMonthlyPriceId, ct);
+
+        if (yearlyChanged && !string.IsNullOrWhiteSpace(oldYearlyPriceId))
+            await _paymentService.DeactivatePriceAsync(oldYearlyPriceId, ct);
 
         if (plan.IsActive && !request.IsActive)
             await _paymentService.DeactivateProductAsync(plan.StripeProductId, ct);
@@ -133,6 +148,46 @@ public class AdminService : IAdminService
         await _db.SaveChangesAsync(ct);
 
         return ToResponse(plan);
+    }
+
+    private async Task SwitchSubscriptionsAtRenewalAsync(
+        Guid planId,
+        BillingPeriod billingPeriod,
+        string newPriceId,
+        decimal newPrice,
+        CancellationToken ct)
+    {
+        var userSubscriptions = await _db.UserSubscriptions
+            .Where(s => s.PlanId == planId &&
+                s.BillingPeriod == billingPeriod &&
+                (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active))
+            .ToListAsync(ct);
+
+        foreach (var subscription in userSubscriptions)
+        {
+            if (subscription.StripeSubscriptionId is not null)
+                await _paymentService.SwitchSubscriptionPriceAsync(
+                    subscription.StripeSubscriptionId, newPriceId, "none", ct);
+
+            subscription.NextPrice = newPrice;
+            subscription.NextPriceEffectiveDate = subscription.EndDate ?? DateTime.UtcNow.AddMonths(1);
+        }
+
+        var companySubscriptions = await _db.CompanySubscriptions
+            .Where(s => s.PlanId == planId &&
+                s.BillingPeriod == billingPeriod &&
+                (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active))
+            .ToListAsync(ct);
+
+        foreach (var subscription in companySubscriptions)
+        {
+            if (subscription.StripeSubscriptionId is not null)
+                await _paymentService.SwitchSubscriptionPriceAsync(
+                    subscription.StripeSubscriptionId, newPriceId, "none", ct);
+
+            subscription.NextPrice = newPrice;
+            subscription.NextPriceEffectiveDate = subscription.EndDate ?? DateTime.UtcNow.AddMonths(1);
+        }
     }
 
     public async Task DeletePlanAsync(Guid planId, CancellationToken ct = default)
@@ -163,6 +218,9 @@ public class AdminService : IAdminService
             if (subscription.StripeSubscriptionId is not null)
                 await _paymentService.CancelSubscriptionAtPeriodEndAsync(subscription.StripeSubscriptionId, ct);
         }
+
+        plan.IsArchived = true;
+        await _db.SaveChangesAsync(ct);
     }
 
     public async Task MovePlanAsync(Guid sourcePlanId, Guid targetPlanId, CancellationToken ct = default)
@@ -184,6 +242,9 @@ public class AdminService : IAdminService
         if (!target.IsActive)
             throw new InvalidOperationException("Target plan must be active.");
 
+        if (target.IsArchived)
+            throw new InvalidOperationException("Target plan must not be archived.");
+
         if (target.UserType != source.UserType)
             throw new InvalidOperationException("Target plan must be the same type.");
 
@@ -198,10 +259,12 @@ public class AdminService : IAdminService
             var priceId = subscription.BillingPeriod == BillingPeriod.Monthly ? target.StripeMonthlyPriceId : target.StripeYearlyPriceId;
 
             if (subscription.StripeSubscriptionId is not null && !string.IsNullOrWhiteSpace(priceId))
-                await _paymentService.SwitchSubscriptionPriceAsync(subscription.StripeSubscriptionId, priceId, ct);
+                await _paymentService.SwitchSubscriptionPriceAsync(subscription.StripeSubscriptionId, priceId, ct: ct);
 
             subscription.PlanId = targetPlanId;
             subscription.Price = price;
+            subscription.NextPrice = null;
+            subscription.NextPriceEffectiveDate = null;
         }
 
         var companySubscriptions = await _db.CompanySubscriptions
@@ -215,11 +278,13 @@ public class AdminService : IAdminService
             var priceId = subscription.BillingPeriod == BillingPeriod.Monthly ? target.StripeMonthlyPriceId : target.StripeYearlyPriceId;
 
             if (subscription.StripeSubscriptionId is not null && !string.IsNullOrWhiteSpace(priceId))
-                await _paymentService.SwitchSubscriptionPriceAsync(subscription.StripeSubscriptionId, priceId, ct);
+                await _paymentService.SwitchSubscriptionPriceAsync(subscription.StripeSubscriptionId, priceId, ct: ct);
 
             subscription.PlanId = targetPlanId;
             subscription.Price = price;
             subscription.MaxUsers = target.MaxUsers;
+            subscription.NextPrice = null;
+            subscription.NextPriceEffectiveDate = null;
         }
 
         await _db.SaveChangesAsync(ct);

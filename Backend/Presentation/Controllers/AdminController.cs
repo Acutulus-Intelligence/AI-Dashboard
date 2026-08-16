@@ -63,9 +63,9 @@ public class AdminController : ControllerBase
 
     [Authorize(Roles = "Admin")]
     [HttpGet("users")]
-    public async Task<IActionResult> GetUsers([FromQuery] string? search, [FromQuery] int? take, CancellationToken ct)
+    public async Task<IActionResult> GetUsers([FromQuery] string? search, [FromQuery] int? take, [FromQuery] bool staffOnly = false, CancellationToken ct = default)
     {
-        var users = await _adminUserService.GetUsersAsync(search, take, ct);
+        var users = await _adminUserService.GetUsersAsync(search, take, staffOnly, ct);
         return Ok(users);
     }
 
@@ -82,15 +82,6 @@ public class AdminController : ControllerBase
     {
         var stats = await _adminUserService.GetStatsAsync(ct);
         return Ok(stats);
-    }
-
-    [Authorize(Roles = "Admin")]
-    [HttpPut("users/{id:guid}/admin-role")]
-    public async Task<IActionResult> SetAdminRole(Guid id, [FromBody] UpdateAdminRoleRequest request, CancellationToken ct)
-    {
-        var actorId = GetActorUserId();
-        var user = await _adminUserService.SetAdminRoleAsync(actorId, id, request.IsAdmin, ct);
-        return Ok(user);
     }
 
     [Authorize(Roles = "Admin")]

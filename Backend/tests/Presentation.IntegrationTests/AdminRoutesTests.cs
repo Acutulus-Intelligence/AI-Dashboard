@@ -57,6 +57,11 @@ public sealed class AdminRoutesTests
 
         var delete = await client.DeleteAsync($"/api/admin/subscription-plans/{plan.Id}");
         delete.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var afterDelete = await client.GetAsync("/api/admin/subscription-plans");
+        afterDelete.StatusCode.Should().Be(HttpStatusCode.OK);
+        var remaining = await afterDelete.ReadJsonAsync<List<AdminSubscriptionPlanResponse>>();
+        remaining.Should().NotContain(p => p.Id == plan.Id);
     }
 
     [Fact]
@@ -150,14 +155,14 @@ public sealed class AdminRoutesTests
     }
 
     [Fact]
-    public async Task Admin_can_list_users_and_promote_admin_role()
+    public async Task Admin_can_list_users_but_cannot_promote_admin_role()
     {
         var client = CreateClient();
         var actorEmail = $"admin_{Guid.NewGuid():N}@example.com";
         var targetEmail = $"target_{Guid.NewGuid():N}@example.com";
 
         await client.RegisterAndLoginAsync(actorEmail);
-        await _factory.EnsureAdminRoleAsync(actorEmail);
+        await _factory.EnsureSoleAdminRoleAsync(actorEmail);
         await client.LoginAsync(actorEmail);
 
         (await client.RegisterAsync(targetEmail)).EnsureSuccessStatusCode();
@@ -170,10 +175,8 @@ public sealed class AdminRoutesTests
         users.Should().Contain(u => u.Email == targetEmail);
 
         var promote = await client.PutAsJsonAsync($"/api/admin/users/{targetId}/admin-role",
-            new UpdateAdminRoleRequest(true));
-        promote.StatusCode.Should().Be(HttpStatusCode.OK);
-        var promoted = await promote.ReadJsonAsync<AdminUserResponse>();
-        promoted.IsAdmin.Should().BeTrue();
+            new { isAdmin = true });
+        promote.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
@@ -184,7 +187,7 @@ public sealed class AdminRoutesTests
         var otherEmail = $"admin_{Guid.NewGuid():N}@example.com";
 
         await client.RegisterAndLoginAsync(actorEmail);
-        await _factory.EnsureAdminRoleAsync(actorEmail);
+        await _factory.EnsureSoleAdminRoleAsync(actorEmail);
         await client.LoginAsync(actorEmail);
 
         (await client.RegisterAsync(otherEmail)).EnsureSuccessStatusCode();
@@ -193,8 +196,8 @@ public sealed class AdminRoutesTests
         var otherId = await _factory.GetUserIdAsync(otherEmail);
 
         var revoke = await client.PutAsJsonAsync($"/api/admin/users/{otherId}/admin-role",
-            new UpdateAdminRoleRequest(false));
-        revoke.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            new { isAdmin = false });
+        revoke.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
@@ -203,13 +206,13 @@ public sealed class AdminRoutesTests
         var client = CreateClient();
         var email = $"admin_{Guid.NewGuid():N}@example.com";
         await client.RegisterAndLoginAsync(email);
-        await _factory.EnsureAdminRoleAsync(email);
+        await _factory.EnsureSoleAdminRoleAsync(email);
         await client.LoginAsync(email);
 
         var actorId = await _factory.GetUserIdAsync(email);
         var response = await client.PutAsJsonAsync($"/api/admin/users/{actorId}/admin-role",
-            new UpdateAdminRoleRequest(false));
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            new { isAdmin = false });
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
@@ -231,20 +234,17 @@ public sealed class AdminRoutesTests
     }
 
     [Fact]
-    public async Task Admin_can_create_user_with_admin_role()
+    public async Task Admin_cannot_create_user_with_admin_role()
     {
         var client = CreateClient();
         var email = $"admin_{Guid.NewGuid():N}@example.com";
         await client.RegisterAndLoginAsync(email);
-        await _factory.EnsureAdminRoleAsync(email);
+        await _factory.EnsureSoleAdminRoleAsync(email);
         await client.LoginAsync(email);
 
         var create = await client.PostAsJsonAsync("/api/admin/users",
             new CreateUserRequest($"newadmin_{Guid.NewGuid():N}@example.com", "TestPass123!!", "New", "Admin", UserType.Individual, "Admin"));
-        create.StatusCode.Should().Be(HttpStatusCode.OK);
-        var user = await create.ReadJsonAsync<AdminUserResponse>();
-        user.IsAdmin.Should().BeTrue();
-        user.Roles.Should().Contain("Admin");
+        create.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     [Fact]
@@ -329,7 +329,7 @@ public sealed class AdminRoutesTests
         var client = CreateClient();
         var actorEmail = $"admin_{Guid.NewGuid():N}@example.com";
         await client.RegisterAndLoginAsync(actorEmail);
-        await _factory.EnsureAdminRoleAsync(actorEmail);
+        await _factory.EnsureSoleAdminRoleAsync(actorEmail);
         await client.LoginAsync(actorEmail);
 
         var create = await client.PostAsJsonAsync("/api/admin/users",
@@ -346,6 +346,139 @@ public sealed class AdminRoutesTests
         await client.LoginAsync(actorEmail);
         var users = await client.GetAsync("/api/admin/users");
         users.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Admin_plan_price_change_updates_existing_subscription_at_renewal()
+    {
+        var client = CreateClient();
+        var email = $"admin_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        await _factory.EnsureSoleAdminRoleAsync(email);
+        await client.LoginAsync(email);
+
+        var create = await client.PostAsJsonAsync("/api/admin/subscription-plans",
+            new CreateSubscriptionPlanRequest(
+                $"Plan-{Guid.NewGuid():N}", "Test plan", UserType.Individual, 9.99m, 99.99m, null, null, null));
+        create.StatusCode.Should().Be(HttpStatusCode.OK);
+        var plan = await create.ReadJsonAsync<AdminSubscriptionPlanResponse>();
+
+        var userEmail = $"user_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAsync(userEmail);
+        await client.LoginAsync(email);
+        var userId = await _factory.GetUserIdAsync(userEmail);
+        await _factory.SeedSubscriptionForPlanAsync(userId, plan.Id);
+
+        var stripeSubId = await _factory.GetSubscriptionStripeIdAsync(userId);
+        stripeSubId.Should().NotBeNullOrEmpty();
+
+        var update = await client.PutAsJsonAsync($"/api/admin/subscription-plans/{plan.Id}",
+            new UpdateSubscriptionPlanRequest(
+                plan.Name, plan.Description, UserType.Individual, 29.99m, 199.99m, null, null, null, true));
+        update.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        await _factory.VerifySubscriptionOnPlanAsync(userId, plan.Id, 9.99m);
+
+        _factory.FakePayments.PriceSwitches.Should().Contain(
+            s => s.StripeSubscriptionId == stripeSubId
+                && s.ProrationBehavior == "none");
+
+        await client.LoginAsync(userEmail);
+        var current = await (await client.GetAsync("/api/subscriptions/current")).ReadJsonAsync<UserSubscriptionResponse>();
+        current.Price.Should().Be(9.99m);
+        current.NextPrice.Should().Be(29.99m);
+        current.NextPriceEffectiveDate.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Transfer_admin_revokes_refresh_tokens_for_both_users()
+    {
+        var actorClient = CreateClient();
+        var targetClient = CreateClient();
+        var actorEmail = $"admin_{Guid.NewGuid():N}@example.com";
+        var targetEmail = $"target_{Guid.NewGuid():N}@example.com";
+
+        await actorClient.RegisterAndLoginAsync(actorEmail);
+        await _factory.EnsureSoleAdminRoleAsync(actorEmail);
+        await actorClient.LoginAsync(actorEmail);
+
+        await targetClient.RegisterAndLoginAsync(targetEmail);
+        await _factory.EnsureModeratorRoleAsync(targetEmail);
+        await targetClient.LoginAsync(targetEmail);
+
+        var targetId = await _factory.GetUserIdAsync(targetEmail);
+
+        var transfer = await actorClient.PostAsync($"/api/admin/users/{targetId}/transfer-admin", null);
+        transfer.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var actorRefresh = await actorClient.PostAsync("/api/auth/refresh", null);
+        actorRefresh.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        var targetRefresh = await targetClient.PostAsync("/api/auth/refresh", null);
+        targetRefresh.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Admin_cannot_transfer_admin_role_when_another_admin_exists()
+    {
+        var client = CreateClient();
+        var actorEmail = $"admin_{Guid.NewGuid():N}@example.com";
+        var otherEmail = $"admin_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(actorEmail);
+        await _factory.EnsureSoleAdminRoleAsync(actorEmail);
+        (await client.RegisterAsync(otherEmail)).EnsureSuccessStatusCode();
+        await _factory.EnsureAdminRoleAsync(otherEmail);
+        await client.LoginAsync(actorEmail);
+
+        var create = await client.PostAsJsonAsync("/api/admin/users",
+            new CreateUserRequest($"mod_{Guid.NewGuid():N}@example.com", "TestPass123!!", "Next", "Admin", UserType.Individual, "Moderator"));
+        create.EnsureSuccessStatusCode();
+        var mod = await create.ReadJsonAsync<AdminUserResponse>();
+
+        var transfer = await client.PostAsync($"/api/admin/users/{mod.Id}/transfer-admin", null);
+        transfer.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Admin_cannot_delete_account_without_transferring_admin_role()
+    {
+        var client = CreateClient();
+        var email = $"admin_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        await _factory.EnsureSoleAdminRoleAsync(email);
+        await client.LoginAsync(email);
+
+        var delete = await client.SendAsync(new HttpRequestMessage(HttpMethod.Delete, "/api/auth/account")
+        {
+            Content = JsonContent.Create(new DeleteAccountRequest(ApiClientExtensions.DefaultPassword)),
+        });
+        delete.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Former_admin_can_delete_account_after_transferring()
+    {
+        var client = CreateClient();
+        var actorEmail = $"admin_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(actorEmail);
+        await _factory.EnsureSoleAdminRoleAsync(actorEmail);
+        await client.LoginAsync(actorEmail);
+
+        var create = await client.PostAsJsonAsync("/api/admin/users",
+            new CreateUserRequest($"mod_{Guid.NewGuid():N}@example.com", "TestPass123!!", "Next", "Admin", UserType.Individual, "Moderator"));
+        create.EnsureSuccessStatusCode();
+        var mod = await create.ReadJsonAsync<AdminUserResponse>();
+
+        var transfer = await client.PostAsync($"/api/admin/users/{mod.Id}/transfer-admin", null);
+        transfer.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        await client.LoginAsync(actorEmail);
+
+        var delete = await client.SendAsync(new HttpRequestMessage(HttpMethod.Delete, "/api/auth/account")
+        {
+            Content = JsonContent.Create(new DeleteAccountRequest(ApiClientExtensions.DefaultPassword)),
+        });
+        delete.StatusCode.Should().Be(HttpStatusCode.NoContent);
     }
 
     [Fact]
@@ -372,8 +505,35 @@ public sealed class AdminRoutesTests
 
         var userId = await _factory.GetUserIdAsync(email);
         var role = await client.PutAsJsonAsync($"/api/admin/users/{userId}/admin-role",
-            new UpdateAdminRoleRequest(false));
-        role.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+            new { isAdmin = false });
+        role.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Staff_only_listing_returns_only_admins_and_moderators()
+    {
+        var client = CreateClient();
+        var adminEmail = $"admin_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(adminEmail);
+        await _factory.EnsureSoleAdminRoleAsync(adminEmail);
+        await client.LoginAsync(adminEmail);
+
+        (await client.RegisterAsync($"user_{Guid.NewGuid():N}@example.com")).EnsureSuccessStatusCode();
+        var modEmail = $"mod_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAsync(modEmail);
+        await _factory.EnsureModeratorRoleAsync(modEmail);
+        await client.LoginAsync(adminEmail);
+
+        var staff = await client.GetAsync("/api/admin/users?staffOnly=true");
+        staff.StatusCode.Should().Be(HttpStatusCode.OK);
+        var staffUsers = await staff.ReadJsonAsync<List<AdminUserResponse>>();
+        staffUsers.Should().Contain(u => u.Email == adminEmail);
+        staffUsers.Should().Contain(u => u.Email == modEmail);
+        staffUsers.Should().NotContain(u => u.Email == $"user_{Guid.NewGuid():N}@example.com");
+
+        var all = await client.GetAsync("/api/admin/users");
+        var allUsers = await all.ReadJsonAsync<List<AdminUserResponse>>();
+        allUsers.Count.Should().BeGreaterThanOrEqualTo(staffUsers.Count);
     }
 
     [Fact]

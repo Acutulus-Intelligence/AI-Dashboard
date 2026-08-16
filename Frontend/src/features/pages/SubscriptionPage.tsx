@@ -6,6 +6,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import AppShell from '../layouts/AppShell';
 import { ROUTES } from '../routes';
 import * as subscriptionApi from '../../lib/api/subscription';
+import { usePolling } from '../../hooks/usePolling';
 
 function formatDate(dateStr: string | null) {
   if (!dateStr) return '—';
@@ -45,6 +46,8 @@ export default function SubscriptionPage() {
   useEffect(() => {
     void loadSubscription();
   }, []);
+
+  usePolling({ onPoll: loadSubscription });
 
   async function handleCancel() {
     setCancelling(true);
@@ -124,6 +127,14 @@ export default function SubscriptionPage() {
                         ${subscription.price.toFixed(2)}/{subscription.billingPeriod === 0 || subscription.billingPeriod === 'Monthly' ? 'mo' : 'yr'}
                       </dd>
                     </div>
+                    {subscription.nextPrice != null && (
+                      <div className="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-body-sm text-amber-800">
+                        <AlertCircle size={16} className="shrink-0" />
+                        <span>
+                          Your subscription price will change to ${subscription.nextPrice.toFixed(2)} at your next renewal{subscription.nextPriceEffectiveDate ? ` on ${formatDate(subscription.nextPriceEffectiveDate)}` : ''}.
+                        </span>
+                      </div>
+                    )}
                     <div className="flex justify-between">
                       <dt className="text-on-surface-variant">Billing</dt>
                       <dd className="font-semibold text-on-background">

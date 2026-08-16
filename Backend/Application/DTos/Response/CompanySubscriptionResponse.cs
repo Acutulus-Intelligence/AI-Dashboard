@@ -5,6 +5,8 @@ public sealed record CompanySubscriptionResponse(
     Guid PlanId,
     string PlanName,
     decimal Price,
+    decimal? NextPrice,
+    DateTime? NextPriceEffectiveDate,
     Domain.Enums.BillingPeriod BillingPeriod,
     int? MaxUsers,
     DateTime StartDate,

@@ -8,6 +8,7 @@ import { ROUTES } from '../routes';
 import * as subscriptionApi from '../../lib/api/subscription';
 import * as companyApi from '../../lib/api/company';
 import { useAuth } from '../store/useAuth';
+import { usePolling } from '../../hooks/usePolling';
 
 function formatDate(dateStr: string | null) {
   if (!dateStr) return '—';
@@ -91,6 +92,8 @@ export default function SettingsPage() {
     void loadSubscription();
   }, []);
 
+  usePolling({ onPoll: loadSubscription });
+
   useEffect(() => {
     if (user?.userType === 0) {
       void loadInvites();
@@ -164,6 +167,14 @@ export default function SettingsPage() {
                     <p className="text-on-surface-variant">
                       ${subscription.price.toFixed(2)}/{subscription.billingPeriod === 0 || subscription.billingPeriod === 'Monthly' ? 'mo' : 'yr'}
                     </p>
+                    {subscription.nextPrice != null && (
+                      <p className="flex items-start gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-label-sm text-amber-800">
+                        <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                        <span>
+                          Price will change to ${subscription.nextPrice.toFixed(2)} at your next renewal{subscription.nextPriceEffectiveDate ? ` on ${formatDate(subscription.nextPriceEffectiveDate)}` : ''}.
+                        </span>
+                      </p>
+                    )}
                     <p className="text-on-surface-variant">
                       Started {formatDate(subscription.startDate)}
                     </p>

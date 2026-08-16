@@ -8,6 +8,7 @@ import { ROUTES } from '../routes';
 import * as companyApi from '../../lib/api/company';
 import * as subscriptionApi from '../../lib/api/subscription';
 import { useAuth } from '../store/useAuth';
+import { usePolling } from '../../hooks/usePolling';
 
 function statusLabel(status: number): { text: string; color: string } {
   if (status === 0) return { text: 'Trial', color: 'text-blue-600 bg-blue-50' };
@@ -72,6 +73,8 @@ export default function AdminPage() {
   useEffect(() => {
     void loadData();
   }, []);
+
+  usePolling({ onPoll: loadData });
 
   async function handleCancel() {
     if (!company || !companySub) return;
@@ -220,6 +223,14 @@ export default function AdminPage() {
                       <p className="text-on-surface-variant">
                         {companySub.planName} &middot; ${companySub.price.toFixed(2)}/{companySub.billingPeriod === 0 ? 'mo' : 'yr'}
                       </p>
+                      {companySub.nextPrice != null && (
+                        <p className="flex items-start gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-label-sm text-amber-800">
+                          <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                          <span>
+                            Price will change to ${companySub.nextPrice.toFixed(2)} at your next renewal{companySub.nextPriceEffectiveDate ? ` on ${formatDate(companySub.nextPriceEffectiveDate)}` : ''}.
+                          </span>
+                        </p>
+                      )}
                       <p className="text-on-surface-variant">
                         Started {formatDate(companySub.startDate)}
                       </p>

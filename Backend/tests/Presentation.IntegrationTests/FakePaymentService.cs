@@ -8,6 +8,7 @@ namespace Presentation.IntegrationTests;
 public sealed class FakePaymentService : IPaymentService
 {
     private readonly ConcurrentDictionary<string, PaymentWebhookEvent> _sessions = new();
+    private readonly ConcurrentDictionary<string, PaymentWebhookEvent> _subscriptionEvents = new();
 
     public Task<CheckoutResponse> CreateCheckoutSessionAsync(
         string customerId,
@@ -87,8 +88,35 @@ public sealed class FakePaymentService : IPaymentService
         if (_sessions.TryGetValue(body.Trim(), out var evt))
             return Task.FromResult(evt);
 
+        if (_subscriptionEvents.TryGetValue(body.Trim(), out var subscriptionEvent))
+            return Task.FromResult(subscriptionEvent);
+
         throw new InvalidOperationException("Unknown webhook session body.");
     }
+
+    public void QueueInvoicePaid(string stripeSubscriptionId)
+    {
+        var key = $"invoice-paid:{stripeSubscriptionId}";
+        _subscriptionEvents[key] = new PaymentWebhookEvent(
+            "invoice.paid",
+            new Dictionary<string, string>(),
+            stripeSubscriptionId,
+            "cus_test");
+    }
+
+    public void QueueSubscriptionUpdated(string stripeSubscriptionId, string status)
+    {
+        var key = $"subscription-updated:{stripeSubscriptionId}";
+        _subscriptionEvents[key] = new PaymentWebhookEvent(
+            "customer.subscription.updated",
+            new Dictionary<string, string>(),
+            stripeSubscriptionId,
+            "cus_test",
+            null,
+            status);
+    }
+
+    public List<(string StripeSubscriptionId, string PriceId, string ProrationBehavior)> PriceSwitches { get; } = [];
 
     public Task CancelSubscriptionAtPeriodEndAsync(string stripeSubscriptionId, CancellationToken ct = default)
         => Task.CompletedTask;
@@ -96,8 +124,15 @@ public sealed class FakePaymentService : IPaymentService
     public Task CancelSubscriptionImmediatelyAsync(string stripeSubscriptionId, CancellationToken ct = default)
         => Task.CompletedTask;
 
-    public Task SwitchSubscriptionPriceAsync(string stripeSubscriptionId, string priceId, CancellationToken ct = default)
-        => Task.CompletedTask;
+    public Task SwitchSubscriptionPriceAsync(
+        string stripeSubscriptionId,
+        string priceId,
+        string prorationBehavior = "create_prorations",
+        CancellationToken ct = default)
+    {
+        PriceSwitches.Add((stripeSubscriptionId, priceId, prorationBehavior));
+        return Task.CompletedTask;
+    }
 
     public Task<string> GetOrCreateCustomerAsync(string email, Guid userId, CancellationToken ct = default)
         => Task.FromResult($"cus_test_{userId:N}");

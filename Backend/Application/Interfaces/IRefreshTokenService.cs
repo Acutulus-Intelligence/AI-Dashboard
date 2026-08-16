@@ -8,4 +8,5 @@ public interface IRefreshTokenService
     Task<RefreshToken?> ValidateRefreshTokenAsync(string refreshToken);
     Task<string> RotateRefreshTokenAsync(string oldRefreshToken, string newJwtId);
     Task RevokeRefreshTokenAsync(string refreshToken);
+    Task RevokeAllRefreshTokensAsync(Guid userId);
 }

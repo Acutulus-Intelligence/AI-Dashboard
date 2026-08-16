@@ -204,6 +204,71 @@ public sealed class SubscriptionRoutesTests
     }
 
     [Fact]
+    public async Task Subscription_updated_webhook_flips_trial_to_active()
+    {
+        var client = CreateClient();
+        var email = $"su_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        var userId = await _factory.GetUserIdAsync(email);
+
+        var plans = await (await client.GetAsync("/api/subscriptions/plans?userType=0")).ReadJsonAsync<List<SubscriptionPlanResponse>>();
+        var plan = plans.First(p => p.UserType == UserType.Individual);
+        await _factory.SeedSubscriptionForPlanAsync(userId, plan.Id, "sub_trial");
+        var stripeSubId = await _factory.GetSubscriptionStripeIdAsync(userId);
+        stripeSubId.Should().NotBeNullOrEmpty();
+
+        _factory.FakePayments.QueueSubscriptionUpdated(stripeSubId, "active");
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/subscriptions/stripe-webhook")
+        {
+            Content = new StringContent($"subscription-updated:{stripeSubId}"),
+        };
+        request.Headers.TryAddWithoutValidation("Stripe-Signature", "valid-test-signature");
+
+        var response = await client.SendAsync(request);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        await client.LoginAsync(email);
+        var current = await (await client.GetAsync("/api/subscriptions/current")).ReadJsonAsync<UserSubscriptionResponse>();
+        current.Status.Should().Be(Domain.Enums.SubscriptionStatus.Active);
+        current.TrialEndDate.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Invoice_paid_webhook_applies_pending_price_change()
+    {
+        var client = CreateClient();
+        var email = $"ip_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        var userId = await _factory.GetUserIdAsync(email);
+
+        var plans = await (await client.GetAsync("/api/subscriptions/plans?userType=0")).ReadJsonAsync<List<SubscriptionPlanResponse>>();
+        var plan = plans.First(p => p.UserType == UserType.Individual);
+        await _factory.SeedSubscriptionForPlanAsync(userId, plan.Id, "sub_price");
+        var stripeSubId = await _factory.GetSubscriptionStripeIdAsync(userId);
+        stripeSubId.Should().NotBeNullOrEmpty();
+
+        await _factory.SetNextPriceAsync(userId, 42.99m);
+
+        _factory.FakePayments.QueueInvoicePaid(stripeSubId);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/subscriptions/stripe-webhook")
+        {
+            Content = new StringContent($"invoice-paid:{stripeSubId}"),
+        };
+        request.Headers.TryAddWithoutValidation("Stripe-Signature", "valid-test-signature");
+
+        var response = await client.SendAsync(request);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        await client.LoginAsync(email);
+        var current = await (await client.GetAsync("/api/subscriptions/current")).ReadJsonAsync<UserSubscriptionResponse>();
+        current.Price.Should().Be(42.99m);
+        current.NextPrice.Should().BeNull();
+        current.NextPriceEffectiveDate.Should().BeNull();
+    }
+
+    [Fact]
     public async Task Moderator_cannot_start_user_checkout()
     {
         var client = CreateClient();

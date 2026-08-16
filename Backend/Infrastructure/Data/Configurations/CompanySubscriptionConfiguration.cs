@@ -18,6 +18,9 @@ public class CompanySubscriptionConfiguration : IEntityTypeConfiguration<Company
         builder.Property(cs => cs.Price)
             .HasPrecision(18, 2);
 
+        builder.Property(cs => cs.NextPrice)
+            .HasPrecision(18, 2);
+
         builder.HasOne(cs => cs.Company)
             .WithMany()
             .HasForeignKey(cs => cs.CompanyId)

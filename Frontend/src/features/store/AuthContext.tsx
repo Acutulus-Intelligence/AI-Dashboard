@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as authApi from '../../lib/api/auth';
 import { AuthContext, type AuthUser } from './AuthContext';
+import { ROUTES } from '../routes';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -84,6 +85,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setHasActiveSubscription(false);
     navigate('/');
+  }, [navigate]);
+
+  useEffect(() => {
+    function handleSessionExpired() {
+      setUser(null);
+      setHasActiveSubscription(false);
+      navigate(ROUTES.LOGIN);
+    }
+
+    window.addEventListener('auth:session-expired', handleSessionExpired);
+    return () => window.removeEventListener('auth:session-expired', handleSessionExpired);
   }, [navigate]);
 
   return (

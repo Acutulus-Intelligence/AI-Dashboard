@@ -143,12 +143,47 @@ public static class ApiClientExtensions
         subscription.Price.Should().Be(price);
     }
 
+    public static async Task<string?> GetSubscriptionStripeIdAsync(this ApiFactory factory, Guid userId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        return await db.UserSubscriptions
+            .Where(s => s.UserId == userId)
+            .Select(s => s.StripeSubscriptionId)
+            .FirstOrDefaultAsync();
+    }
+
+    public static async Task SetNextPriceAsync(this ApiFactory factory, Guid userId, decimal nextPrice)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var subscription = await db.UserSubscriptions.FirstAsync(s => s.UserId == userId);
+        subscription.NextPrice = nextPrice;
+        subscription.NextPriceEffectiveDate = DateTime.UtcNow.AddDays(10);
+        await db.SaveChangesAsync();
+    }
+
     public static async Task EnsureAdminRoleAsync(this ApiFactory factory, string email)
     {
         using var scope = factory.Services.CreateScope();
         var users = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
         var user = await users.FindByEmailAsync(email)
             ?? throw new InvalidOperationException($"User {email} not found.");
+        if (!await users.IsInRoleAsync(user, "Admin"))
+            await users.AddToRoleAsync(user, "Admin");
+    }
+
+    public static async Task EnsureSoleAdminRoleAsync(this ApiFactory factory, string email)
+    {
+        using var scope = factory.Services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
+        var user = await users.FindByEmailAsync(email)
+            ?? throw new InvalidOperationException($"User {email} not found.");
+
+        var admins = await users.GetUsersInRoleAsync("Admin");
+        foreach (var admin in admins.Where(a => a.Id != user.Id))
+            await users.RemoveFromRoleAsync(admin, "Admin");
+
         if (!await users.IsInRoleAsync(user, "Admin"))
             await users.AddToRoleAsync(user, "Admin");
     }

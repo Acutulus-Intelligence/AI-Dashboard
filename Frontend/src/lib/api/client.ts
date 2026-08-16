@@ -105,6 +105,7 @@ async function rawApiFetch(path: string, options: RequestInit): Promise<Response
         credentials: 'include',
       });
     } else {
+      window.dispatchEvent(new CustomEvent('auth:session-expired'));
       throw new ApiError('Session expired', 401);
     }
   }

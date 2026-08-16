@@ -143,14 +143,24 @@ export default function AdminPlansPage() {
       toast.error('Plan name is required.');
       return;
     }
+    const monthlyPrice = nullableNumber(form.monthlyPrice);
+    const yearlyPrice = nullableNumber(form.yearlyPrice);
+    if (monthlyPrice == null || monthlyPrice < 0) {
+      toast.error('Monthly price must be a valid non-negative number.');
+      return;
+    }
+    if (yearlyPrice == null || yearlyPrice < 0) {
+      toast.error('Yearly price must be a valid non-negative number.');
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
         name: form.name.trim(),
         description: form.description.trim(),
         userType: form.userType,
-        monthlyPrice: nullableNumber(form.monthlyPrice) ?? 0,
-        yearlyPrice: nullableNumber(form.yearlyPrice) ?? 0,
+        monthlyPrice,
+        yearlyPrice,
         maxUsers: nullableNumber(form.maxUsers),
         maxDashboards: nullableNumber(form.maxDashboards),
         maxAiQueriesPerMonth: nullableNumber(form.maxAiQueriesPerMonth),

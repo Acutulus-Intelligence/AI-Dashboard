@@ -50,6 +50,8 @@ export interface CompanySubscriptionResponse {
   planId: string;
   planName: string;
   price: number;
+  nextPrice: number | null;
+  nextPriceEffectiveDate: string | null;
   billingPeriod: number;
   maxUsers: number | null;
   startDate: string;

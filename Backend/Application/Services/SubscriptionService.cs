@@ -30,7 +30,7 @@ public class SubscriptionService : ISubscriptionService
     {
         var query = _db.SubscriptionPlans
             .AsNoTracking()
-            .Where(p => p.IsActive);
+            .Where(p => p.IsActive && !p.IsArchived);
 
         if (userType.HasValue)
             query = query.Where(p => p.UserType == userType.Value);
@@ -57,7 +57,7 @@ public class SubscriptionService : ISubscriptionService
     {
         var plan = await _db.SubscriptionPlans
             .AsNoTracking()
-            .FirstOrDefaultAsync(p => p.Id == planId, ct)
+            .FirstOrDefaultAsync(p => p.Id == planId && p.IsActive && !p.IsArchived, ct)
             ?? throw new KeyNotFoundException("Subscription plan not found.");
 
         return new SubscriptionPlanResponse(
@@ -301,6 +301,10 @@ public class SubscriptionService : ISubscriptionService
                     await HandleCheckoutCompletedAsync(paymentEvent, ct);
                     break;
 
+                case "customer.subscription.updated":
+                    await HandleSubscriptionUpdatedAsync(paymentEvent, ct);
+                    break;
+
                 case "invoice.paid":
                     await HandleInvoicePaidAsync(paymentEvent, ct);
                     break;
@@ -358,6 +362,8 @@ public class SubscriptionService : ISubscriptionService
             subscription.PlanId,
             subscription.Plan.Name,
             subscription.Price,
+            subscription.NextPrice,
+            subscription.NextPriceEffectiveDate,
             subscription.BillingPeriod,
             subscription.StartDate,
             subscription.EndDate,
@@ -382,6 +388,8 @@ public class SubscriptionService : ISubscriptionService
             subscription.PlanId,
             subscription.Plan.Name,
             subscription.Price,
+            subscription.NextPrice,
+            subscription.NextPriceEffectiveDate,
             subscription.BillingPeriod,
             subscription.MaxUsers,
             subscription.StartDate,
@@ -780,6 +788,8 @@ public class SubscriptionService : ISubscriptionService
                 ? now.AddMonths(1)
                 : now.AddYears(1);
 
+            ApplyPendingPriceChange(userSub);
+
             if (wasTrial)
             {
                 var email = await _db.Users.AsNoTracking()
@@ -809,6 +819,8 @@ public class SubscriptionService : ISubscriptionService
                 ? now.AddMonths(1)
                 : now.AddYears(1);
 
+            ApplyPendingPriceChange(companySub);
+
             if (wasTrial)
             {
                 var owner = await _db.Companies.AsNoTracking()
@@ -827,6 +839,91 @@ public class SubscriptionService : ISubscriptionService
             }
 
             await _db.SaveChangesAsync(ct);
+        }
+    }
+
+    private async Task HandleSubscriptionUpdatedAsync(PaymentWebhookEvent evt, CancellationToken ct)
+    {
+        if (evt.StripeSubscriptionId is null)
+            return;
+
+        // A trial that ended successfully flips to "active" in Stripe. Fall back to this
+        // event when the invoice.paid webhook is delayed or not delivered at all.
+        if (evt.StripeStatus != "active")
+            return;
+
+        var now = DateTime.UtcNow;
+
+        var userSub = await _db.UserSubscriptions
+            .FirstOrDefaultAsync(s => s.StripeSubscriptionId == evt.StripeSubscriptionId, ct);
+
+        if (userSub is not null)
+        {
+            if (userSub.Status == SubscriptionStatus.Trial)
+            {
+                userSub.Status = SubscriptionStatus.Active;
+                userSub.TrialEndDate = null;
+                userSub.EndDate = userSub.BillingPeriod == BillingPeriod.Monthly
+                    ? now.AddMonths(1)
+                    : now.AddYears(1);
+
+                var email = await _db.Users.AsNoTracking()
+                    .Where(u => u.Id == userSub.UserId)
+                    .Select(u => u.Email)
+                    .FirstOrDefaultAsync(ct);
+                await MarkTrialFingerprintsConsumedAsync(userSub.UserId, email, ct);
+            }
+
+            await _db.SaveChangesAsync(ct);
+            return;
+        }
+
+        var companySub = await _db.CompanySubscriptions
+            .FirstOrDefaultAsync(s => s.StripeSubscriptionId == evt.StripeSubscriptionId, ct);
+
+        if (companySub is not null && companySub.Status == SubscriptionStatus.Trial)
+        {
+            companySub.Status = SubscriptionStatus.Active;
+            companySub.TrialEndDate = null;
+            companySub.EndDate = companySub.BillingPeriod == BillingPeriod.Monthly
+                ? now.AddMonths(1)
+                : now.AddYears(1);
+
+            var owner = await _db.Companies.AsNoTracking()
+                .Where(c => c.Id == companySub.CompanyId)
+                .Select(c => new { c.OwnerId })
+                .FirstOrDefaultAsync(ct);
+
+            if (owner is not null)
+            {
+                var email = await _db.Users.AsNoTracking()
+                    .Where(u => u.Id == owner.OwnerId)
+                    .Select(u => u.Email)
+                    .FirstOrDefaultAsync(ct);
+                await MarkTrialFingerprintsConsumedAsync(owner.OwnerId, email, ct);
+            }
+
+            await _db.SaveChangesAsync(ct);
+        }
+    }
+
+    private static void ApplyPendingPriceChange(UserSubscription subscription)
+    {
+        if (subscription.NextPrice is not null)
+        {
+            subscription.Price = subscription.NextPrice.Value;
+            subscription.NextPrice = null;
+            subscription.NextPriceEffectiveDate = null;
+        }
+    }
+
+    private static void ApplyPendingPriceChange(CompanySubscription subscription)
+    {
+        if (subscription.NextPrice is not null)
+        {
+            subscription.Price = subscription.NextPrice.Value;
+            subscription.NextPrice = null;
+            subscription.NextPriceEffectiveDate = null;
         }
     }
 

@@ -10,6 +10,8 @@ public class UserSubscription
     public Guid PlanId { get; set; }
     public SubscriptionPlan Plan { get; set; } = null!;
     public decimal Price { get; set; }
+    public decimal? NextPrice { get; set; }
+    public DateTime? NextPriceEffectiveDate { get; set; }
     public BillingPeriod BillingPeriod { get; set; }
     public DateTime StartDate { get; set; }
     public DateTime? EndDate { get; set; }

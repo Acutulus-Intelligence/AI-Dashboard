@@ -33,6 +33,8 @@ export interface UserSubscription {
   planId: string;
   planName: string;
   price: number;
+  nextPrice: number | null;
+  nextPriceEffectiveDate: string | null;
   billingPeriod: BillingPeriod | 'Monthly' | 'Yearly';
   startDate: string;
   endDate: string | null;
@@ -60,6 +62,8 @@ export interface CompanySubscription {
   planId: string;
   planName: string;
   price: number;
+  nextPrice: number | null;
+  nextPriceEffectiveDate: string | null;
   billingPeriod: number;
   maxUsers: number | null;
   startDate: string;
