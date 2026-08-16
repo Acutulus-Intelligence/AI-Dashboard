@@ -129,12 +129,30 @@ public class SubscriptionController : ControllerBase
         return NoContent();
     }
 
+    [HttpPost("reactivate")]
+    [Authorize]
+    public async Task<IActionResult> ReactivateSubscription(CancellationToken ct)
+    {
+        var userId = GetUserId();
+        await _subscriptionService.ReactivateUserSubscriptionAsync(userId, ct);
+        return NoContent();
+    }
+
     [HttpPost("company/{companyId:guid}/cancel")]
     [Authorize]
     public async Task<IActionResult> CancelCompanySubscription(Guid companyId, CancellationToken ct)
     {
         var actorId = GetUserId();
         await _subscriptionService.CancelCompanySubscriptionAsync(companyId, actorId, ct);
+        return NoContent();
+    }
+
+    [HttpPost("company/{companyId:guid}/reactivate")]
+    [Authorize]
+    public async Task<IActionResult> ReactivateCompanySubscription(Guid companyId, CancellationToken ct)
+    {
+        var actorId = GetUserId();
+        await _subscriptionService.ReactivateCompanySubscriptionAsync(companyId, actorId, ct);
         return NoContent();
     }
 

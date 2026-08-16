@@ -6,6 +6,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import AppShell from '../layouts/AppShell';
 import { ROUTES } from '../routes';
 import * as subscriptionApi from '../../lib/api/subscription';
+import { estimateUpgradeCredit } from '../../lib/api/subscription';
 import * as companyApi from '../../lib/api/company';
 import { useAuth } from '../store/useAuth';
 import { usePolling } from '../../hooks/usePolling';
@@ -32,6 +33,7 @@ export default function SettingsPage() {
   const [subscription, setSubscription] = useState<subscriptionApi.UserSubscription | null>(null);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
+  const [reactivating, setReactivating] = useState(false);
   const [error, setError] = useState('');
   const [invites, setInvites] = useState<companyApi.CompanyInviteResponse[]>([]);
   const [invitesLoading, setInvitesLoading] = useState(true);
@@ -120,6 +122,19 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleReactivate() {
+    setReactivating(true);
+    setError('');
+    try {
+      await subscriptionApi.reactivate();
+      await loadSubscription();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not reactivate subscription.');
+    } finally {
+      setReactivating(false);
+    }
+  }
+
   const status = subscription ? statusLabel(subscription.status) : null;
 
   return (
@@ -178,17 +193,38 @@ export default function SettingsPage() {
                     <p className="text-on-surface-variant">
                       Started {formatDate(subscription.startDate)}
                     </p>
-                    {subscription.endDate && (
-                      <p className="text-on-surface-variant">
-                        Renews {formatDate(subscription.endDate)}
+                    {subscription.cancelAtPeriodEnd && subscription.endDate ? (
+                      <p className="font-medium text-amber-700">
+                        Cancels at period end — {formatDate(subscription.endDate)}
                       </p>
+                    ) : (
+                      subscription.endDate && (
+                        <p className="text-on-surface-variant">
+                          Renews {formatDate(subscription.endDate)}
+                        </p>
+                      )
                     )}
-                    {subscription.trialEndDate && (
-                      <p className="text-on-surface-variant">
-                        Trial ends {formatDate(subscription.trialEndDate)}
-                      </p>
-                    )}
-                    {(subscription.status === 0 || subscription.status === 1 || subscription.status === 'Trial' || subscription.status === 'Active') && (
+                    {(subscription.status === 0 || subscription.status === 'Trial') &&
+                      subscription.trialEndDate &&
+                      new Date(subscription.trialEndDate) > new Date() && (
+                        <p className="text-on-surface-variant">
+                          Trial ends {formatDate(subscription.trialEndDate)}
+                        </p>
+                      )}
+                    {subscription.cancelAtPeriodEnd ? (
+                      <>
+                        <Button
+                          className="mt-3 w-full"
+                          disabled={reactivating}
+                          onClick={(e) => { e.preventDefault(); void handleReactivate(); }}
+                        >
+                          {reactivating ? 'Reactivating...' : 'Reactivate subscription'}
+                        </Button>
+                        <p className="mt-2 text-center text-body-xs text-on-surface-variant">
+                          Reactivating just continues your renewals — you won't be charged again today.
+                        </p>
+                      </>
+                    ) : (subscription.status === 0 || subscription.status === 1 || subscription.status === 'Trial' || subscription.status === 'Active') && (
                       <Button
                         variant="outline"
                         className="mt-3 w-full border-red-300 text-red-600 hover:bg-red-50"
@@ -240,6 +276,17 @@ export default function SettingsPage() {
                   <p className="text-body-sm text-on-surface-variant">
                     Create a company workspace with team management, shared dashboards, and more.
                   </p>
+                  {(() => {
+                    const credit = estimateUpgradeCredit(subscription);
+                    return credit != null ? (
+                      <p className="mt-3 flex items-start gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-label-sm text-amber-800">
+                        <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                        <span>
+                          Unused time on your current plan (approx. ${credit.toFixed(2)}) is credited when you upgrade.
+                        </span>
+                      </p>
+                    ) : null;
+                  })()}
                   <div className="mt-4">
                     <Link to={ROUTES.PRICING}>
                       <Button variant="outline" className="w-full">Create company</Button>
@@ -305,7 +352,7 @@ export default function SettingsPage() {
           if (!cancelling) setCancelConfirmOpen(open);
         }}
         title="Cancel subscription?"
-        description="Your dashboard access will be revoked. You can resubscribe later."
+        description="Your subscription will end at the end of your current billing period. You'll keep access until then."
         confirmLabel="Cancel subscription"
         variant="destructive"
         loading={cancelling}

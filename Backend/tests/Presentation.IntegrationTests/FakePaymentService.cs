@@ -9,6 +9,13 @@ public sealed class FakePaymentService : IPaymentService
 {
     private readonly ConcurrentDictionary<string, PaymentWebhookEvent> _sessions = new();
     private readonly ConcurrentDictionary<string, PaymentWebhookEvent> _subscriptionEvents = new();
+    private readonly ConcurrentDictionary<string, Guid> _subscriptionOwners = new();
+
+    public List<int> RecordedTrialDays { get; } = [];
+
+    public List<string> ProratedCancels { get; } = [];
+
+    public List<string> ReactivateFailures { get; } = [];
 
     public Task<CheckoutResponse> CreateCheckoutSessionAsync(
         string customerId,
@@ -23,8 +30,10 @@ public sealed class FakePaymentService : IPaymentService
         string cancelUrl,
         CancellationToken ct = default)
     {
+        RecordedTrialDays.Add(trialDays);
         var sessionId = $"cs_test_{Guid.NewGuid():N}";
         var subId = $"sub_test_{Guid.NewGuid():N}";
+        _subscriptionOwners[subId] = userId;
         _sessions[sessionId] = new PaymentWebhookEvent(
             "checkout.session.completed",
             new Dictionary<string, string>
@@ -55,8 +64,10 @@ public sealed class FakePaymentService : IPaymentService
         string cancelUrl,
         CancellationToken ct = default)
     {
+        RecordedTrialDays.Add(trialDays);
         var sessionId = $"cs_test_{Guid.NewGuid():N}";
         var subId = $"sub_test_{Guid.NewGuid():N}";
+        _subscriptionOwners[subId] = userId;
         _sessions[sessionId] = new PaymentWebhookEvent(
             "checkout.session.completed",
             new Dictionary<string, string>
@@ -116,6 +127,16 @@ public sealed class FakePaymentService : IPaymentService
             status);
     }
 
+    public void QueueSubscriptionDeleted(string stripeSubscriptionId)
+    {
+        var key = $"subscription-deleted:{stripeSubscriptionId}";
+        _subscriptionEvents[key] = new PaymentWebhookEvent(
+            "customer.subscription.deleted",
+            new Dictionary<string, string>(),
+            stripeSubscriptionId,
+            null);
+    }
+
     public List<(string StripeSubscriptionId, string PriceId, string ProrationBehavior)> PriceSwitches { get; } = [];
 
     public Task CancelSubscriptionAtPeriodEndAsync(string stripeSubscriptionId, CancellationToken ct = default)
@@ -123,6 +144,20 @@ public sealed class FakePaymentService : IPaymentService
 
     public Task CancelSubscriptionImmediatelyAsync(string stripeSubscriptionId, CancellationToken ct = default)
         => Task.CompletedTask;
+
+    public Task CancelSubscriptionWithProrationAsync(string stripeSubscriptionId, CancellationToken ct = default)
+    {
+        ProratedCancels.Add(stripeSubscriptionId);
+        return Task.CompletedTask;
+    }
+
+    public Task ReactivateSubscriptionAsync(string stripeSubscriptionId, CancellationToken ct = default)
+    {
+        if (ReactivateFailures.Contains(stripeSubscriptionId))
+            throw new InvalidOperationException("This subscription has already ended. Subscribe again to continue.");
+
+        return Task.CompletedTask;
+    }
 
     public Task SwitchSubscriptionPriceAsync(
         string stripeSubscriptionId,
@@ -144,7 +179,10 @@ public sealed class FakePaymentService : IPaymentService
         => Task.FromResult<string?>("fp_test");
 
     public Task<string?> GetPaymentMethodFingerprintBySubscriptionAsync(string stripeSubscriptionId, CancellationToken ct = default)
-        => Task.FromResult<string?>("fp_test");
+        => Task.FromResult<string?>(
+            _subscriptionOwners.TryGetValue(stripeSubscriptionId, out var owner)
+                ? $"fp_{owner:N}"
+                : null);
 
     public Task EndTrialImmediatelyAsync(string stripeSubscriptionId, CancellationToken ct = default)
         => Task.CompletedTask;

@@ -8,4 +8,5 @@ public sealed record CreateSubscriptionPlanRequest(
     decimal YearlyPrice, 
     int? MaxUsers, 
     int? MaxDashboards, 
-    int? MaxAiQueriesPerMonth);
+    int? MaxAiQueriesPerMonth,
+    int? TrialDays);

@@ -11,6 +11,7 @@ public sealed record AdminSubscriptionPlanResponse(
     int? MaxDashboards,
     int? MaxAiQueriesPerMonth,
     bool IsActive,
+    int? TrialDays,
     string? StripeProductId,
     string? StripeMonthlyPriceId,
     string? StripeYearlyPriceId);

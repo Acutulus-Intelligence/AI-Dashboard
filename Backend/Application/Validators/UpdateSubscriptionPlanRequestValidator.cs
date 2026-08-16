@@ -34,5 +34,10 @@ public class UpdateSubscriptionPlanRequestValidator : AbstractValidator<UpdateSu
         RuleFor(x => x.MaxAiQueriesPerMonth)
             .GreaterThan(0)
             .When(x => x.MaxAiQueriesPerMonth.HasValue);
+
+        RuleFor(x => x.TrialDays)
+            .GreaterThanOrEqualTo(0)
+            .LessThanOrEqualTo(365)
+            .When(x => x.TrialDays.HasValue);
     }
 }

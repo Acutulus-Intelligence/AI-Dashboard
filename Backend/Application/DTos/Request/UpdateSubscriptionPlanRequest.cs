@@ -9,4 +9,5 @@ public sealed record UpdateSubscriptionPlanRequest(
     int? MaxUsers, 
     int? MaxDashboards, 
     int? MaxAiQueriesPerMonth, 
-    bool IsActive);
+    bool IsActive,
+    int? TrialDays);

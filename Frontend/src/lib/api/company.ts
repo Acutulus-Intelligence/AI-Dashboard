@@ -57,6 +57,7 @@ export interface CompanySubscriptionResponse {
   startDate: string;
   endDate: string | null;
   status: number;
+  cancelAtPeriodEnd: boolean;
   trialEndDate: string | null;
 }
 

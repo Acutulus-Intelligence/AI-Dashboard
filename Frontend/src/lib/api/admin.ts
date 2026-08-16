@@ -12,6 +12,7 @@ export interface AdminSubscriptionPlan {
   maxDashboards: number | null;
   maxAiQueriesPerMonth: number | null;
   isActive: boolean;
+  trialDays: number | null;
   stripeProductId: string | null;
   stripeMonthlyPriceId: string | null;
   stripeYearlyPriceId: string | null;
@@ -33,6 +34,7 @@ export interface CreatePlanRequest {
   maxUsers: number | null;
   maxDashboards: number | null;
   maxAiQueriesPerMonth: number | null;
+  trialDays: number | null;
 }
 
 export interface UpdatePlanRequest extends CreatePlanRequest {

@@ -10,4 +10,5 @@ public sealed record SubscriptionPlanResponse(
     int? MaxUsers,
     int? MaxDashboards,
     int? MaxAiQueriesPerMonth,
-    bool IsActive);
+    bool IsActive,
+    int? TrialDays);

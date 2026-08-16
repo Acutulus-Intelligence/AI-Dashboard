@@ -51,6 +51,7 @@ interface PlanForm {
   maxUsers: string;
   maxDashboards: string;
   maxAiQueriesPerMonth: string;
+  trialDays: string;
   isActive: boolean;
 }
 
@@ -63,6 +64,7 @@ const emptyForm: PlanForm = {
   maxUsers: '',
   maxDashboards: '',
   maxAiQueriesPerMonth: '',
+  trialDays: '',
   isActive: true,
 };
 
@@ -76,6 +78,7 @@ function toForm(plan: AdminSubscriptionPlan): PlanForm {
     maxUsers: plan.maxUsers == null ? '' : String(plan.maxUsers),
     maxDashboards: plan.maxDashboards == null ? '' : String(plan.maxDashboards),
     maxAiQueriesPerMonth: plan.maxAiQueriesPerMonth == null ? '' : String(plan.maxAiQueriesPerMonth),
+    trialDays: plan.trialDays == null ? '' : String(plan.trialDays),
     isActive: plan.isActive,
   };
 }
@@ -85,6 +88,13 @@ function nullableNumber(value: string): number | null {
   if (!trimmed) return null;
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function nullableTrialDays(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function planTypeLabel(userType: number): string {
@@ -153,6 +163,11 @@ export default function AdminPlansPage() {
       toast.error('Yearly price must be a valid non-negative number.');
       return;
     }
+    const trialDays = nullableTrialDays(form.trialDays);
+    if (form.trialDays.trim() !== '' && trialDays == null) {
+      toast.error('Trial days must be a non-negative whole number (0 = no trial).');
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
@@ -164,6 +179,7 @@ export default function AdminPlansPage() {
         maxUsers: nullableNumber(form.maxUsers),
         maxDashboards: nullableNumber(form.maxDashboards),
         maxAiQueriesPerMonth: nullableNumber(form.maxAiQueriesPerMonth),
+        trialDays,
       };
       if (editing) {
         await updatePlan(editing.id, { ...payload, isActive: form.isActive });
@@ -249,6 +265,7 @@ export default function AdminPlansPage() {
                   <th className="px-4 py-3 font-medium">Users</th>
                   <th className="px-4 py-3 font-medium">Dashboards</th>
                   <th className="px-4 py-3 font-medium">AI queries/mo</th>
+                  <th className="px-4 py-3 font-medium">Trial</th>
                   <th className="px-4 py-3 font-medium">Status</th>
                   <th className="px-4 py-3 font-medium">Stripe</th>
                   <th className="px-4 py-3 font-medium text-right">Actions</th>
@@ -264,6 +281,9 @@ export default function AdminPlansPage() {
                     <td className="px-4 py-3 text-on-surface-variant">{plan.maxUsers ?? '—'}</td>
                     <td className="px-4 py-3 text-on-surface-variant">{plan.maxDashboards ?? '—'}</td>
                     <td className="px-4 py-3 text-on-surface-variant">{plan.maxAiQueriesPerMonth ?? '—'}</td>
+                    <td className="px-4 py-3 text-on-surface-variant">
+                      {plan.trialDays == null ? '7 (default)' : plan.trialDays === 0 ? 'Off' : `${plan.trialDays} days`}
+                    </td>
                     <td className="px-4 py-3">
                       {plan.isActive ? (
                         <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-label-xs font-medium text-green-600">
@@ -325,7 +345,7 @@ export default function AdminPlansPage() {
                 ))}
                 {plans.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="px-4 py-8 text-center text-on-surface-variant">
+                    <td colSpan={11} className="px-4 py-8 text-center text-on-surface-variant">
                       No plans yet.
                     </td>
                   </tr>
@@ -421,41 +441,57 @@ export default function AdminPlansPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="plan-users">Max users</Label>
-                <Input
-                  id="plan-users"
-                  type="number"
-                  min="1"
-                  value={form.maxUsers}
-                  onChange={(e) => updateField('maxUsers', e.target.value)}
-                  placeholder="—"
-                />
+              <div className="grid grid-cols-3 gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="plan-users">Max users</Label>
+                  <Input
+                    id="plan-users"
+                    type="number"
+                    min="1"
+                    value={form.maxUsers}
+                    onChange={(e) => updateField('maxUsers', e.target.value)}
+                    placeholder="—"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="plan-dashboards">Max dashboards</Label>
+                  <Input
+                    id="plan-dashboards"
+                    type="number"
+                    min="1"
+                    value={form.maxDashboards}
+                    onChange={(e) => updateField('maxDashboards', e.target.value)}
+                    placeholder="—"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="plan-queries">AI queries/mo</Label>
+                  <Input
+                    id="plan-queries"
+                    type="number"
+                    min="1"
+                    value={form.maxAiQueriesPerMonth}
+                    onChange={(e) => updateField('maxAiQueriesPerMonth', e.target.value)}
+                    placeholder="—"
+                  />
+                </div>
               </div>
+
               <div className="grid gap-2">
-                <Label htmlFor="plan-dashboards">Max dashboards</Label>
+                <Label htmlFor="plan-trial">Trial days</Label>
                 <Input
-                  id="plan-dashboards"
+                  id="plan-trial"
                   type="number"
-                  min="1"
-                  value={form.maxDashboards}
-                  onChange={(e) => updateField('maxDashboards', e.target.value)}
-                  placeholder="—"
+                  min="0"
+                  max="365"
+                  value={form.trialDays}
+                  onChange={(e) => updateField('trialDays', e.target.value)}
+                  placeholder="7"
                 />
+                <p className="text-body-xs text-on-surface-variant">
+                  Leave blank for the default (7 days). Enter 0 to turn the trial off.
+                </p>
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="plan-queries">AI queries/mo</Label>
-                <Input
-                  id="plan-queries"
-                  type="number"
-                  min="1"
-                  value={form.maxAiQueriesPerMonth}
-                  onChange={(e) => updateField('maxAiQueriesPerMonth', e.target.value)}
-                  placeholder="—"
-                />
-              </div>
-            </div>
 
             {editing && (
               <label className="flex cursor-pointer items-center justify-between rounded-xl border border-outline-variant px-4 py-3">

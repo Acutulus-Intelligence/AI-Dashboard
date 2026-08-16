@@ -17,6 +17,7 @@ public class CompanySubscription
     public DateTime StartDate { get; set; }
     public DateTime? EndDate { get; set; }
     public SubscriptionStatus Status { get; set; } = SubscriptionStatus.Active;
+    public bool CancelAtPeriodEnd { get; set; }
     public string? StripeSubscriptionId { get; set; }
     public DateTime? TrialEndDate { get; set; }
 }

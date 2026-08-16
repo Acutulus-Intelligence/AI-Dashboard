@@ -21,6 +21,9 @@ public class CompanySubscriptionConfiguration : IEntityTypeConfiguration<Company
         builder.Property(cs => cs.NextPrice)
             .HasPrecision(18, 2);
 
+        builder.Property(cs => cs.CancelAtPeriodEnd)
+            .HasDefaultValue(false);
+
         builder.HasOne(cs => cs.Company)
             .WithMany()
             .HasForeignKey(cs => cs.CompanyId)

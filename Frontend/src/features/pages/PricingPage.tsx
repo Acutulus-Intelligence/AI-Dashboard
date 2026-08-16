@@ -12,7 +12,6 @@ import { useAuth } from '../store/useAuth';
 import * as companyApi from '../../lib/api/company';
 import {
   BILLING_PERIOD,
-  FREE_TRIAL_DAYS,
   USER_TYPE,
   createCheckout,
   createCompanyCheckout,
@@ -27,6 +26,11 @@ function getRegisterType(plan: SubscriptionPlan) {
 
 function isEnterprisePlan(plan: SubscriptionPlan) {
   return plan.name.toLowerCase().includes('enterprise');
+}
+
+function trialDaysForPlan(plan: SubscriptionPlan): number | null {
+  if (plan.trialDays === null) return 7;
+  return plan.trialDays;
 }
 
 export default function PricingPage() {
@@ -135,10 +139,12 @@ export default function PricingPage() {
               <h1 className="text-headline-lg font-semibold text-on-background md:text-display-lg">
                 Choose the right plan for your dashboards.
               </h1>
-              <p className="mt-4 text-body-lg text-on-surface-variant">
-                Start with a {FREE_TRIAL_DAYS}-day free trial, then keep the plan that fits
-                your workflow as your team or AI usage grows.
-              </p>
+              {plans.some((p) => (trialDaysForPlan(p) ?? 0) > 0) && (
+                <p className="mt-4 text-body-lg text-on-surface-variant">
+                  Start with a {Math.max(...plans.map((p) => trialDaysForPlan(p) ?? 0))}-day free trial, then keep the plan that fits
+                  your workflow as your team or AI usage grows.
+                </p>
+              )}
             </div>
 
             <div className="mb-8 flex justify-center">

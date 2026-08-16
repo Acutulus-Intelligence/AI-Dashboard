@@ -26,6 +26,12 @@ function formatLimit(value: number | null, fallback: string) {
   return new Intl.NumberFormat('en-US').format(value);
 }
 
+function trialLabel(plan: SubscriptionPlan) {
+  if (plan.trialDays === null) return '7-day free trial';
+  if (plan.trialDays <= 0) return 'No trial';
+  return `${plan.trialDays}-day free trial`;
+}
+
 export default function PlanCards({
   billing,
   plans,
@@ -78,6 +84,10 @@ export default function PlanCards({
               <li className="flex items-start gap-2">
                 <Check size={17} className="mt-0.5 shrink-0 text-brand" aria-hidden="true" />
                 <span>{formatLimit(plan.maxUsers, 'Single workspace')} users</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <Check size={17} className="mt-0.5 shrink-0 text-brand" aria-hidden="true" />
+                <span>{trialLabel(plan)}</span>
               </li>
             </ul>
 

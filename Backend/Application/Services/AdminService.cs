@@ -36,6 +36,7 @@ public class AdminService : IAdminService
                 p.MaxDashboards,
                 p.MaxAiQueriesPerMonth,
                 p.IsActive,
+                p.TrialDays,
                 p.StripeProductId,
                 p.StripeMonthlyPriceId,
                 p.StripeYearlyPriceId
@@ -66,7 +67,8 @@ public class AdminService : IAdminService
             MaxUsers = request.MaxUsers,
             MaxDashboards = request.MaxDashboards,
             MaxAiQueriesPerMonth = request.MaxAiQueriesPerMonth,
-            IsActive = true
+            IsActive = true,
+            TrialDays = request.TrialDays
         };
 
         var productId = await _paymentService.CreateProductAsync(plan.Name, plan.Id.ToString(), ct);
@@ -144,6 +146,7 @@ public class AdminService : IAdminService
         plan.MaxDashboards = request.MaxDashboards;
         plan.MaxAiQueriesPerMonth = request.MaxAiQueriesPerMonth;
         plan.IsActive = request.IsActive;
+        plan.TrialDays = request.TrialDays;
 
         await _db.SaveChangesAsync(ct);
 
@@ -250,7 +253,8 @@ public class AdminService : IAdminService
 
         var userSubscriptions = await _db.UserSubscriptions
             .Where(s => s.PlanId == sourcePlanId &&
-                (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active))
+                (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active) &&
+                !s.CancelAtPeriodEnd)
             .ToListAsync(ct);
 
         foreach (var subscription in userSubscriptions)
@@ -269,7 +273,8 @@ public class AdminService : IAdminService
 
         var companySubscriptions = await _db.CompanySubscriptions
             .Where(s => s.PlanId == sourcePlanId &&
-                (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active))
+                (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active) &&
+                !s.CancelAtPeriodEnd)
             .ToListAsync(ct);
 
         foreach (var subscription in companySubscriptions)
@@ -303,6 +308,7 @@ public class AdminService : IAdminService
             plan.MaxDashboards,
             plan.MaxAiQueriesPerMonth,
             plan.IsActive,
+            plan.TrialDays,
             plan.StripeProductId,
             plan.StripeMonthlyPriceId,
             plan.StripeYearlyPriceId

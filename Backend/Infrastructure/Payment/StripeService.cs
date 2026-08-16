@@ -49,6 +49,16 @@ public class StripeService : IPaymentService
             { "isCompany", "false" }
         };
 
+        var subscriptionData = new SessionSubscriptionDataOptions
+        {
+            Metadata = metadata
+        };
+
+        // Only grant a trial when the user is actually entitled to one; passing 0 (or 1 for a
+        // consumed trial) would make Stripe display a "free trial" that must not be offered.
+        if (trialDays > 0)
+            subscriptionData.TrialPeriodDays = trialDays;
+
         var options = new SessionCreateOptions
         {
             Customer = customerId,
@@ -56,11 +66,7 @@ public class StripeService : IPaymentService
             SuccessUrl = AppendSessionIdTemplate(successUrl),
             CancelUrl = cancelUrl,
             Metadata = metadata,
-            SubscriptionData = new SessionSubscriptionDataOptions
-            {
-                TrialPeriodDays = trialDays,
-                Metadata = metadata
-            },
+            SubscriptionData = subscriptionData,
             LineItems =
             [
                 BuildLineItem(planName, price, priceId, billingPeriod)
@@ -96,6 +102,16 @@ public class StripeService : IPaymentService
             { "isCompany", "true" }
         };
 
+        var subscriptionData = new SessionSubscriptionDataOptions
+        {
+            Metadata = metadata
+        };
+
+        // Only grant a trial when the user is actually entitled to one; passing 0 (or 1 for a
+        // consumed trial) would make Stripe display a "free trial" that must not be offered.
+        if (trialDays > 0)
+            subscriptionData.TrialPeriodDays = trialDays;
+
         var options = new SessionCreateOptions
         {
             Customer = customerId,
@@ -103,11 +119,7 @@ public class StripeService : IPaymentService
             SuccessUrl = AppendSessionIdTemplate(successUrl),
             CancelUrl = cancelUrl,
             Metadata = metadata,
-            SubscriptionData = new SessionSubscriptionDataOptions
-            {
-                TrialPeriodDays = trialDays,
-                Metadata = metadata
-            },
+            SubscriptionData = subscriptionData,
             LineItems =
             [
                 BuildLineItem(planName, price, priceId, billingPeriod)
@@ -270,6 +282,41 @@ public class StripeService : IPaymentService
     {
         var service = new SubscriptionService(StripeClient);
         await service.CancelAsync(stripeSubscriptionId, cancellationToken: ct);
+    }
+
+    public async Task CancelSubscriptionWithProrationAsync(string stripeSubscriptionId, CancellationToken ct = default)
+    {
+        // Cancels now and credits the unused time to the customer balance, which Stripe applies
+        // to the customer's next invoice (e.g. the new company subscription's first invoice).
+        var options = new SubscriptionCancelOptions
+        {
+            Prorate = true
+        };
+
+        var service = new SubscriptionService(StripeClient);
+        await service.CancelAsync(stripeSubscriptionId, options, cancellationToken: ct);
+    }
+
+    public async Task ReactivateSubscriptionAsync(string stripeSubscriptionId, CancellationToken ct = default)
+    {
+        // Only clears cancel_at_period_end so the subscription continues renewing.
+        // No new invoice is created and the customer is not charged again.
+        var options = new SubscriptionUpdateOptions
+        {
+            CancelAtPeriodEnd = false
+        };
+
+        try
+        {
+            var service = new SubscriptionService(StripeClient);
+            await service.UpdateAsync(stripeSubscriptionId, options, cancellationToken: ct);
+        }
+        catch (StripeException ex) when (ex.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            // The billing period already ended and Stripe deleted the subscription
+            // before the customer.subscription.deleted webhook reached us.
+            throw new InvalidOperationException("This subscription has already ended. Subscribe again to continue.");
+        }
     }
 
     public async Task SwitchSubscriptionPriceAsync(

@@ -32,27 +32,29 @@ public sealed class AdminRoutesTests
 
         var create = await client.PostAsJsonAsync("/api/admin/subscription-plans",
             new CreateSubscriptionPlanRequest(
-                $"Plan-{Guid.NewGuid():N}", "Test plan", UserType.Individual, 9.99m, 99.99m, null, null, null));
+                $"Plan-{Guid.NewGuid():N}", "Test plan", UserType.Individual, 9.99m, 99.99m, null, null, null, 14));
         create.StatusCode.Should().Be(HttpStatusCode.OK);
         var plan = await create.ReadJsonAsync<AdminSubscriptionPlanResponse>();
         plan.StripeProductId.Should().NotBeNullOrEmpty();
         plan.StripeMonthlyPriceId.Should().NotBeNullOrEmpty();
         plan.StripeYearlyPriceId.Should().NotBeNullOrEmpty();
+        plan.TrialDays.Should().Be(14);
 
         var byId = await client.GetAsync($"/api/admin/subscription-plans/{plan.Id}");
         byId.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var update = await client.PutAsJsonAsync($"/api/admin/subscription-plans/{plan.Id}",
             new UpdateSubscriptionPlanRequest(
-                plan.Name, "Updated", UserType.Individual, 19.99m, 199.99m, null, null, null, true));
+                plan.Name, "Updated", UserType.Individual, 19.99m, 199.99m, null, null, null, true, 0));
         update.StatusCode.Should().Be(HttpStatusCode.OK);
         var updatedPlan = await update.ReadJsonAsync<AdminSubscriptionPlanResponse>();
         updatedPlan.StripeProductId.Should().NotBeNullOrEmpty();
         updatedPlan.MonthlyPrice.Should().Be(19.99m);
+        updatedPlan.TrialDays.Should().Be(0);
 
         var deactivate = await client.PutAsJsonAsync($"/api/admin/subscription-plans/{plan.Id}",
             new UpdateSubscriptionPlanRequest(
-                updatedPlan.Name, updatedPlan.Description, UserType.Individual, 19.99m, 199.99m, null, null, null, false));
+                updatedPlan.Name, updatedPlan.Description, UserType.Individual, 19.99m, 199.99m, null, null, null, false, null));
         deactivate.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var delete = await client.DeleteAsync($"/api/admin/subscription-plans/{plan.Id}");
@@ -62,6 +64,46 @@ public sealed class AdminRoutesTests
         afterDelete.StatusCode.Should().Be(HttpStatusCode.OK);
         var remaining = await afterDelete.ReadJsonAsync<List<AdminSubscriptionPlanResponse>>();
         remaining.Should().NotContain(p => p.Id == plan.Id);
+    }
+
+    [Fact]
+    public async Task Admin_cannot_create_plan_with_invalid_trial_days()
+    {
+        var client = CreateClient();
+        var email = $"admin_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        await _factory.EnsureSoleAdminRoleAsync(email);
+        await client.LoginAsync(email);
+
+        var negative = await client.PostAsJsonAsync("/api/admin/subscription-plans",
+            new CreateSubscriptionPlanRequest(
+                $"Plan-{Guid.NewGuid():N}", "Test plan", UserType.Individual, 9.99m, 99.99m, null, null, null, -1));
+        negative.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var tooLong = await client.PostAsJsonAsync("/api/admin/subscription-plans",
+            new CreateSubscriptionPlanRequest(
+                $"Plan-{Guid.NewGuid():N}", "Test plan", UserType.Individual, 9.99m, 99.99m, null, null, null, 366));
+        tooLong.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Public_plans_expose_trial_days()
+    {
+        var client = CreateClient();
+        var email = $"admin_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        await _factory.EnsureSoleAdminRoleAsync(email);
+        await client.LoginAsync(email);
+
+        var create = await client.PostAsJsonAsync("/api/admin/subscription-plans",
+            new CreateSubscriptionPlanRequest(
+                $"Plan-{Guid.NewGuid():N}", "Test plan", UserType.Individual, 9.99m, 99.99m, null, null, null, 21));
+        create.EnsureSuccessStatusCode();
+        var plan = await create.ReadJsonAsync<AdminSubscriptionPlanResponse>();
+
+        var publicPlans = await (await client.GetAsync("/api/subscriptions/plans?userType=0"))
+            .ReadJsonAsync<List<SubscriptionPlanResponse>>();
+        publicPlans.Should().Contain(p => p.Id == plan.Id && p.TrialDays == 21);
     }
 
     [Fact]
@@ -75,7 +117,7 @@ public sealed class AdminRoutesTests
 
         var create = await client.PostAsJsonAsync("/api/admin/subscription-plans",
             new CreateSubscriptionPlanRequest(
-                $"Plan-{Guid.NewGuid():N}", "Test plan", UserType.Individual, 9.99m, 99.99m, null, null, null));
+                $"Plan-{Guid.NewGuid():N}", "Test plan", UserType.Individual, 9.99m, 99.99m, null, null, null, null));
         create.StatusCode.Should().Be(HttpStatusCode.OK);
         var plan = await create.ReadJsonAsync<AdminSubscriptionPlanResponse>();
 
@@ -94,7 +136,7 @@ public sealed class AdminRoutesTests
 
         var create = await client.PostAsJsonAsync("/api/admin/subscription-plans",
             new CreateSubscriptionPlanRequest(
-                $"Plan-{Guid.NewGuid():N}", "Test plan", UserType.Individual, 9.99m, 99.99m, null, null, null));
+                $"Plan-{Guid.NewGuid():N}", "Test plan", UserType.Individual, 9.99m, 99.99m, null, null, null, null));
         create.StatusCode.Should().Be(HttpStatusCode.OK);
         var plan = await create.ReadJsonAsync<AdminSubscriptionPlanResponse>();
 
@@ -106,7 +148,7 @@ public sealed class AdminRoutesTests
 
         var deactivate = await client.PutAsJsonAsync($"/api/admin/subscription-plans/{plan.Id}",
             new UpdateSubscriptionPlanRequest(
-                plan.Name, plan.Description, UserType.Individual, 9.99m, 99.99m, null, null, null, false));
+                plan.Name, plan.Description, UserType.Individual, 9.99m, 99.99m, null, null, null, false, null));
         deactivate.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var remove = await client.DeleteAsync($"/api/admin/subscription-plans/{plan.Id}");
@@ -126,13 +168,13 @@ public sealed class AdminRoutesTests
 
         var createA = await client.PostAsJsonAsync("/api/admin/subscription-plans",
             new CreateSubscriptionPlanRequest(
-                $"PlanA-{Guid.NewGuid():N}", "Test plan A", UserType.Individual, 9.99m, 99.99m, null, null, null));
+                $"PlanA-{Guid.NewGuid():N}", "Test plan A", UserType.Individual, 9.99m, 99.99m, null, null, null, null));
         createA.StatusCode.Should().Be(HttpStatusCode.OK);
         var planA = await createA.ReadJsonAsync<AdminSubscriptionPlanResponse>();
 
         var createB = await client.PostAsJsonAsync("/api/admin/subscription-plans",
             new CreateSubscriptionPlanRequest(
-                $"PlanB-{Guid.NewGuid():N}", "Test plan B", UserType.Individual, 19.99m, 199.99m, null, null, null));
+                $"PlanB-{Guid.NewGuid():N}", "Test plan B", UserType.Individual, 19.99m, 199.99m, null, null, null, null));
         createB.StatusCode.Should().Be(HttpStatusCode.OK);
         var planB = await createB.ReadJsonAsync<AdminSubscriptionPlanResponse>();
 
@@ -144,7 +186,7 @@ public sealed class AdminRoutesTests
 
         var deactivateA = await client.PutAsJsonAsync($"/api/admin/subscription-plans/{planA.Id}",
             new UpdateSubscriptionPlanRequest(
-                planA.Name, planA.Description, UserType.Individual, 9.99m, 99.99m, null, null, null, false));
+                planA.Name, planA.Description, UserType.Individual, 9.99m, 99.99m, null, null, null, false, null));
         deactivateA.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var move = await client.PostAsJsonAsync($"/api/admin/subscription-plans/{planA.Id}/move",
@@ -152,6 +194,52 @@ public sealed class AdminRoutesTests
         move.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         await _factory.VerifySubscriptionOnPlanAsync(userId, planB.Id, 19.99m);
+    }
+
+    [Fact]
+    public async Task Move_plan_skips_subscriptions_scheduled_to_cancel()
+    {
+        var client = CreateClient();
+        var email = $"admin_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        await _factory.EnsureSoleAdminRoleAsync(email);
+        await client.LoginAsync(email);
+
+        var createA = await client.PostAsJsonAsync("/api/admin/subscription-plans",
+            new CreateSubscriptionPlanRequest(
+                $"PlanA-{Guid.NewGuid():N}", "Test plan A", UserType.Individual, 9.99m, 99.99m, null, null, null, null));
+        createA.StatusCode.Should().Be(HttpStatusCode.OK);
+        var planA = await createA.ReadJsonAsync<AdminSubscriptionPlanResponse>();
+
+        var createB = await client.PostAsJsonAsync("/api/admin/subscription-plans",
+            new CreateSubscriptionPlanRequest(
+                $"PlanB-{Guid.NewGuid():N}", "Test plan B", UserType.Individual, 19.99m, 199.99m, null, null, null, null));
+        createB.StatusCode.Should().Be(HttpStatusCode.OK);
+        var planB = await createB.ReadJsonAsync<AdminSubscriptionPlanResponse>();
+
+        var userEmail = $"user_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAsync(userEmail);
+        await client.LoginAsync(email);
+        var userId = await _factory.GetUserIdAsync(userEmail);
+        await _factory.SeedSubscriptionForPlanAsync(userId, planA.Id);
+
+        // The subscription is scheduled to cancel at period end — it must not be moved
+        await _factory.SetUserSubscriptionActiveAsync(userId, cancelAtPeriodEnd: true);
+
+        var deactivateA = await client.PutAsJsonAsync($"/api/admin/subscription-plans/{planA.Id}",
+            new UpdateSubscriptionPlanRequest(
+                planA.Name, planA.Description, UserType.Individual, 9.99m, 99.99m, null, null, null, false, null));
+        deactivateA.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var move = await client.PostAsJsonAsync($"/api/admin/subscription-plans/{planA.Id}/move",
+            new MoveSubscriptionPlanRequest(planB.Id));
+        move.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        // Still on plan A, still scheduled to cancel
+        var (status, cancelAtPeriodEnd) = await _factory.GetUserSubscriptionStateAsync(userId);
+        status.Should().Be(Domain.Enums.SubscriptionStatus.Active);
+        cancelAtPeriodEnd.Should().BeTrue();
+        await _factory.VerifySubscriptionOnPlanAsync(userId, planA.Id, 9.99m);
     }
 
     [Fact]
@@ -359,7 +447,7 @@ public sealed class AdminRoutesTests
 
         var create = await client.PostAsJsonAsync("/api/admin/subscription-plans",
             new CreateSubscriptionPlanRequest(
-                $"Plan-{Guid.NewGuid():N}", "Test plan", UserType.Individual, 9.99m, 99.99m, null, null, null));
+                $"Plan-{Guid.NewGuid():N}", "Test plan", UserType.Individual, 9.99m, 99.99m, null, null, null, null));
         create.StatusCode.Should().Be(HttpStatusCode.OK);
         var plan = await create.ReadJsonAsync<AdminSubscriptionPlanResponse>();
 
@@ -374,7 +462,7 @@ public sealed class AdminRoutesTests
 
         var update = await client.PutAsJsonAsync($"/api/admin/subscription-plans/{plan.Id}",
             new UpdateSubscriptionPlanRequest(
-                plan.Name, plan.Description, UserType.Individual, 29.99m, 199.99m, null, null, null, true));
+                plan.Name, plan.Description, UserType.Individual, 29.99m, 199.99m, null, null, null, true, null));
         update.StatusCode.Should().Be(HttpStatusCode.OK);
 
         await _factory.VerifySubscriptionOnPlanAsync(userId, plan.Id, 9.99m);

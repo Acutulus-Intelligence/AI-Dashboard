@@ -16,6 +16,8 @@ public interface ISubscriptionService
     Task<bool> CompanyHasActiveSubscriptionAsync(Guid companyId, CancellationToken ct = default);
     Task CancelUserSubscriptionAsync(Guid userId, CancellationToken ct = default);
     Task CancelCompanySubscriptionAsync(Guid companyId, Guid actorId, CancellationToken ct = default);
+    Task ReactivateUserSubscriptionAsync(Guid userId, CancellationToken ct = default);
+    Task ReactivateCompanySubscriptionAsync(Guid companyId, Guid actorId, CancellationToken ct = default);
     Task<UserSubscriptionResponse?> GetCurrentUserSubscriptionAsync(Guid userId, CancellationToken ct = default);
     Task<CompanySubscriptionResponse?> GetCurrentCompanySubscriptionAsync(Guid companyId, CancellationToken ct = default);
 }

@@ -11,4 +11,5 @@ public sealed record UserSubscriptionResponse(
     DateTime StartDate,
     DateTime? EndDate,
     Domain.Enums.SubscriptionStatus Status,
+    bool CancelAtPeriodEnd,
     DateTime? TrialEndDate);

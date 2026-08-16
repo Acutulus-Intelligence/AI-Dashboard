@@ -728,6 +728,7 @@ public class CompanyService : ICompanyService
                     subscription.StartDate,
                     subscription.EndDate,
                     subscription.Status,
+                    subscription.CancelAtPeriodEnd,
                     subscription.TrialEndDate
                 )
                 : null

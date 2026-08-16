@@ -12,4 +12,5 @@ public sealed record CompanySubscriptionResponse(
     DateTime StartDate,
     DateTime? EndDate,
     Domain.Enums.SubscriptionStatus Status,
+    bool CancelAtPeriodEnd,
     DateTime? TrialEndDate);

@@ -163,6 +163,41 @@ public static class ApiClientExtensions
         await db.SaveChangesAsync();
     }
 
+    public static async Task<int> CountUserSubscriptionsAsync(this ApiFactory factory, Guid userId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        return await db.UserSubscriptions.CountAsync(s => s.UserId == userId);
+    }
+
+    public static async Task<(Domain.Enums.SubscriptionStatus Status, bool CancelAtPeriodEnd)> GetUserSubscriptionStateAsync(this ApiFactory factory, Guid userId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var subscription = await db.UserSubscriptions.FirstAsync(s => s.UserId == userId);
+        return (subscription.Status, subscription.CancelAtPeriodEnd);
+    }
+
+    public static async Task SetUserSubscriptionEndDateAsync(this ApiFactory factory, Guid userId, DateTime endDate)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var subscription = await db.UserSubscriptions.FirstAsync(s => s.UserId == userId);
+        subscription.EndDate = endDate;
+        await db.SaveChangesAsync();
+    }
+
+    public static async Task SetUserSubscriptionActiveAsync(this ApiFactory factory, Guid userId, bool cancelAtPeriodEnd)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var subscription = await db.UserSubscriptions.FirstAsync(s => s.UserId == userId);
+        subscription.Status = Domain.Enums.SubscriptionStatus.Active;
+        subscription.CancelAtPeriodEnd = cancelAtPeriodEnd;
+        subscription.TrialEndDate = null;
+        await db.SaveChangesAsync();
+    }
+
     public static async Task EnsureAdminRoleAsync(this ApiFactory factory, string email)
     {
         using var scope = factory.Services.CreateScope();

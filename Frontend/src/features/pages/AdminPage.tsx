@@ -33,6 +33,7 @@ export default function AdminPage() {
   const [companySub, setCompanySub] = useState<subscriptionApi.CompanySubscription | null>(null);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
+  const [reactivating, setReactivating] = useState(false);
   const [deletingCompany, setDeletingCompany] = useState(false);
   const [error, setError] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -89,6 +90,21 @@ export default function AdminPage() {
       setError(err instanceof Error ? err.message : 'Could not cancel subscription.');
     } finally {
       setCancelling(false);
+    }
+  }
+
+  async function handleReactivate() {
+    if (!company) return;
+
+    setReactivating(true);
+    setError('');
+    try {
+      await subscriptionApi.reactivateCompanySubscription(company.id);
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not reactivate subscription.');
+    } finally {
+      setReactivating(false);
     }
   }
 
@@ -234,12 +250,31 @@ export default function AdminPage() {
                       <p className="text-on-surface-variant">
                         Started {formatDate(companySub.startDate)}
                       </p>
-                      {companySub.endDate && (
-                        <p className="text-on-surface-variant">
-                          Renews {formatDate(companySub.endDate)}
+                      {companySub.cancelAtPeriodEnd && companySub.endDate ? (
+                        <p className="font-medium text-amber-700">
+                          Cancels at period end — {formatDate(companySub.endDate)}
                         </p>
+                      ) : (
+                        companySub.endDate && (
+                          <p className="text-on-surface-variant">
+                            Renews {formatDate(companySub.endDate)}
+                          </p>
+                        )
                       )}
-                      {isOwner && (companySub.status === 0 || companySub.status === 1) && (
+                      {isOwner && companySub.cancelAtPeriodEnd ? (
+                        <>
+                          <Button
+                            className="mt-3 w-full"
+                            disabled={reactivating}
+                            onClick={(e) => { e.preventDefault(); void handleReactivate(); }}
+                          >
+                            {reactivating ? 'Reactivating...' : 'Reactivate subscription'}
+                          </Button>
+                          <p className="mt-2 text-center text-body-xs text-on-surface-variant">
+                            Reactivating just continues your renewals — you won't be charged again today.
+                          </p>
+                        </>
+                      ) : isOwner && (companySub.status === 0 || companySub.status === 1) && (
                         <Button
                           variant="outline"
                           className="mt-3 w-full border-red-300 text-red-600 hover:bg-red-50"
@@ -431,7 +466,7 @@ export default function AdminPage() {
           if (!cancelling) setCancelConfirmOpen(open);
         }}
         title="Cancel company subscription?"
-        description="All team members will lose dashboard access. You can resubscribe later."
+        description="Your subscription will end at the end of your current billing period. Your team keeps access until then."
         confirmLabel="Cancel subscription"
         variant="destructive"
         loading={cancelling}
