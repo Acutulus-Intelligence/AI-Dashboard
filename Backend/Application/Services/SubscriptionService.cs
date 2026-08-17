@@ -340,7 +340,7 @@ public class SubscriptionService : ISubscriptionService
         // customer.subscription.deleted webhook was missed (cancel-at-period-end relies on it).
         var userSubActive = await _db.UserSubscriptions
             .AnyAsync(s => s.UserId == userId &&
-                ((s.Status == SubscriptionStatus.Trial) ||
+                ((s.Status == SubscriptionStatus.Trial && (s.EndDate == null || s.EndDate > now)) ||
                  (s.Status == SubscriptionStatus.Active && (s.EndDate == null || s.EndDate > now))), ct);
 
         if (userSubActive)
@@ -353,7 +353,7 @@ public class SubscriptionService : ISubscriptionService
 
         return companyId.HasValue && await _db.CompanySubscriptions
             .AnyAsync(s => s.CompanyId == companyId.Value &&
-                ((s.Status == SubscriptionStatus.Trial) ||
+                ((s.Status == SubscriptionStatus.Trial && (s.EndDate == null || s.EndDate > now)) ||
                  (s.Status == SubscriptionStatus.Active && (s.EndDate == null || s.EndDate > now))), ct);
     }
 
@@ -363,7 +363,7 @@ public class SubscriptionService : ISubscriptionService
 
         return await _db.CompanySubscriptions
             .AnyAsync(s => s.CompanyId == companyId &&
-                ((s.Status == SubscriptionStatus.Trial) ||
+                ((s.Status == SubscriptionStatus.Trial && (s.EndDate == null || s.EndDate > now)) ||
                  (s.Status == SubscriptionStatus.Active && (s.EndDate == null || s.EndDate > now))), ct);
     }
 
@@ -431,19 +431,20 @@ public class SubscriptionService : ISubscriptionService
 
         var now = DateTime.UtcNow;
 
-        if (subscription.Status == SubscriptionStatus.Trial)
-        {
-            subscription.Status = SubscriptionStatus.Canceled;
-
-            if (subscription.StripeSubscriptionId is not null)
-                await _paymentService.CancelSubscriptionImmediatelyAsync(subscription.StripeSubscriptionId, ct);
-        }
-        else if (subscription.StripeSubscriptionId is null)
+        if (subscription.StripeSubscriptionId is null)
         {
             // No Stripe subscription to schedule a period-end cancel against (legacy data):
             // revoke immediately, otherwise nothing would ever flip this row to Canceled.
             subscription.Status = SubscriptionStatus.Canceled;
             subscription.EndDate = now;
+        }
+        else if (subscription.Status == SubscriptionStatus.Trial)
+        {
+            // Keep the trial running until it ends — only disable auto-renewal
+            // (cancel_at_period_end). The customer.deleted webhook flips this to Canceled.
+            subscription.CancelAtPeriodEnd = true;
+
+            await _paymentService.CancelSubscriptionAtPeriodEndAsync(subscription.StripeSubscriptionId, ct);
         }
         else
         {
@@ -473,19 +474,20 @@ public class SubscriptionService : ISubscriptionService
 
         var now = DateTime.UtcNow;
 
-        if (subscription.Status == SubscriptionStatus.Trial)
-        {
-            subscription.Status = SubscriptionStatus.Canceled;
-
-            if (subscription.StripeSubscriptionId is not null)
-                await _paymentService.CancelSubscriptionImmediatelyAsync(subscription.StripeSubscriptionId, ct);
-        }
-        else if (subscription.StripeSubscriptionId is null)
+        if (subscription.StripeSubscriptionId is null)
         {
             // No Stripe subscription to schedule a period-end cancel against (legacy data):
             // revoke immediately, otherwise nothing would ever flip this row to Canceled.
             subscription.Status = SubscriptionStatus.Canceled;
             subscription.EndDate = now;
+        }
+        else if (subscription.Status == SubscriptionStatus.Trial)
+        {
+            // Keep the trial running until it ends — only disable auto-renewal
+            // (cancel_at_period_end). The customer.deleted webhook flips this to Canceled.
+            subscription.CancelAtPeriodEnd = true;
+
+            await _paymentService.CancelSubscriptionAtPeriodEndAsync(subscription.StripeSubscriptionId, ct);
         }
         else
         {
@@ -502,7 +504,8 @@ public class SubscriptionService : ISubscriptionService
     public async Task ReactivateUserSubscriptionAsync(Guid userId, CancellationToken ct = default)
     {
         var subscription = await _db.UserSubscriptions
-            .FirstOrDefaultAsync(s => s.UserId == userId && s.Status == SubscriptionStatus.Active, ct)
+            .FirstOrDefaultAsync(s => s.UserId == userId &&
+                (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial), ct)
             ?? throw new InvalidOperationException("No active subscription found.");
 
         if (!subscription.CancelAtPeriodEnd)
@@ -527,7 +530,8 @@ public class SubscriptionService : ISubscriptionService
             throw new UnauthorizedAccessException("Only the company owner can manage subscriptions.");
 
         var subscription = await _db.CompanySubscriptions
-            .FirstOrDefaultAsync(s => s.CompanyId == companyId && s.Status == SubscriptionStatus.Active, ct)
+            .FirstOrDefaultAsync(s => s.CompanyId == companyId &&
+                (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial), ct)
             ?? throw new InvalidOperationException("No active subscription found.");
 
         if (!subscription.CancelAtPeriodEnd)

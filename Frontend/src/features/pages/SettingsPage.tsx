@@ -6,7 +6,6 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import AppShell from '../layouts/AppShell';
 import { ROUTES } from '../routes';
 import * as subscriptionApi from '../../lib/api/subscription';
-import { estimateUpgradeCredit } from '../../lib/api/subscription';
 import * as companyApi from '../../lib/api/company';
 import { useAuth } from '../store/useAuth';
 import { usePolling } from '../../hooks/usePolling';
@@ -276,17 +275,6 @@ export default function SettingsPage() {
                   <p className="text-body-sm text-on-surface-variant">
                     Create a company workspace with team management, shared dashboards, and more.
                   </p>
-                  {(() => {
-                    const credit = estimateUpgradeCredit(subscription);
-                    return credit != null ? (
-                      <p className="mt-3 flex items-start gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-label-sm text-amber-800">
-                        <AlertCircle size={14} className="mt-0.5 shrink-0" />
-                        <span>
-                          Unused time on your current plan (approx. ${credit.toFixed(2)}) is credited when you upgrade.
-                        </span>
-                      </p>
-                    ) : null;
-                  })()}
                   <div className="mt-4">
                     <Link to={ROUTES.PRICING}>
                       <Button variant="outline" className="w-full">Create company</Button>

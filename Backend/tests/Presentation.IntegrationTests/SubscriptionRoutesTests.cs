@@ -765,9 +765,28 @@ public sealed class SubscriptionRoutesTests
         (await client.PostAsJsonAsync("/api/subscriptions/confirm", new ConfirmCheckoutRequest(session.SessionId)))
             .StatusCode.Should().Be(HttpStatusCode.OK);
 
-        // Cancel mid-trial: fingerprint still has a future TrialEndDate
+        var stripeSubId = await _factory.GetSubscriptionStripeIdAsync(userId);
+
+        // Cancel mid-trial: the trial keeps running (auto-renewal disabled), so the
+        // subscription still counts as active and checkout stays blocked until it ends.
         (await client.PostAsync("/api/subscriptions/cancel", null)).StatusCode.Should().Be(HttpStatusCode.NoContent);
 
+        var blocked = await client.PostAsJsonAsync("/api/subscriptions/create-checkout",
+            new SubscribeRequest(plan.Id, BillingPeriod.Monthly, "http://localhost/ok", "http://localhost/cancel"));
+        blocked.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        // Trial ends -> Stripe deletes the subscription -> local row flips to Canceled
+        _factory.FakePayments.QueueSubscriptionDeleted(stripeSubId!);
+        using (var deletedRequest = new HttpRequestMessage(HttpMethod.Post, "/api/subscriptions/stripe-webhook")
+               {
+                   Content = new StringContent($"subscription-deleted:{stripeSubId}"),
+               })
+        {
+            deletedRequest.Headers.TryAddWithoutValidation("Stripe-Signature", "valid-test-signature");
+            (await client.SendAsync(deletedRequest)).StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        // Fingerprint still has a future TrialEndDate -> remaining days resume
         var trialDaysBefore = _factory.FakePayments.RecordedTrialDays.Count;
         var resubscribe = await client.PostAsJsonAsync("/api/subscriptions/create-checkout",
             new SubscribeRequest(plan.Id, BillingPeriod.Monthly, "http://localhost/ok", "http://localhost/cancel"));
@@ -784,6 +803,62 @@ public sealed class SubscriptionRoutesTests
         current.Status.Should().Be(Domain.Enums.SubscriptionStatus.Trial);
         current.TrialEndDate.Should().NotBeNull();
         (current.TrialEndDate!.Value - DateTime.UtcNow).TotalDays.Should().BeInRange(1, 8);
+    }
+
+    [Fact]
+    public async Task Cancel_trial_keeps_access_and_disables_auto_renewal()
+    {
+        var client = CreateClient();
+        var email = $"trialcancel_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        var userId = await _factory.GetUserIdAsync(email);
+
+        var plans = await (await client.GetAsync("/api/subscriptions/plans?userType=0")).ReadJsonAsync<List<SubscriptionPlanResponse>>();
+        var plan = plans.First(p => p.UserType == UserType.Individual);
+
+        var checkout = await client.PostAsJsonAsync("/api/subscriptions/create-checkout",
+            new SubscribeRequest(plan.Id, BillingPeriod.Monthly, "http://localhost/ok", "http://localhost/cancel"));
+        var session = await checkout.ReadJsonAsync<CheckoutResponse>();
+        (await client.PostAsJsonAsync("/api/subscriptions/confirm", new ConfirmCheckoutRequest(session.SessionId)))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var before = await (await client.GetAsync("/api/subscriptions/current")).ReadJsonAsync<UserSubscriptionResponse>();
+        var stripeSubId = await _factory.GetSubscriptionStripeIdAsync(userId);
+
+        // Cancel: trial keeps running, only auto-renewal is disabled
+        (await client.PostAsync("/api/subscriptions/cancel", null)).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var hasActive = await (await client.GetAsync("/api/subscriptions/has-active")).ReadJsonAsync<HasActiveSubscriptionResponse>();
+        hasActive.HasActiveSubscription.Should().BeTrue();
+
+        var after = await (await client.GetAsync("/api/subscriptions/current")).ReadJsonAsync<UserSubscriptionResponse>();
+        after.Status.Should().Be(Domain.Enums.SubscriptionStatus.Trial);
+        after.CancelAtPeriodEnd.Should().BeTrue();
+        after.TrialEndDate.Should().Be(before.TrialEndDate);
+
+        // Reactivate re-enables auto-renewal without a new checkout
+        var checkoutCountBefore = _factory.FakePayments.RecordedTrialDays.Count;
+        (await client.PostAsync("/api/subscriptions/reactivate", null)).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        _factory.FakePayments.RecordedTrialDays.Should().HaveCount(checkoutCountBefore);
+
+        var reactivated = await (await client.GetAsync("/api/subscriptions/current")).ReadJsonAsync<UserSubscriptionResponse>();
+        reactivated.Status.Should().Be(Domain.Enums.SubscriptionStatus.Trial);
+        reactivated.CancelAtPeriodEnd.Should().BeFalse();
+        reactivated.TrialEndDate.Should().Be(before.TrialEndDate);
+
+        // Trial ends -> Stripe deletes the subscription -> local row flips to Canceled
+        _factory.FakePayments.QueueSubscriptionDeleted(stripeSubId!);
+        using (var deletedRequest = new HttpRequestMessage(HttpMethod.Post, "/api/subscriptions/stripe-webhook")
+               {
+                   Content = new StringContent($"subscription-deleted:{stripeSubId}"),
+               })
+        {
+            deletedRequest.Headers.TryAddWithoutValidation("Stripe-Signature", "valid-test-signature");
+            (await client.SendAsync(deletedRequest)).StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        var hasActiveAfterEnd = await (await client.GetAsync("/api/subscriptions/has-active")).ReadJsonAsync<HasActiveSubscriptionResponse>();
+        hasActiveAfterEnd.HasActiveSubscription.Should().BeFalse();
     }
 
     [Fact]

@@ -87,9 +87,6 @@ export default function AdminMainPage() {
             </div>
             <h2 className="mb-2 text-body-lg font-semibold text-on-background">Users</h2>
             <p className="text-body-sm text-on-surface-variant">Create accounts and manage moderators. The admin role can only be handed to a moderator.</p>
-            {stats !== null && (
-              <p className="mt-3 text-body-sm font-medium text-primary">{stats.totalUsers} users</p>
-            )}
           </Link>
         )}
       </div>
