@@ -507,6 +507,78 @@ public sealed class AdminRoutesTests
     }
 
     [Fact]
+    public async Task Transfer_admin_invalidates_inflight_access_tokens_for_both_users()
+    {
+        var actorClient = CreateClient();
+        var targetClient = CreateClient();
+        var actorEmail = $"admin_{Guid.NewGuid():N}@example.com";
+        var targetEmail = $"target_{Guid.NewGuid():N}@example.com";
+
+        await actorClient.RegisterAndLoginAsync(actorEmail);
+        await _factory.EnsureSoleAdminRoleAsync(actorEmail);
+        await actorClient.LoginAsync(actorEmail);
+
+        await targetClient.RegisterAndLoginAsync(targetEmail);
+        await _factory.EnsureModeratorRoleAsync(targetEmail);
+        await targetClient.LoginAsync(targetEmail);
+
+        var targetId = await _factory.GetUserIdAsync(targetEmail);
+
+        // Baseline: admin can manage users, moderator cannot.
+        (await actorClient.GetAsync("/api/admin/users")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await targetClient.GetAsync("/api/admin/users")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var transfer = await actorClient.PostAsync($"/api/admin/users/{targetId}/transfer-admin", null);
+        transfer.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Security stamps were rotated: both in-flight access tokens are dead, so the
+        // demoted admin can no longer call Admin APIs and the new admin must sign in again.
+        (await actorClient.GetAsync("/api/admin/users")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await targetClient.GetAsync("/api/admin/users")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        // Re-login: actor is now a moderator, target is now the admin.
+        await actorClient.LoginAsync(actorEmail);
+        (await actorClient.GetAsync("/api/admin/users")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        await targetClient.LoginAsync(targetEmail);
+        (await targetClient.GetAsync("/api/admin/users")).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Moderator_role_change_invalidates_target_access_token()
+    {
+        var adminClient = CreateClient();
+        var modClient = CreateClient();
+        var adminEmail = $"admin_{Guid.NewGuid():N}@example.com";
+        var modEmail = $"mod_{Guid.NewGuid():N}@example.com";
+
+        await adminClient.RegisterAndLoginAsync(adminEmail);
+        await _factory.EnsureSoleAdminRoleAsync(adminEmail);
+        await adminClient.LoginAsync(adminEmail);
+
+        await modClient.RegisterAndLoginAsync(modEmail);
+        await _factory.EnsureModeratorRoleAsync(modEmail);
+        await modClient.LoginAsync(modEmail);
+
+        var modId = await _factory.GetUserIdAsync(modEmail);
+
+        // Baseline: moderator can hit Admin/Moderator routes.
+        (await modClient.GetAsync("/api/admin/stats")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var demote = await adminClient.PutAsJsonAsync($"/api/admin/users/{modId}/moderator-role",
+            new UpdateModeratorRoleRequest(false));
+        demote.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // The security stamp was rotated: the in-flight token is dead and the user must
+        // sign in again before their new (reduced) role applies.
+        (await modClient.GetAsync("/api/admin/stats")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        // Re-login: no longer a moderator, so Admin/Moderator routes are forbidden.
+        await modClient.LoginAsync(modEmail);
+        (await modClient.GetAsync("/api/admin/stats")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
     public async Task Admin_cannot_transfer_admin_role_when_another_admin_exists()
     {
         var client = CreateClient();

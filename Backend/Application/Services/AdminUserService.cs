@@ -111,6 +111,12 @@ public class AdminUserService : IAdminUserService
                 throw new InvalidOperationException("Failed to revoke the moderator role.");
         }
 
+        // Invalidate the affected user's sessions so their in-flight JWT no longer carries
+        // the stale moderator claims: rotate the security stamp (UserExistsMiddleware rejects
+        // mismatched stamps) and revoke refresh tokens so the change takes effect immediately.
+        await _userManager.UpdateSecurityStampAsync(user);
+        await _refreshTokenService.RevokeAllRefreshTokensAsync(user.Id);
+
         return await ToResponseAsync(user, ct);
     }
 
@@ -156,7 +162,11 @@ public class AdminUserService : IAdminUserService
             throw;
         }
 
-        // Invalidate every session for both users so they must sign in again with their new roles.
+        // Invalidate every session for both users so they must sign in again with their new roles:
+        // rotating the security stamp makes in-flight JWTs fail UserExistsMiddleware; revoking
+        // refresh tokens blocks token refresh.
+        await _userManager.UpdateSecurityStampAsync(actor);
+        await _userManager.UpdateSecurityStampAsync(target);
         await _refreshTokenService.RevokeAllRefreshTokensAsync(actorId);
         await _refreshTokenService.RevokeAllRefreshTokensAsync(targetUserId);
 
