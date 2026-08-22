@@ -247,20 +247,14 @@ public class GraphGenerationService : IGraphGenerationService
     /// </summary>
     private async Task<IReadOnlyList<string>> ResolveAccountColorsAsync(Guid userId, CancellationToken ct)
     {
-        var companyId = await _db.Users.AsNoTracking()
+        var companyStyle = await _db.Users.AsNoTracking()
             .Where(u => u.Id == userId)
-            .Select(u => u.CompanyId)
+            .Select(u => u.Company != null ? u.Company.StyleConfig : null)
             .FirstOrDefaultAsync(ct);
 
-        if (companyId is null)
-            return CompanyStyleSanitizer.DefaultColors;
-
-        var style = await _db.Companies.AsNoTracking()
-            .Where(c => c.Id == companyId)
-            .Select(c => c.StyleConfig)
-            .FirstOrDefaultAsync(ct);
-
-        return CompanyStyleSanitizer.ResolveColors(style);
+        return companyStyle is null
+            ? CompanyStyleSanitizer.DefaultColors
+            : CompanyStyleSanitizer.ResolveColors(companyStyle);
     }
 
     private static AiGenerationDebug BuildDebug(

@@ -140,8 +140,10 @@ export default function AppSidebar() {
         </SidebarMenu>
       </SidebarHeader>
 
-      <SidebarContent>
-        {mainGroups.map((group) => renderGroup(group))}
+      <SidebarContent className="justify-between">
+        <div className="flex flex-col gap-0">
+          {mainGroups.map((group) => renderGroup(group))}
+        </div>
         {adminGroup && renderGroup(adminGroup)}
       </SidebarContent>
 

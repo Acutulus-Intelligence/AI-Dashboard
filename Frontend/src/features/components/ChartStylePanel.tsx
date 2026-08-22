@@ -141,6 +141,11 @@ export default function ChartStylePanel({
   const showColors = caps.colors && colorSlots > 0;
   const showInfo = caps.info;
   const showLabelsBlock = showValueLabels || showInfo;
+  const hasVariantSection = descriptor.variants.length > 1;
+  const hasColorSection = caps.colors;
+  const hasParamsSection = descriptor.params.length > 0;
+  const showLabelsSeparator = showLabelsBlock && (hasVariantSection || hasColorSection || hasParamsSection);
+  const showParamsSeparator = hasParamsSection && (hasVariantSection || hasColorSection);
 
   function patch(partial: Partial<ChartStyleConfig>) {
     onChange({ ...value, ...partial, customColors: undefined });
@@ -176,7 +181,7 @@ export default function ChartStylePanel({
     <div className={cn('flex flex-col gap-5', className)}>
       {showLabelsBlock && (
         <div className="grid gap-3">
-          {(showValueLabels || showInfo) && <Label>Labels</Label>}
+          <Label>Labels</Label>
           {showValueLabels && (
             <>
               <div className="grid grid-cols-2 gap-2">
@@ -260,9 +265,7 @@ export default function ChartStylePanel({
         </div>
       )}
 
-      {showLabelsBlock && (descriptor.variants.length > 1 || caps.colors || descriptor.params.length > 0) && (
-        <Separator />
-      )}
+      {showLabelsSeparator && <Separator />}
 
       {descriptor.variants.length > 1 && (
         <div className="grid gap-2">
@@ -356,9 +359,9 @@ export default function ChartStylePanel({
         </div>
       )}
 
-      {descriptor.params.length > 0 && (
+      {hasParamsSection && (
         <>
-          {(descriptor.variants.length > 1 || caps.colors) && <Separator />}
+          {showParamsSeparator && <Separator />}
           <div className="grid gap-4">
             {descriptor.params.map((spec) => (
               <ParamControl

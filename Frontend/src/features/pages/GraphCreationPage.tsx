@@ -89,20 +89,6 @@ function cloneResult(result: ChartConfigResponse): ChartConfigResponse {
   return structuredClone(result);
 }
 
-/** Style fields sent in the refine baseline — colours included; params omitted. */
-function slimStyleForAi(style: ChartStyleConfig): ChartStyleConfig {
-  const slim: ChartStyleConfig = {};
-  if (style.variant != null) slim.variant = style.variant;
-  if (style.info != null) slim.info = style.info;
-  if (style.decimals != null) slim.decimals = style.decimals;
-  if (style.decimalMode != null) slim.decimalMode = style.decimalMode;
-  if (style.valuePrefix != null) slim.valuePrefix = style.valuePrefix;
-  if (style.valueSuffix != null) slim.valueSuffix = style.valueSuffix;
-  if (style.palette != null) slim.palette = style.palette;
-  if (style.colors != null) slim.colors = style.colors;
-  return normalizeColorExclusive(slim);
-}
-
 /** Theme palette XOR per-slice colours — palette wins when both are set. */
 function normalizeColorExclusive(style: ChartStyleConfig): ChartStyleConfig {
   if (style.palette != null && style.palette !== '') {
@@ -114,65 +100,7 @@ function normalizeColorExclusive(style: ChartStyleConfig): ChartStyleConfig {
   return style;
 }
 
-/** After AI: take AI colours/palette when present (backend already clamped);
- *  keep customColors/params from the user. On chart-type change, drop previous
- *  variant/params (they belong to the old type). Palette XOR colours.
- */
-function mergeAiStyleWithManual(
-  previous: ChartStyleConfig,
-  fromAi: ChartStyleConfig | null | undefined,
-  chartTypeChanged: boolean,
-): ChartStyleConfig {
-  const ai = fromAi ?? {};
-  const aiSetPalette = ai.palette != null && ai.palette !== '';
-  const aiSetColors = Boolean(ai.colors?.length);
-
-  let colors: string[] | undefined;
-  let palette: string | undefined;
-
-  if (aiSetPalette) {
-    palette = ai.palette;
-    colors = undefined;
-  } else if (aiSetColors) {
-    colors = ai.colors;
-    palette = undefined;
-  } else {
-    colors = previous.colors;
-    palette = previous.palette;
-  }
-
-  const preserved = {
-    colors,
-    customColors: previous.customColors,
-    palette,
-    ...(chartTypeChanged ? {} : { params: previous.params }),
-  };
-
-  const merged: ChartStyleConfig = chartTypeChanged
-    ? {
-        ...preserved,
-        ...(ai.variant !== undefined ? { variant: ai.variant } : {}),
-        ...(ai.info !== undefined ? { info: ai.info } : {}),
-        ...(ai.decimals !== undefined ? { decimals: ai.decimals } : {}),
-        ...(ai.decimalMode !== undefined ? { decimalMode: ai.decimalMode } : {}),
-        ...(ai.valuePrefix !== undefined ? { valuePrefix: ai.valuePrefix } : {}),
-        ...(ai.valueSuffix !== undefined ? { valueSuffix: ai.valueSuffix } : {}),
-      }
-    : {
-        ...previous,
-        ...(ai.variant !== undefined ? { variant: ai.variant } : {}),
-        ...(ai.info !== undefined ? { info: ai.info } : {}),
-        ...(ai.decimals !== undefined ? { decimals: ai.decimals } : {}),
-        ...(ai.decimalMode !== undefined ? { decimalMode: ai.decimalMode } : {}),
-        ...(ai.valuePrefix !== undefined ? { valuePrefix: ai.valuePrefix } : {}),
-        ...(ai.valueSuffix !== undefined ? { valueSuffix: ai.valueSuffix } : {}),
-        ...preserved,
-      };
-
-  return normalizeColorExclusive(merged);
-}
-
-/** Build AI refine baseline — SQL + slim style metadata only, never query rows. */
+/** Build AI refine baseline — full style for merge; backend slims for the AI prompt separately. */
 function toBaseline(
   result: ChartConfigResponse,
   style: ChartStyleConfig,
@@ -186,7 +114,7 @@ function toBaseline(
     aggregation: result.aggregation,
     groupBy: result.groupBy,
     sqlQuery: result.sqlQuery,
-    styleConfig: slimStyleForAi(style),
+    styleConfig: cloneStyle(style),
   };
 }
 
@@ -649,8 +577,7 @@ export default function GraphCreationPage() {
         currentChart: toBaseline(result, styleConfig, editableTitle),
       });
       setPreRefineSnapshot(snapshot);
-      const chartTypeChanged = res.chartType !== result.chartType;
-      const style = mergeAiStyleWithManual(styleConfig, res.styleConfig, chartTypeChanged);
+      const style = normalizeColorExclusive(res.styleConfig ?? {});
       setResult({ ...res, styleConfig: style });
       setEditableTitle(res.title);
       setStyleConfig(style);

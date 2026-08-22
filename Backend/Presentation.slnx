@@ -8,4 +8,5 @@
   <Project Path="Infrastructure/Infrastructure.csproj" Id="04a6eabc-fd03-4ee6-b986-b7fa6b0985e7" />
   <Project Path="Presentation/Presentation.csproj" />
   <Project Path="tests/Presentation.IntegrationTests/Presentation.IntegrationTests.csproj" />
+  <Project Path="tests/Application.Tests/Application.Tests.csproj" />
 </Solution>

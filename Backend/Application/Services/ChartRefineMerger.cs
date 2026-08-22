@@ -10,7 +10,7 @@ namespace Application.Services;
 /// when clamped to the account allowlist). Params stay UI-controlled.
 /// Palette and per-slice colours are mutually exclusive.
 /// </summary>
-public static class ChartRefineMerger
+public static partial class ChartRefineMerger
 {
     public static AiChartConfig Apply(
         ChartBaseline baseline,
@@ -49,9 +49,7 @@ public static class ChartRefineMerger
         var p = userPrompt.ToLowerInvariant();
 
         // Multi-word / distinctive phrases first
-        if (p.Contains("colour ", StringComparison.Ordinal)
-            || p.Contains("color ", StringComparison.Ordinal)
-            || p.Contains("färg", StringComparison.Ordinal)
+        if (p.Contains("färg", StringComparison.Ordinal)
             || p.Contains("palette", StringComparison.Ordinal)
             || p.Contains("palett", StringComparison.Ordinal)
             || p.Contains("prefix", StringComparison.Ordinal)
@@ -60,7 +58,6 @@ public static class ChartRefineMerger
             || p.Contains("avrunda", StringComparison.Ordinal)
             || p.Contains("heltal", StringComparison.Ordinal)
             || p.Contains("truncate", StringComparison.Ordinal)
-            || p.Contains("styling", StringComparison.Ordinal)
             || p.Contains("stacked", StringComparison.Ordinal)
             || p.Contains("horizontal", StringComparison.Ordinal)
             || p.Contains("grouperad", StringComparison.Ordinal)
@@ -70,29 +67,13 @@ public static class ChartRefineMerger
             || p.Contains("info tooltip", StringComparison.Ordinal))
             return true;
 
-        // Whole-word tokens (avoid matching "red" inside "ordered", etc. is hard — use boundaries)
-        string[] wordTokens =
-        [
-            "style", "stil", "variant", "tema", "theme",
-            "cool", "warm", "mono", "contrast",
-            "lila", "purple", "röd", "red", "blå", "blue", "grön", "green",
-            "orange", "gul", "yellow", "teal", "cyan", "violet",
-            "dollar", "krona", "procent", "percent", "round",
-        ];
+        if (ColourWordRegex().IsMatch(p)
+            || ColouredWordRegex().IsMatch(p)
+            || ColourNumberRegex().IsMatch(p)
+            || StyleWordRegex().IsMatch(p))
+            return true;
 
-        foreach (var token in wordTokens)
-        {
-            if (System.Text.RegularExpressions.Regex.IsMatch(
-                    p,
-                    $@"\b{System.Text.RegularExpressions.Regex.Escape(token)}\b",
-                    System.Text.RegularExpressions.RegexOptions.CultureInvariant))
-                return true;
-        }
-
-        return System.Text.RegularExpressions.Regex.IsMatch(
-            p,
-            @"\bcolou?r\s*\d+\b",
-            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        return false;
     }
 
     /// <summary>
@@ -284,23 +265,8 @@ public static class ChartRefineMerger
     }
 
     /// <summary>
-    /// Applies a pending named colour map onto <paramref name="config"/> using its yAxis
-    /// as series order. Clears palette (slice mode).
-    /// </summary>
-    public static void ApplyNamedColorMap(AiChartConfig config, IReadOnlyDictionary<string, string>? named)
-    {
-        if (named is null || named.Count == 0) return;
-
-        var expanded = ExpandNamedColorMap(named, config.YAxis);
-        if (expanded is null) return;
-
-        config.StyleConfig ??= new ChartStyleConfig();
-        config.StyleConfig.Colors = expanded;
-        config.StyleConfig.Palette = null;
-    }
-
-    /// <summary>
     /// Keeps only colours that appear in the account allowlist (case-insensitive).
+    /// Preserves index positions — empty slots mean "follow palette".
     /// Returns null when nothing valid remains.
     /// </summary>
     public static List<string>? ClampColorsToAllowlist(
@@ -311,20 +277,25 @@ public static class ChartRefineMerger
             return null;
 
         var clamped = new List<string>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var raw in colors)
         {
-            if (string.IsNullOrWhiteSpace(raw)) continue;
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                clamped.Add(string.Empty);
+                continue;
+            }
+
             var trimmed = raw.Trim();
             var match = allowedColors.FirstOrDefault(a =>
                 a.Equals(trimmed, StringComparison.OrdinalIgnoreCase));
-            if (match is null) continue;
-            if (!seen.Add(match)) continue;
-            clamped.Add(match);
+            clamped.Add(match ?? string.Empty);
         }
 
-        return clamped.Count > 0 ? clamped : null;
+        while (clamped.Count > 0 && clamped[^1].Length == 0)
+            clamped.RemoveAt(clamped.Count - 1);
+
+        return clamped.Exists(c => c.Length > 0) ? clamped : null;
     }
 
     private static ChartStyleConfig? MergeStyle(
