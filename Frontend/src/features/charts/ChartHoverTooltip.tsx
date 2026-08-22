@@ -43,7 +43,6 @@ export default function ChartHoverTooltip({
           <TooltipActiveReporter
             active={tooltipProps.active}
             payload={tooltipProps.payload}
-            label={tooltipProps.label}
             onDeactivate={onDeactivate}
             onFirstPaint={onFirstPaint}
           />
@@ -65,29 +64,18 @@ export default function ChartHoverTooltip({
   );
 }
 
-function tooltipAnchorKey(payload?: ReadonlyArray<unknown>, label?: string | number): string {
-  if (label != null && label !== '') return String(label);
-  const first = payload?.[0] as { name?: string | number; dataKey?: string | number } | undefined;
-  if (first?.name != null && first.name !== '') return String(first.name);
-  if (first?.dataKey != null && first.dataKey !== '') return String(first.dataKey);
-  return '';
-}
-
 function TooltipActiveReporter({
   active,
   payload,
-  label,
   onDeactivate,
   onFirstPaint,
 }: {
   active?: boolean;
   payload?: ReadonlyArray<unknown>;
-  label?: string | number;
   onDeactivate: () => void;
   onFirstPaint: () => void;
 }) {
   const isActive = Boolean(active && payload && payload.length > 0);
-  const anchorKey = tooltipAnchorKey(payload, label);
   const paintedRef = useRef(false);
 
   useEffect(() => {
@@ -101,7 +89,7 @@ function TooltipActiveReporter({
     if (!isActive || paintedRef.current) return;
     paintedRef.current = true;
     onFirstPaint();
-  }, [isActive, anchorKey, onFirstPaint]);
+  }, [isActive, onFirstPaint]);
 
   return null;
 }

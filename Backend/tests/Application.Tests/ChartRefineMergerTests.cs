@@ -78,4 +78,26 @@ public class ChartRefineMergerTests
 
         result.Should().BeEquivalentTo(["var(--chart-1)"]);
     }
+
+    [Theory]
+    [InlineData("filter the red category")]
+    [InlineData("round up sales by region")]
+    public void RequestsStyleChange_treats_color_words_in_data_prompts_as_style(string prompt)
+    {
+        // Known false-positive tradeoff: colour/format words open style merge even in data phrasing.
+        // AI output is still clamped/sanitized; baseline style is only replaced when the model returns changes.
+        ChartRefineMerger.RequestsStyleChange(prompt).Should().BeTrue();
+    }
+
+    [Fact]
+    public void HasNonEmptyColorSlot_false_when_all_empty()
+    {
+        ChartRefineMerger.HasNonEmptyColorSlot(["", ""]).Should().BeFalse();
+    }
+
+    [Fact]
+    public void HasNonEmptyColorSlot_true_when_any_slot_set()
+    {
+        ChartRefineMerger.HasNonEmptyColorSlot(["", "var(--chart-1)"]).Should().BeTrue();
+    }
 }

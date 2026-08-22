@@ -148,7 +148,7 @@ export default function ChartStylePanel({
   const showParamsSeparator = hasParamsSection && (hasVariantSection || hasColorSection);
 
   function patch(partial: Partial<ChartStyleConfig>) {
-    onChange({ ...value, ...partial, customColors: undefined });
+    onChange({ ...value, ...partial });
   }
 
   function setParam(key: string, next: unknown) {

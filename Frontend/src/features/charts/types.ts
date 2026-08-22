@@ -48,8 +48,6 @@ export interface ChartStyleConfig {
   palette?: string;
   /** Per-series colour overrides, indexed like `datasets` (or slices for pie). */
   colors?: string[];
-  /** @deprecated Swatches now come from company style; ignored when saving. */
-  customColors?: string[];
   params?: Record<string, unknown>;
   /** Shown before numeric values (e.g. "$"). */
   valuePrefix?: string;

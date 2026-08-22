@@ -160,7 +160,6 @@ public static partial class ChartRefineMerger
             DecimalMode = baseline.DecimalMode,
             Palette = baseline.Palette,
             Colors = baseline.Colors is null ? null : [.. baseline.Colors],
-            CustomColors = baseline.CustomColors is null ? null : [.. baseline.CustomColors],
             Params = chartTypeChanged ? null : baseline.Params,
         };
 
@@ -219,9 +218,13 @@ public static partial class ChartRefineMerger
             return;
         }
 
-        if (style.Colors is { Count: > 0 })
+        if (style.Colors is { Count: > 0 } && HasNonEmptyColorSlot(style.Colors))
             style.Palette = null;
     }
+
+    /// <summary>True when at least one series/slice has an explicit colour override.</summary>
+    public static bool HasNonEmptyColorSlot(IEnumerable<string>? colors)
+        => colors is not null && colors.Any(c => !string.IsNullOrWhiteSpace(c));
 
     /// <summary>
     /// Maps a name→colour object onto a positional colours array using series keys
@@ -309,7 +312,7 @@ public static partial class ChartRefineMerger
 
         var aiFields = TakeAiControlledStyleFields(ai, chartType, allowedColors);
         var aiSetPalette = !string.IsNullOrWhiteSpace(aiFields?.Palette);
-        var aiSetColors = aiFields?.Colors is { Count: > 0 };
+        var aiSetColors = HasNonEmptyColorSlot(aiFields?.Colors);
 
         string? palette;
         List<string>? colors;
@@ -346,8 +349,6 @@ public static partial class ChartRefineMerger
             Palette = palette,
             Colors = colors,
 
-            // Always UI — never from AI
-            CustomColors = baseline?.CustomColors is null ? null : [.. baseline.CustomColors],
             // Params are per chart-type; drop them on type switch so UI defaults apply
             Params = chartTypeChanged ? null : baseline?.Params,
         };
