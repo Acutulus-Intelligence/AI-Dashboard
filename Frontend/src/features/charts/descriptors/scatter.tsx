@@ -4,8 +4,8 @@ import {
   ChartContainer,
   ChartLegend,
   ChartLegendContent,
-  ChartTooltip,
 } from '@/components/ui/chart';
+import ChartHoverTooltip from '../ChartHoverTooltip';
 import { tickFormatter } from '../format';
 import { cssColorVar } from '../colorKey';
 import { toChartConfig } from '../transform';
@@ -105,7 +105,7 @@ export const scatterChart: ChartDescriptor = {
           {bubble && <ZAxis type="number" dataKey="y" range={[size / 2, size * 4]} />}
 
           {param(style, 'showTooltip', true) && (
-            <ChartTooltip cursor={{ strokeDasharray: '3 3' }} content={<StyledChartTooltip style={style} />} />
+            <ChartHoverTooltip cursor={{ strokeDasharray: '3 3' }} content={<StyledChartTooltip style={style} />} />
           )}
           {param(style, 'showLegend', false) && <ChartLegend content={<ChartLegendContent />} />}
 

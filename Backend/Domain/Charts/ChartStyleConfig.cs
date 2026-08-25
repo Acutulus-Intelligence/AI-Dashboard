@@ -35,9 +35,10 @@ public sealed class ChartStyleConfig
     public string? Info { get; set; }
 
     /// <summary>
-    /// User-defined hex swatches available in the colour picker (in addition to theme tokens).
+    /// Legacy per-chart swatches; stripped on save. Company style owns the palette now.
     /// </summary>
     [JsonPropertyName("customColors")]
+    [Obsolete("Per-chart customColors are no longer used; company style provides swatches.")]
     public List<string>? CustomColors { get; set; }
 
     /// <summary>

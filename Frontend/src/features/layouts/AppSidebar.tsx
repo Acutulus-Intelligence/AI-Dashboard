@@ -136,7 +136,7 @@ export default function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader>
+      <SidebarHeader className="shrink-0">
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild size="lg" tooltip={label}>
@@ -164,7 +164,7 @@ export default function AppSidebar() {
         {platformAdminGroup && renderGroup(platformAdminGroup)}
       </SidebarContent>
 
-      <SidebarFooter>
+      <SidebarFooter className="shrink-0">
         {!isStaff && !hasActiveSubscription && (
           <SidebarMenu>
             <SidebarMenuItem>

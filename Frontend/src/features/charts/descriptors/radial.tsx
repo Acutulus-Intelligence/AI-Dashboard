@@ -1,7 +1,8 @@
 import { Gauge } from 'lucide-react';
 import { LabelList, PolarAngleAxis, PolarGrid, RadialBar, RadialBarChart } from 'recharts';
-import { ChartContainer, ChartTooltip } from '@/components/ui/chart';
+import { ChartContainer } from '@/components/ui/chart';
 import type { ChartConfig } from '@/components/ui/chart';
+import ChartHoverTooltip from '../ChartHoverTooltip';
 import { chartColorKey } from '../colorKey';
 import { param, type ChartDescriptor, type ParamSpec } from '../types';
 import ChartPlaceholder from './ChartPlaceholder';
@@ -91,7 +92,7 @@ export const radialChart: ChartDescriptor = {
           endAngle={param(style, 'endAngle', -270)}
         >
           {param(style, 'showTooltip', true) && (
-            <ChartTooltip
+            <ChartHoverTooltip
               cursor={false}
               content={<StyledChartTooltip style={style} nameKey={stacked ? undefined : 'key'} />}
             />

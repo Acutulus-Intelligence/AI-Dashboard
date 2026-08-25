@@ -4,8 +4,8 @@ import {
   ChartContainer,
   ChartLegend,
   ChartLegendContent,
-  ChartTooltip,
 } from '@/components/ui/chart';
+import ChartHoverTooltip from '../ChartHoverTooltip';
 import { tickFormatter } from '../format';
 import { cssColorVar } from '../colorKey';
 import { toChartConfig, toRows } from '../transform';
@@ -88,7 +88,7 @@ export const lineChart: ChartDescriptor = {
           />
 
           {param(style, 'showTooltip', true) && (
-            <ChartTooltip cursor={false} content={<StyledChartTooltip style={style} />} />
+            <ChartHoverTooltip cursor={false} content={<StyledChartTooltip style={style} />} />
           )}
           {param(style, 'showLegend', false) && <ChartLegend content={<ChartLegendContent />} />}
 

@@ -34,10 +34,11 @@ public class OpenRouterService : IAiService
         DbProvider dbProvider,
         string? prefabChartType = null,
         string? currentChartJson = null,
+        IReadOnlyList<string>? allowedColors = null,
         CancellationToken ct = default)
     {
         var systemPrompt = BuildSystemPrompt(
-            schemaJson, dbProvider, prefabChartType, currentChartJson);
+            schemaJson, dbProvider, prefabChartType, currentChartJson, allowedColors);
 
         var userContent = string.IsNullOrWhiteSpace(currentChartJson)
             ? prompt
@@ -292,12 +293,13 @@ public class OpenRouterService : IAiService
         {
             try
             {
-                config.StyleConfig = styleEl.Deserialize<ChartStyleConfig>();
+                config.StyleConfig = ParseStyleConfig(styleEl, config);
             }
             catch (JsonException)
             {
                 // e.g. params as array/boolean — keep the chart, drop broken style
                 config.StyleConfig = null;
+                config.NamedColorMap = null;
             }
         }
 
@@ -316,6 +318,92 @@ public class OpenRouterService : IAiService
         }
 
         return config;
+    }
+
+    /// <summary>
+    /// Parses styleConfig; <c>colors</c> may be a positional array or a name→colour object.
+    /// </summary>
+    private static ChartStyleConfig? ParseStyleConfig(JsonElement styleEl, AiChartConfig config)
+    {
+        using var doc = JsonDocument.Parse(styleEl.GetRawText());
+        var root = doc.RootElement;
+
+        JsonElement? colorsEl = null;
+        if (TryGetPropertyIgnoreCase(root, "colors", out var colorsProp)
+            && colorsProp.ValueKind is JsonValueKind.Array or JsonValueKind.Object)
+        {
+            colorsEl = colorsProp.Clone();
+        }
+
+        // Rebuild style JSON without colours so an object-shaped colors value cannot fail deserialize.
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            foreach (var prop in root.EnumerateObject())
+            {
+                if (prop.Name.Equals("colors", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                prop.WriteTo(writer);
+            }
+            writer.WriteEndObject();
+        }
+
+        var strippedJson = Encoding.UTF8.GetString(stream.ToArray());
+        var style = JsonSerializer.Deserialize<ChartStyleConfig>(strippedJson) ?? new ChartStyleConfig();
+
+        if (colorsEl is { } colors)
+        {
+            if (colors.ValueKind == JsonValueKind.Array)
+            {
+                style.Colors = ParseColorArray(colors);
+                config.NamedColorMap = null;
+            }
+            else if (colors.ValueKind == JsonValueKind.Object)
+            {
+                var map = ParseColorObject(colors);
+                config.NamedColorMap = map;
+                // Expanded in GraphGenerationService once yAxis (possibly from baseline) is known.
+                style.Colors = null;
+                if (map is { Count: > 0 })
+                    style.Palette = null;
+            }
+        }
+
+        return style;
+    }
+
+    private static List<string>? ParseColorArray(JsonElement colors)
+    {
+        var list = new List<string>();
+        foreach (var item in colors.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.String)
+                list.Add(item.GetString() ?? string.Empty);
+            else if (item.ValueKind == JsonValueKind.Null)
+                list.Add(string.Empty);
+            else
+                list.Add(item.ToString());
+        }
+
+        while (list.Count > 0 && string.IsNullOrWhiteSpace(list[^1]))
+            list.RemoveAt(list.Count - 1);
+
+        return list.Exists(c => !string.IsNullOrWhiteSpace(c)) ? list : null;
+    }
+
+    private static Dictionary<string, string>? ParseColorObject(JsonElement colors)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var prop in colors.EnumerateObject())
+        {
+            if (prop.Value.ValueKind != JsonValueKind.String) continue;
+            var value = prop.Value.GetString();
+            if (string.IsNullOrWhiteSpace(prop.Name) || string.IsNullOrWhiteSpace(value)) continue;
+            map[prop.Name.Trim()] = value.Trim();
+        }
+
+        return map.Count > 0 ? map : null;
     }
 
     private static string? GetString(JsonElement root, string name)
@@ -408,6 +496,8 @@ public class OpenRouterService : IAiService
         var sb = new StringBuilder();
         sb.AppendLine(
             "Refine this existing chart. Map the user request onto the allowed fields below. For style-only requests (rounding, prefix/suffix, info, variant) you MUST copy sqlQuery, chartType, axes, aggregation, and groupBy EXACTLY from the current chart JSON — do not rewrite SQL.");
+        sb.AppendLine(
+            "Series colour slots follow yAxis order (index 0 = first yAxis name). Prefer styleConfig.colors as an object keyed by those names when colouring a specific series/column.");
         sb.AppendLine(prompt);
         sb.AppendLine();
         sb.AppendLine("Current chart configuration (metadata only — no query result rows):");
@@ -419,12 +509,15 @@ public class OpenRouterService : IAiService
         string schemaJson,
         DbProvider dbProvider,
         string? prefabChartType,
-        string? currentChartJson)
+        string? currentChartJson,
+        IReadOnlyList<string>? allowedColors)
     {
         var isRefine = !string.IsNullOrWhiteSpace(currentChartJson);
+        var colorAllowlist = FormatColorAllowlist(allowedColors);
+        var paletteIds = string.Join(", ", ChartCatalog.Palettes.Select(p => $"\"{p.Id}\""));
 
         var chartPreference = isRefine
-            ? "The user is refining an existing chart. Style-only edits must keep sqlQuery identical. Chart-type changes (bar → radar, etc.) are allowed when asked — then update chartType, variant, and SQL/axes as needed. Never set colors, palette, or params."
+            ? "The user is refining an existing chart. Style-only edits must keep sqlQuery identical. Chart-type changes (bar → radar, etc.) are allowed when asked — then update chartType, variant, and SQL/axes as needed. Colours/palette only from the allowlist below; never invent free hex. Never set params."
             : prefabChartType switch
             {
                 not null => $"The user prefers the chart type: {prefabChartType}.",
@@ -452,23 +545,38 @@ Style field vocabulary — use these exact values (Swedish or English user wordi
 - Clear prefix/suffix → set the field to "" 
 - Info text → "info": "…"
 - Variant / stacked / horizontal / grouped → styleConfig.variant (catalog id only; "grouped"/"grouperad" → "default")
+- Series/column colour (e.g. make amount blue / Colour 5 for price) → styleConfig.colors ONLY (no palette). Prefer a name→colour object keyed by yAxis column names, or an array in yAxis order. Values MUST be exact allowlist strings (the var(--chart-N) or #hex token — never invent hex). Match colour words to the hue hints on the allowlist (purple/lila, red/röd, …). If the user names several colours, assign one allowlist value per series
+- Theme palette (cool / warm / default / …) → styleConfig.palette ONLY (no colors)
 """;
 
         var refineRules = isRefine
             ? $"""
 {styleVocabulary}
-- You may adjust: chartType (catalog id), title, sqlQuery, axes, aggregation, groupBy, and styleConfig.variant / info / decimals / decimalMode / valuePrefix / valueSuffix
-- Style-only (decimals, prefix, suffix, info, variant): copy sqlQuery character-for-character from the current chart — never invent ROUND()/CAST() in SQL for display rounding; display rounding is styleConfig only
-- Chart-type switch: set chartType, pick a valid variant for the NEW type, rewrite sqlQuery/axes only when needed
-- Do NOT set styleConfig.colors, palette, customColors, or params — the UI controls those
+- CRITICAL: Only change styleConfig (colours, palette, prefix/suffix, decimals, info, variant) when the user EXPLICITLY asks for a style/colour/label/variant change. Otherwise copy styleConfig EXACTLY from the current chart — do not invent or "improve" colours/theme
+- You may adjust data fields when asked: chartType, title, sqlQuery, axes, aggregation, groupBy
+- Style-only (decimals, prefix, suffix, info, variant, colors/palette): copy sqlQuery character-for-character from the current chart — never invent ROUND()/CAST() in SQL for display rounding; display rounding is styleConfig only
+- Chart-type switch: set chartType, pick a valid variant for the NEW type, rewrite sqlQuery/axes only when needed; keep colours/labels from the current chart unless they asked to restyle
+- NEVER set both styleConfig.palette and styleConfig.colors in the same response — pick exactly one colour mode
+- Theme palette request → set palette only; set colors to null / omit colors
+- Account/slice/column colour request → set colors only; set palette to null / omit palette
+- styleConfig.colors formats (pick one):
+  - object keyed by yAxis column/series name → allowlist value (e.g. amount maps to Colour N)
+  - array of allowlist values in the same order as yAxis (index 0 = yAxis[0])
+- styleConfig.colors values: ONLY exact strings from the account colour allowlist (Colour 1, Colour 2, …). Never invent hex outside that list
+- table charts: do NOT set colors, palette, valuePrefix, valueSuffix, or decimals
+- Do NOT set customColors or params — the UI controls those
 - Prefer changing only what the request implies; copy all other fields EXACTLY from the current chart JSON
 - Never invent or request raw data rows — you only receive SQL and style metadata, never query results
 - Reply with the complete JSON object only
 """
             : $"""
 {styleVocabulary}
-- In styleConfig only set variant, info, decimals, decimalMode, valuePrefix, valueSuffix when relevant
-- Do NOT set colors, palette, customColors, or params — the UI controls those
+- In styleConfig set variant, info, decimals, decimalMode, valuePrefix, valueSuffix, and either colors OR palette when relevant
+- NEVER set both styleConfig.palette and styleConfig.colors — pick exactly one colour mode
+- Theme palette → palette only; account/slice/column colours → colors only from the allowlist
+- styleConfig.colors may be a name→colour object keyed by yAxis names, or an array in yAxis order
+- table charts: do NOT set colors, palette, valuePrefix, valueSuffix, or decimals
+- Do NOT set customColors or params — the UI controls those
 - Display formatting (rounding, $, %) belongs in styleConfig — not in SQL
 """;
 
@@ -482,6 +590,11 @@ Table schema:
 __SCHEMA__
 
 __PREFERENCE__
+
+Account colours (use ONLY these exact strings in styleConfig.colors — slice/column mode only):
+__COLORS__
+
+Available theme palettes (styleConfig.palette — palette mode only): __PALETTES__
 
 Available chart types and variants:
 __CATALOG__
@@ -497,6 +610,8 @@ Return this exact JSON structure:
   ""sqlQuery"": ""SELECT ... — a safe, valid SELECT query that fetches the data needed"",
   ""styleConfig"": {
     ""variant"": ""one of the variant ids listed for the chosen chartType"",
+    ""colors"": null,
+    ""palette"": null,
     ""valuePrefix"": ""optional string"",
     ""valueSuffix"": ""optional string"",
     ""decimals"": null,
@@ -510,7 +625,10 @@ Rules:
 - __QUOTING_RULE__
 - Never include actual data values — only column names and SQL
 - styleConfig.variant must be a variant of the chartType you chose
-- Do not include colors, palette, customColors, or params in styleConfig
+- Colour mode XOR: set either palette OR colors, never both; omit the unused field
+- When setting colors, prefer { ""yAxisColumn"": ""<allowlist>"" } so each series is explicit; array form must follow yAxis order
+- styleConfig.colors must use only allowlisted values; omit colors in palette mode
+- Do not include customColors or params in styleConfig
 - Omit styleConfig fields you have no opinion about rather than guessing
 __REFINE_RULES__
 - The JSON must be parseable and complete
@@ -520,11 +638,64 @@ __REFINE_RULES__
             .Replace("__DBNAME__", dbName)
             .Replace("__SCHEMA__", schemaJson)
             .Replace("__PREFERENCE__", chartPreference)
+            .Replace("__COLORS__", colorAllowlist)
+            .Replace("__PALETTES__", paletteIds)
             .Replace("__CATALOG__", DescribeCatalog())
             .Replace("__TYPE_UNION__", string.Join(" | ", ChartCatalog.TypeIds.Select(id => $"\"{id}\"")))
             .Replace("__QUOTING_RULE__", quotingRule)
             .Replace("__REFINE_RULES__", refineRules);
     }
+
+    private static string FormatColorAllowlist(IReadOnlyList<string>? allowedColors)
+    {
+        if (allowedColors is null || allowedColors.Count == 0)
+            return "(none — do not set styleConfig.colors)";
+
+        var lines = allowedColors
+            .Select((c, i) => $"- Colour {i + 1}: {DescribeAllowlistColor(c)}")
+            .ToArray();
+        return string.Join(
+            "\n",
+            lines.Append(
+                "Use the exact token/hex string after the colon as styleConfig.colors values (not the Colour N label, not the hue word). Match user colour words (purple/lila, red/röd, blue/blå, …) to the closest hue hint above. When they ask for several colours, set one allowlist value per series/column."));
+    }
+
+    /// <summary>
+    /// Theme tokens are opaque to the model without a hue hint; hex swatches speak for themselves.
+    /// </summary>
+    private static string DescribeAllowlistColor(string color)
+    {
+        var trimmed = color.Trim();
+        if (trimmed.StartsWith('#') && trimmed.Length is >= 4 and <= 9)
+            return $"{trimmed} (custom hex)";
+
+        var tokenMatch = System.Text.RegularExpressions.Regex.Match(
+            trimmed,
+            @"^var\(\s*--chart-([1-8])\s*\)$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (tokenMatch.Success
+            && ThemeChartHueHints.TryGetValue(tokenMatch.Groups[1].Value, out var hint))
+        {
+            return $"{trimmed} — {hint}";
+        }
+
+        return trimmed;
+    }
+
+    /// <summary>
+    /// Approximate light-theme hues for default <c>--chart-N</c> tokens (see Frontend index.css).
+    /// </summary>
+    private static readonly Dictionary<string, string> ThemeChartHueHints = new(StringComparer.Ordinal)
+    {
+        ["1"] = "blue",
+        ["2"] = "orange",
+        ["3"] = "green",
+        ["4"] = "purple / lila",
+        ["5"] = "yellow / gold",
+        ["6"] = "red / röd",
+        ["7"] = "teal / cyan",
+        ["8"] = "violet",
+    };
 
     private static string BuildCollectionSystemPrompt(string schemaJson, string? prefabChartType)
     {
@@ -609,6 +780,13 @@ Rules:
         {
             lines.Add($"- {type.Id}: {type.Description}");
             lines.Add($"  variants: {string.Join(", ", type.Variants.Select(v => $"{v.Id} ({v.Description})"))}");
+            var styleBits = new List<string>();
+            if (type.SupportsColors) styleBits.Add("colors/palette");
+            if (type.SupportsValueFormat) styleBits.Add("prefix/suffix/decimals");
+            styleBits.Add("info");
+            styleBits.Add("variant");
+            lines.Add($"  style: {string.Join(", ", styleBits)}"
+                + (type.SupportsColors ? "" : " (no colours)"));
         }
 
         return string.Join("\n", lines);
