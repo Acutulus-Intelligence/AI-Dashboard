@@ -27,7 +27,11 @@ export default function LoginPage() {
 
     setLoading(true);
     try {
-      await login(email, password);
+      const u = await login(email, password);
+      if (u?.roles.includes('Admin') || u?.roles.includes('Moderator')) {
+        navigate(ROUTES.ADMIN_MAIN);
+        return;
+      }
       const isActive = await refreshSubscriptionStatus();
       navigate(isActive ? ROUTES.DASHBOARD : ROUTES.PRICING);
     } catch (err: unknown) {

@@ -180,6 +180,10 @@ public class AuthService : IAuthService
         if (!await _userManager.CheckPasswordAsync(user, request.CurrentPassword))
             throw new UnauthorizedAccessException("Current password is incorrect.");
 
+        if (await _userManager.IsInRoleAsync(user, "Admin"))
+            throw new InvalidOperationException(
+                "You must hand over the admin role to a moderator before deleting your account.");
+
         var ownedCompany = await _db.Companies.FirstOrDefaultAsync(c => c.OwnerId == userId, ct);
         if (ownedCompany is not null)
             throw new InvalidOperationException(

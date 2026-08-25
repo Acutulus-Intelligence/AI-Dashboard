@@ -5,8 +5,11 @@ public sealed record UserSubscriptionResponse(
     Guid PlanId,
     string PlanName,
     decimal Price,
+    decimal? NextPrice,
+    DateTime? NextPriceEffectiveDate,
     Domain.Enums.BillingPeriod BillingPeriod,
     DateTime StartDate,
     DateTime? EndDate,
     Domain.Enums.SubscriptionStatus Status,
+    bool CancelAtPeriodEnd,
     DateTime? TrialEndDate);

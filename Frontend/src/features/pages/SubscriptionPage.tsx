@@ -6,6 +6,8 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import AppShell from '../layouts/AppShell';
 import { ROUTES } from '../routes';
 import * as subscriptionApi from '../../lib/api/subscription';
+import { estimateUpgradeCredit } from '../../lib/api/subscription';
+import { usePolling } from '../../hooks/usePolling';
 
 function formatDate(dateStr: string | null) {
   if (!dateStr) return '—';
@@ -27,6 +29,7 @@ export default function SubscriptionPage() {
   const [subscription, setSubscription] = useState<subscriptionApi.UserSubscription | null>(null);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
+  const [reactivating, setReactivating] = useState(false);
   const [error, setError] = useState('');
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
 
@@ -46,6 +49,8 @@ export default function SubscriptionPage() {
     void loadSubscription();
   }, []);
 
+  usePolling({ onPoll: loadSubscription });
+
   async function handleCancel() {
     setCancelling(true);
     setError('');
@@ -57,6 +62,19 @@ export default function SubscriptionPage() {
       setError(err instanceof Error ? err.message : 'Could not cancel subscription.');
     } finally {
       setCancelling(false);
+    }
+  }
+
+  async function handleReactivate() {
+    setReactivating(true);
+    setError('');
+    try {
+      await subscriptionApi.reactivate();
+      await loadSubscription();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not reactivate subscription.');
+    } finally {
+      setReactivating(false);
     }
   }
 
@@ -124,6 +142,14 @@ export default function SubscriptionPage() {
                         ${subscription.price.toFixed(2)}/{subscription.billingPeriod === 0 || subscription.billingPeriod === 'Monthly' ? 'mo' : 'yr'}
                       </dd>
                     </div>
+                    {subscription.nextPrice != null && (
+                      <div className="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-body-sm text-amber-800">
+                        <AlertCircle size={16} className="shrink-0" />
+                        <span>
+                          Your subscription price will change to ${subscription.nextPrice.toFixed(2)} at your next renewal{subscription.nextPriceEffectiveDate ? ` on ${formatDate(subscription.nextPriceEffectiveDate)}` : ''}.
+                        </span>
+                      </div>
+                    )}
                     <div className="flex justify-between">
                       <dt className="text-on-surface-variant">Billing</dt>
                       <dd className="font-semibold text-on-background">
@@ -134,18 +160,27 @@ export default function SubscriptionPage() {
                       <dt className="text-on-surface-variant">Start date</dt>
                       <dd className="text-on-background">{formatDate(subscription.startDate)}</dd>
                     </div>
-                    {subscription.endDate && (
+                    {subscription.cancelAtPeriodEnd && subscription.endDate ? (
                       <div className="flex justify-between">
-                        <dt className="text-on-surface-variant">Renews</dt>
-                        <dd className="text-on-background">{formatDate(subscription.endDate)}</dd>
+                        <dt className="text-on-surface-variant">Cancels at period end</dt>
+                        <dd className="font-semibold text-amber-700">{formatDate(subscription.endDate)}</dd>
                       </div>
+                    ) : (
+                      subscription.endDate && (
+                        <div className="flex justify-between">
+                          <dt className="text-on-surface-variant">Renews</dt>
+                          <dd className="text-on-background">{formatDate(subscription.endDate)}</dd>
+                        </div>
+                      )
                     )}
-                    {subscription.trialEndDate && (
-                      <div className="flex justify-between">
-                        <dt className="text-on-surface-variant">Trial ends</dt>
-                        <dd className="text-on-background">{formatDate(subscription.trialEndDate)}</dd>
-                      </div>
-                    )}
+                    {(subscription.status === 0 || subscription.status === 'Trial') &&
+                      subscription.trialEndDate &&
+                      new Date(subscription.trialEndDate) > new Date() && (
+                        <div className="flex justify-between">
+                          <dt className="text-on-surface-variant">Trial ends</dt>
+                          <dd className="text-on-background">{formatDate(subscription.trialEndDate)}</dd>
+                        </div>
+                      )}
                   </dl>
                 </div>
               </div>
@@ -159,6 +194,17 @@ export default function SubscriptionPage() {
                   <p className="mt-2 text-body-sm text-on-surface-variant">
                     Create a company workspace with team management, shared dashboards, and more.
                   </p>
+                  {(() => {
+                    const credit = estimateUpgradeCredit(subscription);
+                    return credit != null ? (
+                      <p className="mt-3 flex items-start gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-label-sm text-amber-800">
+                        <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                        <span>
+                          Unused time on your current plan (approx. ${credit.toFixed(2)}) is credited when you upgrade.
+                        </span>
+                      </p>
+                    ) : null;
+                  })()}
                   <div className="mt-4">
                     <Link to={ROUTES.PRICING}>
                       <Button variant="outline" className="w-full">Create company</Button>
@@ -166,11 +212,31 @@ export default function SubscriptionPage() {
                   </div>
                 </div>
 
-                {(subscription.status === 0 || subscription.status === 1 || subscription.status === 'Trial' || subscription.status === 'Active') && (
+                {subscription.cancelAtPeriodEnd ? (
+                  <div className="rounded-xl border border-amber-300 bg-surface-container-lowest p-6">
+                    <h3 className="text-body-lg font-semibold text-amber-700">Cancels at period end</h3>
+                    <p className="mt-2 text-body-sm text-on-surface-variant">
+                      Your subscription will end on {subscription.endDate ? formatDate(subscription.endDate) : 'the end of your billing period'}.
+                      You keep full access until then.
+                    </p>
+                    <div className="mt-4">
+                      <Button
+                        className="w-full"
+                        disabled={reactivating}
+                        onClick={handleReactivate}
+                      >
+                        {reactivating ? 'Reactivating...' : 'Reactivate subscription'}
+                      </Button>
+                      <p className="mt-2 text-center text-body-xs text-on-surface-variant">
+                        Reactivating just continues your renewals — you won't be charged again today.
+                      </p>
+                    </div>
+                  </div>
+                ) : (subscription.status === 0 || subscription.status === 1 || subscription.status === 'Trial' || subscription.status === 'Active') && (
                   <div className="rounded-xl border border-red-200 bg-surface-container-lowest p-6">
                     <h3 className="text-body-lg font-semibold text-red-700">Cancel subscription</h3>
                     <p className="mt-2 text-body-sm text-on-surface-variant">
-                      Your dashboard will be locked and your data will become inaccessible.
+                      Your subscription will end at the end of your current billing period. You'll keep access until then.
                     </p>
                     <div className="mt-4">
                       <Button
@@ -194,7 +260,7 @@ export default function SubscriptionPage() {
           if (!cancelling) setCancelConfirmOpen(open);
         }}
         title="Cancel subscription?"
-        description="Your dashboard access will be revoked. You can resubscribe later."
+        description="Your subscription will end at the end of your current billing period. You'll keep access until then."
         confirmLabel="Cancel subscription"
         variant="destructive"
         loading={cancelling}

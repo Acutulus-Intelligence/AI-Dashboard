@@ -15,7 +15,7 @@ public static class SeedData
         var db = serviceProvider.GetRequiredService<AppDbContext>();
         var configuration = serviceProvider.GetRequiredService<IConfiguration>();
 
-        var roles = new[] { "Admin", "User" };
+        var roles = new[] { "Admin", "Moderator", "User" };
 
         foreach (var role in roles)
         {
@@ -99,7 +99,6 @@ public static class SeedData
             if (createResult.Succeeded)
             {
                 await userManager.AddToRoleAsync(adminUser, "Admin");
-                await userManager.AddToRoleAsync(adminUser, "User");
             }
         }
     }

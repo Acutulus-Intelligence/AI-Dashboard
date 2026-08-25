@@ -36,6 +36,9 @@ public class SubscriptionController : ControllerBase
     [Authorize]
     public async Task<IActionResult> CreateCheckout([FromBody] SubscribeRequest request, CancellationToken ct)
     {
+        if (IsStaff())
+            return Forbid();
+
         var userId = GetUserId();
         var response = await _subscriptionService.CreateUserCheckoutSessionAsync(
             userId, request.PlanId, request.BillingPeriod, request.SuccessUrl, request.CancelUrl, ct);
@@ -46,6 +49,9 @@ public class SubscriptionController : ControllerBase
     [Authorize]
     public async Task<IActionResult> CreateCompanyCheckout(Guid companyId, [FromBody] SubscribeRequest request, CancellationToken ct)
     {
+        if (IsStaff())
+            return Forbid();
+
         var actorId = GetUserId();
         var response = await _subscriptionService.CreateCompanyCheckoutSessionAsync(
             companyId, request.PlanId, request.BillingPeriod, actorId, request.SuccessUrl, request.CancelUrl, ct);
@@ -56,6 +62,9 @@ public class SubscriptionController : ControllerBase
     [Authorize]
     public async Task<IActionResult> UpgradeToCompany([FromBody] UpgradeToCompanyRequest request, CancellationToken ct)
     {
+        if (IsStaff())
+            return Forbid();
+
         var userId = GetUserId();
         var response = await _subscriptionService.UpgradeToCompanyAsync(
             userId, request.CompanyName, request.PlanId, request.BillingPeriod, request.SuccessUrl, request.CancelUrl, ct);
@@ -120,12 +129,30 @@ public class SubscriptionController : ControllerBase
         return NoContent();
     }
 
+    [HttpPost("reactivate")]
+    [Authorize]
+    public async Task<IActionResult> ReactivateSubscription(CancellationToken ct)
+    {
+        var userId = GetUserId();
+        await _subscriptionService.ReactivateUserSubscriptionAsync(userId, ct);
+        return NoContent();
+    }
+
     [HttpPost("company/{companyId:guid}/cancel")]
     [Authorize]
     public async Task<IActionResult> CancelCompanySubscription(Guid companyId, CancellationToken ct)
     {
         var actorId = GetUserId();
         await _subscriptionService.CancelCompanySubscriptionAsync(companyId, actorId, ct);
+        return NoContent();
+    }
+
+    [HttpPost("company/{companyId:guid}/reactivate")]
+    [Authorize]
+    public async Task<IActionResult> ReactivateCompanySubscription(Guid companyId, CancellationToken ct)
+    {
+        var actorId = GetUserId();
+        await _subscriptionService.ReactivateCompanySubscriptionAsync(companyId, actorId, ct);
         return NoContent();
     }
 
@@ -143,6 +170,11 @@ public class SubscriptionController : ControllerBase
         if (userId is null || !Guid.TryParse(userId, out var parsed))
             throw new UnauthorizedAccessException("User ID not found in token.");
         return parsed;
+    }
+
+    private bool IsStaff()
+    {
+        return User.IsInRole("Admin") || User.IsInRole("Moderator");
     }
 
 }

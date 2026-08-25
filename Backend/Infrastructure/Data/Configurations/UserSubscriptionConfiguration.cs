@@ -18,6 +18,12 @@ public class UserSubscriptionConfiguration : IEntityTypeConfiguration<UserSubscr
         builder.Property(us => us.Price)
             .HasPrecision(18, 2);
 
+        builder.Property(us => us.NextPrice)
+            .HasPrecision(18, 2);
+
+        builder.Property(us => us.CancelAtPeriodEnd)
+            .HasDefaultValue(false);
+
         builder.HasOne(us => us.User)
             .WithMany()
             .HasForeignKey(us => us.UserId)

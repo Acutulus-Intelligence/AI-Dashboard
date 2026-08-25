@@ -8,6 +8,7 @@ import { ROUTES } from '../routes';
 import * as subscriptionApi from '../../lib/api/subscription';
 import * as companyApi from '../../lib/api/company';
 import { useAuth } from '../store/useAuth';
+import { usePolling } from '../../hooks/usePolling';
 
 function formatDate(dateStr: string | null) {
   if (!dateStr) return '—';
@@ -31,6 +32,7 @@ export default function SettingsPage() {
   const [subscription, setSubscription] = useState<subscriptionApi.UserSubscription | null>(null);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
+  const [reactivating, setReactivating] = useState(false);
   const [error, setError] = useState('');
   const [invites, setInvites] = useState<companyApi.CompanyInviteResponse[]>([]);
   const [invitesLoading, setInvitesLoading] = useState(true);
@@ -91,11 +93,19 @@ export default function SettingsPage() {
     void loadSubscription();
   }, []);
 
+  usePolling({ onPoll: loadSubscription });
+
   useEffect(() => {
     if (user?.userType === 0) {
       void loadInvites();
     }
   }, [user?.userType]);
+
+  useEffect(() => {
+    if (user?.roles.includes('Admin') || user?.roles.includes('Moderator')) {
+      navigate(ROUTES.ADMIN_MAIN, { replace: true });
+    }
+  }, [user?.roles, navigate]);
 
   async function handleCancel() {
     setCancelling(true);
@@ -108,6 +118,19 @@ export default function SettingsPage() {
       setError(err instanceof Error ? err.message : 'Could not cancel subscription.');
     } finally {
       setCancelling(false);
+    }
+  }
+
+  async function handleReactivate() {
+    setReactivating(true);
+    setError('');
+    try {
+      await subscriptionApi.reactivate();
+      await loadSubscription();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not reactivate subscription.');
+    } finally {
+      setReactivating(false);
     }
   }
 
@@ -158,20 +181,49 @@ export default function SettingsPage() {
                     <p className="text-on-surface-variant">
                       ${subscription.price.toFixed(2)}/{subscription.billingPeriod === 0 || subscription.billingPeriod === 'Monthly' ? 'mo' : 'yr'}
                     </p>
+                    {subscription.nextPrice != null && (
+                      <p className="flex items-start gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-label-sm text-amber-800">
+                        <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                        <span>
+                          Price will change to ${subscription.nextPrice.toFixed(2)} at your next renewal{subscription.nextPriceEffectiveDate ? ` on ${formatDate(subscription.nextPriceEffectiveDate)}` : ''}.
+                        </span>
+                      </p>
+                    )}
                     <p className="text-on-surface-variant">
                       Started {formatDate(subscription.startDate)}
                     </p>
-                    {subscription.endDate && (
-                      <p className="text-on-surface-variant">
-                        Renews {formatDate(subscription.endDate)}
+                    {subscription.cancelAtPeriodEnd && subscription.endDate ? (
+                      <p className="font-medium text-amber-700">
+                        Cancels at period end — {formatDate(subscription.endDate)}
                       </p>
+                    ) : (
+                      subscription.endDate && (
+                        <p className="text-on-surface-variant">
+                          Renews {formatDate(subscription.endDate)}
+                        </p>
+                      )
                     )}
-                    {subscription.trialEndDate && (
-                      <p className="text-on-surface-variant">
-                        Trial ends {formatDate(subscription.trialEndDate)}
-                      </p>
-                    )}
-                    {(subscription.status === 0 || subscription.status === 1 || subscription.status === 'Trial' || subscription.status === 'Active') && (
+                    {(subscription.status === 0 || subscription.status === 'Trial') &&
+                      subscription.trialEndDate &&
+                      new Date(subscription.trialEndDate) > new Date() && (
+                        <p className="text-on-surface-variant">
+                          Trial ends {formatDate(subscription.trialEndDate)}
+                        </p>
+                      )}
+                    {subscription.cancelAtPeriodEnd ? (
+                      <>
+                        <Button
+                          className="mt-3 w-full"
+                          disabled={reactivating}
+                          onClick={(e) => { e.preventDefault(); void handleReactivate(); }}
+                        >
+                          {reactivating ? 'Reactivating...' : 'Reactivate subscription'}
+                        </Button>
+                        <p className="mt-2 text-center text-body-xs text-on-surface-variant">
+                          Reactivating just continues your renewals — you won't be charged again today.
+                        </p>
+                      </>
+                    ) : (subscription.status === 0 || subscription.status === 1 || subscription.status === 'Trial' || subscription.status === 'Active') && (
                       <Button
                         variant="outline"
                         className="mt-3 w-full border-red-300 text-red-600 hover:bg-red-50"
@@ -288,7 +340,7 @@ export default function SettingsPage() {
           if (!cancelling) setCancelConfirmOpen(open);
         }}
         title="Cancel subscription?"
-        description="Your dashboard access will be revoked. You can resubscribe later."
+        description="Your subscription will end at the end of your current billing period. You'll keep access until then."
         confirmLabel="Cancel subscription"
         variant="destructive"
         loading={cancelling}

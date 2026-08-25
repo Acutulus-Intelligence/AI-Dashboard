@@ -13,8 +13,6 @@ export const USER_TYPE = {
   Company: 1,
 } as const satisfies Record<string, UserType>;
 
-export const FREE_TRIAL_DAYS = 7;
-
 export interface SubscriptionPlan {
   id: string;
   name: string;
@@ -26,6 +24,7 @@ export interface SubscriptionPlan {
   maxDashboards: number | null;
   maxAiQueriesPerMonth: number | null;
   isActive: boolean;
+  trialDays: number | null;
 }
 
 export interface UserSubscription {
@@ -33,10 +32,13 @@ export interface UserSubscription {
   planId: string;
   planName: string;
   price: number;
+  nextPrice: number | null;
+  nextPriceEffectiveDate: string | null;
   billingPeriod: BillingPeriod | 'Monthly' | 'Yearly';
   startDate: string;
   endDate: string | null;
   status: number | 'Trial' | 'Active' | 'Expired' | 'Canceled';
+  cancelAtPeriodEnd: boolean;
   trialEndDate: string | null;
 }
 
@@ -60,11 +62,14 @@ export interface CompanySubscription {
   planId: string;
   planName: string;
   price: number;
+  nextPrice: number | null;
+  nextPriceEffectiveDate: string | null;
   billingPeriod: number;
   maxUsers: number | null;
   startDate: string;
   endDate: string | null;
   status: number;
+  cancelAtPeriodEnd: boolean;
   trialEndDate: string | null;
 }
 
@@ -80,6 +85,26 @@ export function getPlans(userType?: UserType): Promise<SubscriptionPlan[]> {
 
 export function getCurrentSubscription(): Promise<UserSubscription> {
   return apiFetch<UserSubscription>('/api/subscriptions/current');
+}
+
+/**
+ * Estimates the Stripe proration credit for unused time on the current (paid) subscription.
+ * Returns null when there is nothing creditable (trial, no end date, or expired period).
+ * Stripe finalizes the exact amount on the invoice — treat this as an approximation.
+ */
+export function estimateUpgradeCredit(sub: UserSubscription): number | null {
+  if (sub.status !== 1 && sub.status !== 'Active') return null;
+  if (!sub.endDate) return null;
+
+  const now = Date.now();
+  const end = new Date(sub.endDate).getTime();
+  if (!Number.isFinite(end) || end <= now) return null;
+
+  const start = new Date(sub.startDate).getTime();
+  if (!Number.isFinite(start) || end <= start) return null;
+
+  const credit = sub.price * ((end - now) / (end - start));
+  return credit > 0 ? Math.round(credit * 100) / 100 : null;
 }
 
 export async function hasActiveSubscription(): Promise<boolean> {
@@ -129,12 +154,24 @@ export function cancel(): Promise<void> {
   });
 }
 
+export function reactivate(): Promise<void> {
+  return apiFetch<void>('/api/subscriptions/reactivate', {
+    method: 'POST',
+  });
+}
+
 export function getCompanySubscription(companyId: string): Promise<CompanySubscription> {
   return apiFetch<CompanySubscription>(`/api/subscriptions/company/${companyId}/current`);
 }
 
 export function cancelCompanySubscription(companyId: string): Promise<void> {
   return apiFetch<void>(`/api/subscriptions/company/${companyId}/cancel`, {
+    method: 'POST',
+  });
+}
+
+export function reactivateCompanySubscription(companyId: string): Promise<void> {
+  return apiFetch<void>(`/api/subscriptions/company/${companyId}/reactivate`, {
     method: 'POST',
   });
 }

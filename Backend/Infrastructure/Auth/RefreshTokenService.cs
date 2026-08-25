@@ -111,6 +111,19 @@ public class RefreshTokenService : IRefreshTokenService
         await _db.SaveChangesAsync();
     }
 
+    public async Task RevokeAllRefreshTokensAsync(Guid userId)
+    {
+        var now = DateTime.UtcNow;
+
+        await _db.Set<RefreshToken>()
+            .Where(rt => rt.UserId == userId && !rt.IsRevoked)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(rt => rt.IsRevoked, true)
+                .SetProperty(rt => rt.RevokedAt, now));
+
+        await _db.SaveChangesAsync();
+    }
+
     private static string GenerateToken()
     {
         var randomBytes = new byte[64];

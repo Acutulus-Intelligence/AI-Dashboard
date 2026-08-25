@@ -18,9 +18,9 @@ export interface AuthContextType {
   hasActiveSubscription: boolean;
   isSubscriptionLoading: boolean;
   refreshSubscriptionStatus: () => Promise<boolean>;
-  refreshUser: () => Promise<boolean>;
-  login: (email: string, password: string) => Promise<void>;
-  register: (data: authApi.RegisterRequest) => Promise<void>;
+  refreshUser: () => Promise<AuthUser | null>;
+  login: (email: string, password: string) => Promise<AuthUser | null>;
+  register: (data: authApi.RegisterRequest) => Promise<AuthUser | null>;
   logout: () => Promise<void>;
 }
 

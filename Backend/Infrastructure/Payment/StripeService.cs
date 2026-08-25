@@ -33,6 +33,7 @@ public class StripeService : IPaymentService
         Guid planId,
         string planName,
         decimal price,
+        string? priceId,
         BillingPeriod billingPeriod,
         int trialDays,
         string successUrl,
@@ -48,6 +49,16 @@ public class StripeService : IPaymentService
             { "isCompany", "false" }
         };
 
+        var subscriptionData = new SessionSubscriptionDataOptions
+        {
+            Metadata = metadata
+        };
+
+        // Only grant a trial when the user is actually entitled to one; passing 0 (or 1 for a
+        // consumed trial) would make Stripe display a "free trial" that must not be offered.
+        if (trialDays > 0)
+            subscriptionData.TrialPeriodDays = trialDays;
+
         var options = new SessionCreateOptions
         {
             Customer = customerId,
@@ -55,30 +66,10 @@ public class StripeService : IPaymentService
             SuccessUrl = AppendSessionIdTemplate(successUrl),
             CancelUrl = cancelUrl,
             Metadata = metadata,
-            SubscriptionData = new SessionSubscriptionDataOptions
-            {
-                TrialPeriodDays = trialDays,
-                Metadata = metadata
-            },
+            SubscriptionData = subscriptionData,
             LineItems =
             [
-                new SessionLineItemOptions
-                {
-                    PriceData = new SessionLineItemPriceDataOptions
-                    {
-                        Currency = "usd",
-                        UnitAmountDecimal = price * 100,
-                        ProductData = new SessionLineItemPriceDataProductDataOptions
-                        {
-                            Name = planName
-                        },
-                        Recurring = new SessionLineItemPriceDataRecurringOptions
-                        {
-                            Interval = billingPeriod == BillingPeriod.Monthly ? "month" : "year"
-                        }
-                    },
-                    Quantity = 1
-                }
+                BuildLineItem(planName, price, priceId, billingPeriod)
             ]
         };
 
@@ -94,6 +85,7 @@ public class StripeService : IPaymentService
         Guid planId,
         string planName,
         decimal price,
+        string? priceId,
         BillingPeriod billingPeriod,
         int trialDays,
         string successUrl,
@@ -110,6 +102,16 @@ public class StripeService : IPaymentService
             { "isCompany", "true" }
         };
 
+        var subscriptionData = new SessionSubscriptionDataOptions
+        {
+            Metadata = metadata
+        };
+
+        // Only grant a trial when the user is actually entitled to one; passing 0 (or 1 for a
+        // consumed trial) would make Stripe display a "free trial" that must not be offered.
+        if (trialDays > 0)
+            subscriptionData.TrialPeriodDays = trialDays;
+
         var options = new SessionCreateOptions
         {
             Customer = customerId,
@@ -117,36 +119,50 @@ public class StripeService : IPaymentService
             SuccessUrl = AppendSessionIdTemplate(successUrl),
             CancelUrl = cancelUrl,
             Metadata = metadata,
-            SubscriptionData = new SessionSubscriptionDataOptions
-            {
-                TrialPeriodDays = trialDays,
-                Metadata = metadata
-            },
+            SubscriptionData = subscriptionData,
             LineItems =
             [
-                new SessionLineItemOptions
-                {
-                    PriceData = new SessionLineItemPriceDataOptions
-                    {
-                        Currency = "usd",
-                        UnitAmountDecimal = price * 100,
-                        ProductData = new SessionLineItemPriceDataProductDataOptions
-                        {
-                            Name = planName
-                        },
-                        Recurring = new SessionLineItemPriceDataRecurringOptions
-                        {
-                            Interval = billingPeriod == BillingPeriod.Monthly ? "month" : "year"
-                        }
-                    },
-                    Quantity = 1
-                }
+                BuildLineItem(planName, price, priceId, billingPeriod)
             ]
         };
 
         var service = new SessionService(StripeClient);
         var session = await service.CreateAsync(options, cancellationToken: ct);
         return new CheckoutResponse(session.Url, session.Id);
+    }
+
+    private static SessionLineItemOptions BuildLineItem(
+        string planName,
+        decimal price,
+        string? priceId,
+        BillingPeriod billingPeriod)
+    {
+        if (!string.IsNullOrWhiteSpace(priceId))
+        {
+            return new SessionLineItemOptions
+            {
+                Price = priceId,
+                Quantity = 1
+            };
+        }
+
+        return new SessionLineItemOptions
+        {
+            PriceData = new SessionLineItemPriceDataOptions
+            {
+                Currency = "usd",
+                UnitAmountDecimal = price * 100,
+                ProductData = new SessionLineItemPriceDataProductDataOptions
+                {
+                    Name = planName
+                },
+                Recurring = new SessionLineItemPriceDataRecurringOptions
+                {
+                    Interval = billingPeriod == BillingPeriod.Monthly ? "month" : "year"
+                }
+            },
+            Quantity = 1
+        };
     }
 
     public async Task<PaymentWebhookEvent?> RetrieveCheckoutSessionAsync(string sessionId, CancellationToken ct = default)
@@ -217,6 +233,22 @@ public class StripeService : IPaymentService
                 );
             }
 
+            case "customer.subscription.updated":
+            {
+                var subscription = stripeEvent.Data.Object as Subscription;
+                if (subscription is null)
+                    break;
+
+                return new PaymentWebhookEvent(
+                    stripeEvent.Type,
+                    subscription.Metadata,
+                    subscription.Id,
+                    subscription.CustomerId,
+                    null,
+                    subscription.Status
+                );
+            }
+
             case "customer.subscription.deleted":
             {
                 var subscription = stripeEvent.Data.Object as Subscription;
@@ -250,6 +282,65 @@ public class StripeService : IPaymentService
     {
         var service = new SubscriptionService(StripeClient);
         await service.CancelAsync(stripeSubscriptionId, cancellationToken: ct);
+    }
+
+    public async Task CancelSubscriptionWithProrationAsync(string stripeSubscriptionId, CancellationToken ct = default)
+    {
+        // Cancels now and credits the unused time to the customer balance, which Stripe applies
+        // to the customer's next invoice (e.g. the new company subscription's first invoice).
+        var options = new SubscriptionCancelOptions
+        {
+            Prorate = true
+        };
+
+        var service = new SubscriptionService(StripeClient);
+        await service.CancelAsync(stripeSubscriptionId, options, cancellationToken: ct);
+    }
+
+    public async Task ReactivateSubscriptionAsync(string stripeSubscriptionId, CancellationToken ct = default)
+    {
+        // Only clears cancel_at_period_end so the subscription continues renewing.
+        // No new invoice is created and the customer is not charged again.
+        var options = new SubscriptionUpdateOptions
+        {
+            CancelAtPeriodEnd = false
+        };
+
+        try
+        {
+            var service = new SubscriptionService(StripeClient);
+            await service.UpdateAsync(stripeSubscriptionId, options, cancellationToken: ct);
+        }
+        catch (StripeException ex) when (ex.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            // The billing period already ended and Stripe deleted the subscription
+            // before the customer.subscription.deleted webhook reached us.
+            throw new InvalidOperationException("This subscription has already ended. Subscribe again to continue.");
+        }
+    }
+
+    public async Task SwitchSubscriptionPriceAsync(
+        string stripeSubscriptionId,
+        string priceId,
+        string prorationBehavior = "create_prorations",
+        CancellationToken ct = default)
+    {
+        var service = new SubscriptionService(StripeClient);
+        var subscription = await service.GetAsync(stripeSubscriptionId, cancellationToken: ct);
+        var item = subscription.Items?.Data?.FirstOrDefault();
+        if (item is null)
+            return;
+
+        var options = new SubscriptionUpdateOptions
+        {
+            ProrationBehavior = prorationBehavior,
+            Items = new List<SubscriptionItemOptions>
+            {
+                new() { Id = item.Id, Price = priceId }
+            }
+        };
+
+        await service.UpdateAsync(stripeSubscriptionId, options, cancellationToken: ct);
     }
 
     public async Task<string?> GetPaymentMethodFingerprintAsync(string paymentMethodId, CancellationToken ct = default)
@@ -332,5 +423,73 @@ public class StripeService : IPaymentService
         {
             return await GetOrCreateCustomerAsync(email, userId, ct);
         }
+    }
+
+    public async Task<string> CreateProductAsync(string name, string planId, CancellationToken ct = default)
+    {
+        var service = new ProductService(StripeClient);
+        var product = await service.CreateAsync(new ProductCreateOptions
+        {
+            Name = name,
+            Metadata = new Dictionary<string, string>
+            {
+                { "planId", planId }
+            }
+        }, cancellationToken: ct);
+
+        return product.Id;
+    }
+
+    public async Task<string> CreatePriceAsync(string productId, decimal amount, BillingPeriod billingPeriod, CancellationToken ct = default)
+    {
+        var service = new PriceService(StripeClient);
+        var price = await service.CreateAsync(new PriceCreateOptions
+        {
+            Product = productId,
+            Currency = "usd",
+            UnitAmountDecimal = amount * 100,
+            Recurring = new PriceRecurringOptions
+            {
+                Interval = billingPeriod == BillingPeriod.Monthly ? "month" : "year"
+            }
+        }, cancellationToken: ct);
+
+        return price.Id;
+    }
+
+    public async Task UpdateProductAsync(string productId, string name, CancellationToken ct = default)
+    {
+        var service = new ProductService(StripeClient);
+        await service.UpdateAsync(productId, new ProductUpdateOptions
+        {
+            Name = name
+        }, cancellationToken: ct);
+    }
+
+    public async Task DeactivateProductAsync(string productId, CancellationToken ct = default)
+    {
+        var service = new ProductService(StripeClient);
+        await service.UpdateAsync(productId, new ProductUpdateOptions
+        {
+            Active = false
+        }, cancellationToken: ct);
+    }
+
+    public async Task ActivateProductAsync(string productId, CancellationToken ct = default)
+    {
+        var service = new ProductService(StripeClient);
+        await service.UpdateAsync(productId, new ProductUpdateOptions
+        {
+            Active = true
+        }, cancellationToken: ct);
+    }
+
+    public async Task DeactivatePriceAsync(string priceId, CancellationToken ct = default)
+    {
+        var service = new PriceService(StripeClient);
+        await service.UpdateAsync(priceId, new PriceUpdateOptions
+        {
+            Active = false
+        }, cancellationToken: ct);
     }
 }

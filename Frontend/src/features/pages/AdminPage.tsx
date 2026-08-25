@@ -8,6 +8,7 @@ import { ROUTES } from '../routes';
 import * as companyApi from '../../lib/api/company';
 import * as subscriptionApi from '../../lib/api/subscription';
 import { useAuth } from '../store/useAuth';
+import { usePolling } from '../../hooks/usePolling';
 
 function statusLabel(status: number): { text: string; color: string } {
   if (status === 0) return { text: 'Trial', color: 'text-blue-600 bg-blue-50' };
@@ -32,6 +33,7 @@ export default function AdminPage() {
   const [companySub, setCompanySub] = useState<subscriptionApi.CompanySubscription | null>(null);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
+  const [reactivating, setReactivating] = useState(false);
   const [deletingCompany, setDeletingCompany] = useState(false);
   const [error, setError] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -73,6 +75,8 @@ export default function AdminPage() {
     void loadData();
   }, []);
 
+  usePolling({ onPoll: loadData });
+
   async function handleCancel() {
     if (!company || !companySub) return;
 
@@ -86,6 +90,21 @@ export default function AdminPage() {
       setError(err instanceof Error ? err.message : 'Could not cancel subscription.');
     } finally {
       setCancelling(false);
+    }
+  }
+
+  async function handleReactivate() {
+    if (!company) return;
+
+    setReactivating(true);
+    setError('');
+    try {
+      await subscriptionApi.reactivateCompanySubscription(company.id);
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not reactivate subscription.');
+    } finally {
+      setReactivating(false);
     }
   }
 
@@ -220,15 +239,42 @@ export default function AdminPage() {
                       <p className="text-on-surface-variant">
                         {companySub.planName} &middot; ${companySub.price.toFixed(2)}/{companySub.billingPeriod === 0 ? 'mo' : 'yr'}
                       </p>
+                      {companySub.nextPrice != null && (
+                        <p className="flex items-start gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-label-sm text-amber-800">
+                          <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                          <span>
+                            Price will change to ${companySub.nextPrice.toFixed(2)} at your next renewal{companySub.nextPriceEffectiveDate ? ` on ${formatDate(companySub.nextPriceEffectiveDate)}` : ''}.
+                          </span>
+                        </p>
+                      )}
                       <p className="text-on-surface-variant">
                         Started {formatDate(companySub.startDate)}
                       </p>
-                      {companySub.endDate && (
-                        <p className="text-on-surface-variant">
-                          Renews {formatDate(companySub.endDate)}
+                      {companySub.cancelAtPeriodEnd && companySub.endDate ? (
+                        <p className="font-medium text-amber-700">
+                          Cancels at period end — {formatDate(companySub.endDate)}
                         </p>
+                      ) : (
+                        companySub.endDate && (
+                          <p className="text-on-surface-variant">
+                            Renews {formatDate(companySub.endDate)}
+                          </p>
+                        )
                       )}
-                      {isOwner && (companySub.status === 0 || companySub.status === 1) && (
+                      {isOwner && companySub.cancelAtPeriodEnd ? (
+                        <>
+                          <Button
+                            className="mt-3 w-full"
+                            disabled={reactivating}
+                            onClick={(e) => { e.preventDefault(); void handleReactivate(); }}
+                          >
+                            {reactivating ? 'Reactivating...' : 'Reactivate subscription'}
+                          </Button>
+                          <p className="mt-2 text-center text-body-xs text-on-surface-variant">
+                            Reactivating just continues your renewals — you won't be charged again today.
+                          </p>
+                        </>
+                      ) : isOwner && (companySub.status === 0 || companySub.status === 1) && (
                         <Button
                           variant="outline"
                           className="mt-3 w-full border-red-300 text-red-600 hover:bg-red-50"
@@ -420,7 +466,7 @@ export default function AdminPage() {
           if (!cancelling) setCancelConfirmOpen(open);
         }}
         title="Cancel company subscription?"
-        description="All team members will lose dashboard access. You can resubscribe later."
+        description="Your subscription will end at the end of your current billing period. Your team keeps access until then."
         confirmLabel="Cancel subscription"
         variant="destructive"
         loading={cancelling}

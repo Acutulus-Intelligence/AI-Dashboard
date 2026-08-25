@@ -213,6 +213,11 @@ namespace Infrastructure.Data.Migrations
                     b.Property<int>("BillingPeriod")
                         .HasColumnType("integer");
 
+                    b.Property<bool>("CancelAtPeriodEnd")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
 
@@ -221,6 +226,13 @@ namespace Infrastructure.Data.Migrations
 
                     b.Property<int?>("MaxUsers")
                         .HasColumnType("integer");
+
+                    b.Property<decimal?>("NextPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTime?>("NextPriceEffectiveDate")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid>("PlanId")
                         .HasColumnType("uuid");
@@ -611,7 +623,14 @@ namespace Infrastructure.Data.Migrations
                         .HasColumnType("character varying(500)");
 
                     b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("IsArchived")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<int?>("MaxAiQueriesPerMonth")
                         .HasColumnType("integer");
@@ -630,6 +649,21 @@ namespace Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<string>("StripeMonthlyPriceId")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("StripeProductId")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("StripeYearlyPriceId")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<int?>("TrialDays")
+                        .HasColumnType("integer");
 
                     b.Property<int>("UserType")
                         .HasColumnType("integer");
@@ -739,7 +773,19 @@ namespace Infrastructure.Data.Migrations
                     b.Property<int>("BillingPeriod")
                         .HasColumnType("integer");
 
+                    b.Property<bool>("CancelAtPeriodEnd")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<DateTime?>("EndDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal?>("NextPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTime?>("NextPriceEffectiveDate")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid>("PlanId")

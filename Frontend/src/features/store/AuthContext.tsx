@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as authApi from '../../lib/api/auth';
 import { AuthContext, type AuthUser } from './AuthContext';
+import { ROUTES } from '../routes';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -27,17 +28,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const fetchUser = useCallback(async () => {
     try {
       const userInfo = await authApi.getMe();
-      setUser({
+      const authUser: AuthUser = {
         ...userInfo,
         userType: Number(userInfo.userType),
         firstName: userInfo.firstName ?? null,
         lastName: userInfo.lastName ?? null,
         companyRoleName: userInfo.companyRoleName ?? null,
-      });
-      return true;
+      };
+      setUser(authUser);
+      return authUser;
     } catch {
       setUser(null);
-      return false;
+      return null;
     }
   }, []);
 
@@ -62,14 +64,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     await authApi.login({ email, password });
-    await fetchUser();
+    const authUser = await fetchUser();
     await refreshSubscriptionStatus();
+    return authUser;
   }, [fetchUser, refreshSubscriptionStatus]);
 
   const register = useCallback(async (data: authApi.RegisterRequest) => {
     await authApi.register(data);
-    await fetchUser();
+    const authUser = await fetchUser();
     await refreshSubscriptionStatus();
+    return authUser;
   }, [fetchUser, refreshSubscriptionStatus]);
 
   const logout = useCallback(async () => {
@@ -81,6 +85,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setHasActiveSubscription(false);
     navigate('/');
+  }, [navigate]);
+
+  useEffect(() => {
+    function handleSessionExpired() {
+      setUser(null);
+      setHasActiveSubscription(false);
+      navigate(ROUTES.LOGIN);
+    }
+
+    window.addEventListener('auth:session-expired', handleSessionExpired);
+    return () => window.removeEventListener('auth:session-expired', handleSessionExpired);
   }, [navigate]);
 
   return (

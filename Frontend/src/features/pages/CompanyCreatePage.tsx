@@ -4,7 +4,12 @@ import { AlertCircle, Building2 } from 'lucide-react';
 import Button from '../components/Button';
 import { useAuth } from '../store/useAuth';
 import { createCompany, getMyCompany } from '../../lib/api/company';
-import { createCompanyCheckout } from '../../lib/api/subscription';
+import {
+  createCompanyCheckout,
+  estimateUpgradeCredit,
+  getCurrentSubscription,
+  type UserSubscription,
+} from '../../lib/api/subscription';
 import { ROUTES } from '../routes';
 
 export default function CompanyCreatePage() {
@@ -29,6 +34,16 @@ export default function CompanyCreatePage() {
   const [loading, setLoading] = useState(false);
   const [redirecting, setRedirecting] = useState(false);
   const [error, setError] = useState('');
+  const [subscription, setSubscription] = useState<UserSubscription | null>(null);
+
+  useEffect(() => {
+    if (!hasActiveSubscription) return;
+    getCurrentSubscription()
+      .then(setSubscription)
+      .catch(() => {});
+  }, [hasActiveSubscription]);
+
+  const upgradeCredit = subscription ? estimateUpgradeCredit(subscription) : null;
 
   async function handleCreateCompany(e: FormEvent) {
     e.preventDefault();
@@ -98,6 +113,16 @@ export default function CompanyCreatePage() {
             </div>
           ) : (
             <form onSubmit={handleCreateCompany} className="space-y-5">
+              {upgradeCredit != null && (
+                <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-body-sm text-amber-800">
+                  <AlertCircle size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
+                  <span>
+                    <span className="font-medium">Upgrade credit</span> — unused time on your current subscription
+                    (approx. ${upgradeCredit.toFixed(2)}) will be applied to your first company invoice.
+                  </span>
+                </div>
+              )}
+
               <div>
                 <label htmlFor="companyName" className="mb-1.5 block text-body-sm font-medium text-on-surface-variant">
                   Company name

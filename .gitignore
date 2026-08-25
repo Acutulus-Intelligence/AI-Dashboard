@@ -399,3 +399,5 @@ dist.pem
 
 # Stripe CLI
 stripe.exe
+/.opencode/agents/chat.md
+/opencode.json
