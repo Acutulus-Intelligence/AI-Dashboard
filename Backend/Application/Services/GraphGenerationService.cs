@@ -44,6 +44,7 @@ public class GraphGenerationService : IGraphGenerationService
     {
         var dbProvider = await GetDbProviderAsync(request.ConnectionId, userId, ct);
         var schema = await _schemaInspector.GetTableSchemaAsync(request.ConnectionId, userId, request.TableName, ct);
+        var allowedColors = await ResolveAccountColorsAsync(userId, ct);
 
         var schemaJson = JsonSerializer.Serialize(new
         {
@@ -64,7 +65,8 @@ public class GraphGenerationService : IGraphGenerationService
             _ => "Show me this data in a chart."
         };
 
-        // Slim baseline for the prompt — no colours/params noise.
+        // Slim baseline for the prompt — colours included; params omitted.
+        // SeriesColourSlots documents yAxis index → name for named colours.
         var currentChartJson = request.CurrentChart is null
             ? null
             : JsonSerializer.Serialize(new
@@ -73,6 +75,9 @@ public class GraphGenerationService : IGraphGenerationService
                 request.CurrentChart.ChartType,
                 request.CurrentChart.XAxis,
                 request.CurrentChart.YAxis,
+                SeriesColourSlots = request.CurrentChart.YAxis
+                    .Select((name, i) => $"{i}={name}")
+                    .ToList(),
                 request.CurrentChart.Aggregation,
                 request.CurrentChart.GroupBy,
                 request.CurrentChart.SqlQuery,
@@ -85,10 +90,23 @@ public class GraphGenerationService : IGraphGenerationService
             dbProvider,
             request.PrefabChartType,
             currentChartJson,
+            allowedColors,
             ct);
 
         var config = aiResult.Config;
         var notes = new List<string>();
+
+        // Named colour objects need yAxis order (prefer baseline on refine).
+        var seriesKeys = request.CurrentChart?.YAxis is { Count: > 0 } baselineY
+            ? (IReadOnlyList<string>)baselineY
+            : config.YAxis;
+        if (config.NamedColorMap is { Count: > 0 })
+        {
+            config.StyleConfig ??= new ChartStyleConfig();
+            config.StyleConfig.Colors = ChartRefineMerger.ExpandNamedColorMap(config.NamedColorMap, seriesKeys);
+            config.StyleConfig.Palette = null;
+            notes.Add("Expanded named styleConfig.colors onto yAxis/series order.");
+        }
 
         if (request.CurrentChart is not null)
         {
@@ -98,18 +116,21 @@ public class GraphGenerationService : IGraphGenerationService
                 notes.Add("AI omitted chartType and/or sqlQuery; filled from baseline.");
             }
 
-            // Preserve baseline colours/params; take AI variant/info/decimals/prefix/suffix only.
-            config = ChartRefineMerger.Apply(request.CurrentChart, config, prompt);
+            // Take AI style only when the user asked for a style change; else keep baseline.
+            config = ChartRefineMerger.Apply(request.CurrentChart, config, prompt, allowedColors);
             config.StyleConfig = ChartStyleSanitizer.Sanitize(config.StyleConfig, config.ChartType);
-            notes.Add("Merged AI style fields onto baseline; colours/params kept from baseline.");
+            notes.Add(
+                ChartRefineMerger.RequestsStyleChange(prompt)
+                    ? "Merged AI style fields (user requested a style change); params kept from baseline."
+                    : "Preserved baseline style — prompt had no explicit style/colour request.");
         }
         else
         {
-            // First generate: ignore any AI colours/params so UI defaults apply.
+            // First generate: allow AI colours from account palette; strip params.
             config.StyleConfig = ChartStyleSanitizer.Sanitize(
-                ChartRefineMerger.TakeAiControlledStyleFields(config.StyleConfig, config.ChartType),
+                ChartRefineMerger.TakeAiControlledStyleFields(config.StyleConfig, config.ChartType, allowedColors),
                 config.ChartType);
-            notes.Add("First generate: stripped AI colours/params.");
+            notes.Add("First generate: colours clamped to account palette; params stripped.");
         }
 
         if (string.IsNullOrWhiteSpace(config.ChartType) || string.IsNullOrWhiteSpace(config.SqlQuery))
@@ -141,6 +162,7 @@ public class GraphGenerationService : IGraphGenerationService
     {
         var dbProvider = await GetDbProviderAsync(request.ConnectionId, userId, ct);
         var schema = await _schemaInspector.GetTableSchemaAsync(request.ConnectionId, userId, request.TableName, ct);
+        var allowedColors = await ResolveAccountColorsAsync(userId, ct);
 
         var schemaJson = JsonSerializer.Serialize(new
         {
@@ -155,12 +177,21 @@ public class GraphGenerationService : IGraphGenerationService
 
         var prompt = $"Create a {request.PrefabChartType ?? "bar"} chart for this table. Use xAxis={request.Prompt ?? ""} for x-axis.";
 
-        var aiResult = await _aiService.GenerateChartConfigAsync(schemaJson, prompt, dbProvider, request.PrefabChartType, ct: ct);
+        var aiResult = await _aiService.GenerateChartConfigAsync(
+            schemaJson, prompt, dbProvider, request.PrefabChartType, allowedColors: allowedColors, ct: ct);
         var config = aiResult.Config;
         var notes = new List<string> { "Manual generate path." };
 
+        if (config.NamedColorMap is { Count: > 0 })
+        {
+            config.StyleConfig ??= new ChartStyleConfig();
+            config.StyleConfig.Colors = ChartRefineMerger.ExpandNamedColorMap(config.NamedColorMap, config.YAxis);
+            config.StyleConfig.Palette = null;
+            notes.Add("Expanded named styleConfig.colors onto yAxis order.");
+        }
+
         config.StyleConfig = ChartStyleSanitizer.Sanitize(
-            ChartRefineMerger.TakeAiControlledStyleFields(config.StyleConfig, config.ChartType),
+            ChartRefineMerger.TakeAiControlledStyleFields(config.StyleConfig, config.ChartType, allowedColors),
             config.ChartType);
 
         config = EnsureValidSql(config, baseline: null, notes);
@@ -209,6 +240,21 @@ public class GraphGenerationService : IGraphGenerationService
         throw new InvalidOperationException(
             $"AI generated an invalid query: {errorMessage}. " +
             $"chartType={config.ChartType}. SQL: {Truncate(config.SqlQuery, 400)}");
+    }
+
+    /// <summary>
+    /// Company palette when the user belongs to a company; otherwise theme defaults.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> ResolveAccountColorsAsync(Guid userId, CancellationToken ct)
+    {
+        var companyStyle = await _db.Users.AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => u.Company != null ? u.Company.StyleConfig : null)
+            .FirstOrDefaultAsync(ct);
+
+        return companyStyle is null
+            ? CompanyStyleSanitizer.DefaultColors
+            : CompanyStyleSanitizer.ResolveColors(companyStyle);
     }
 
     private static AiGenerationDebug BuildDebug(

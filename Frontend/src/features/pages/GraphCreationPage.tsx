@@ -89,59 +89,18 @@ function cloneResult(result: ChartConfigResponse): ChartConfigResponse {
   return structuredClone(result);
 }
 
-/** Style fields AI may set — colours/params stay out of the prompt. */
-function slimStyleForAi(style: ChartStyleConfig): ChartStyleConfig {
-  const slim: ChartStyleConfig = {};
-  if (style.variant != null) slim.variant = style.variant;
-  if (style.info != null) slim.info = style.info;
-  if (style.decimals != null) slim.decimals = style.decimals;
-  if (style.decimalMode != null) slim.decimalMode = style.decimalMode;
-  if (style.valuePrefix != null) slim.valuePrefix = style.valuePrefix;
-  if (style.valueSuffix != null) slim.valueSuffix = style.valueSuffix;
-  return slim;
-}
-
-/** After AI: keep user's colours; take AI variant/info/decimals/prefix/suffix.
- *  On chart-type change, drop previous variant/params (they belong to the old type).
- */
-function mergeAiStyleWithManual(
-  previous: ChartStyleConfig,
-  fromAi: ChartStyleConfig | null | undefined,
-  chartTypeChanged: boolean,
-): ChartStyleConfig {
-  const ai = fromAi ?? {};
-  const preserved = {
-    colors: previous.colors,
-    customColors: previous.customColors,
-    palette: previous.palette,
-    ...(chartTypeChanged ? {} : { params: previous.params }),
-  };
-
-  if (chartTypeChanged) {
-    return {
-      ...preserved,
-      ...(ai.variant !== undefined ? { variant: ai.variant } : {}),
-      ...(ai.info !== undefined ? { info: ai.info } : {}),
-      ...(ai.decimals !== undefined ? { decimals: ai.decimals } : {}),
-      ...(ai.decimalMode !== undefined ? { decimalMode: ai.decimalMode } : {}),
-      ...(ai.valuePrefix !== undefined ? { valuePrefix: ai.valuePrefix } : {}),
-      ...(ai.valueSuffix !== undefined ? { valueSuffix: ai.valueSuffix } : {}),
-    };
+/** Theme palette XOR per-slice colours — palette wins when both are set. */
+function normalizeColorExclusive(style: ChartStyleConfig): ChartStyleConfig {
+  if (style.palette != null && style.palette !== '') {
+    return { ...style, palette: style.palette, colors: undefined };
   }
-
-  return {
-    ...previous,
-    ...(ai.variant !== undefined ? { variant: ai.variant } : {}),
-    ...(ai.info !== undefined ? { info: ai.info } : {}),
-    ...(ai.decimals !== undefined ? { decimals: ai.decimals } : {}),
-    ...(ai.decimalMode !== undefined ? { decimalMode: ai.decimalMode } : {}),
-    ...(ai.valuePrefix !== undefined ? { valuePrefix: ai.valuePrefix } : {}),
-    ...(ai.valueSuffix !== undefined ? { valueSuffix: ai.valueSuffix } : {}),
-    ...preserved,
-  };
+  if (style.colors?.length) {
+    return { ...style, palette: undefined, colors: style.colors };
+  }
+  return style;
 }
 
-/** Build AI refine baseline — SQL + slim style metadata only, never query rows. */
+/** Build AI refine baseline — full style for merge; backend slims for the AI prompt separately. */
 function toBaseline(
   result: ChartConfigResponse,
   style: ChartStyleConfig,
@@ -155,7 +114,7 @@ function toBaseline(
     aggregation: result.aggregation,
     groupBy: result.groupBy,
     sqlQuery: result.sqlQuery,
-    styleConfig: slimStyleForAi(style),
+    styleConfig: cloneStyle(style),
   };
 }
 
@@ -587,7 +546,7 @@ export default function GraphCreationPage() {
               prefabChartType: mode === 'prefab' ? prefabType : undefined,
               mode,
             });
-      const style = res.styleConfig ?? {};
+      const style = normalizeColorExclusive(res.styleConfig ?? {});
       setResult({ ...res, styleConfig: style });
       setEditableTitle(res.title);
       setStyleConfig(style);
@@ -618,8 +577,7 @@ export default function GraphCreationPage() {
         currentChart: toBaseline(result, styleConfig, editableTitle),
       });
       setPreRefineSnapshot(snapshot);
-      const chartTypeChanged = res.chartType !== result.chartType;
-      const style = mergeAiStyleWithManual(styleConfig, res.styleConfig, chartTypeChanged);
+      const style = normalizeColorExclusive(res.styleConfig ?? {});
       setResult({ ...res, styleConfig: style });
       setEditableTitle(res.title);
       setStyleConfig(style);
@@ -1284,6 +1242,7 @@ export default function GraphCreationPage() {
                         {refining ? <Loader2 className="animate-spin" /> : <Sparkles />}
                         {refining ? 'Adjusting…' : 'Apply adjustment'}
                       </Button>
+                      {/* Cleared in applySavedSnapshots / handleCancelEdits after Save or Cancel. */}
                       {preRefineSnapshot && (
                         <Button
                           type="button"

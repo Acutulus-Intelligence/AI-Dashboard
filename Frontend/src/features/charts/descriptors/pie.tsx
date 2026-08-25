@@ -4,9 +4,9 @@ import {
   ChartContainer,
   ChartLegend,
   ChartLegendContent,
-  ChartTooltip,
 } from '@/components/ui/chart';
 import type { ChartConfig } from '@/components/ui/chart';
+import ChartHoverTooltip from '../ChartHoverTooltip';
 import { chartColorKey } from '../colorKey';
 import { formatStyledValue } from '../format';
 import {
@@ -85,7 +85,7 @@ export const pieChart: ChartDescriptor = {
       <ChartContainer config={sliceConfig(data, style)} className="h-full w-full aspect-auto">
         <PieChart>
           {param(style, 'showTooltip', true) && (
-            <ChartTooltip content={<StyledChartTooltip style={style} nameKey="key" />} />
+            <ChartHoverTooltip content={<StyledChartTooltip style={style} nameKey="key" />} />
           )}
 
           <Pie

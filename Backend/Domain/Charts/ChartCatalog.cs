@@ -37,6 +37,12 @@ public sealed record ChartTypeSpec
     public required string Description { get; init; }
     public required IReadOnlyList<ChartVariantSpec> Variants { get; init; }
     public required IReadOnlyList<ChartParamSpec> Params { get; init; }
+
+    /// <summary>Theme palette + per-series colours. False for table.</summary>
+    public bool SupportsColors { get; init; } = true;
+
+    /// <summary>Prefix / suffix / decimals on numeric labels. False for table.</summary>
+    public bool SupportsValueFormat { get; init; } = true;
 }
 
 public sealed record ChartPaletteSpec(string Id, string Label);
@@ -231,6 +237,8 @@ public static class ChartCatalog
             Id = "table",
             Label = "Table",
             Description = "Shows the query result as rows and columns.",
+            SupportsColors = false,
+            SupportsValueFormat = false,
             Variants =
             [
                 new("raw", "Query result", "Every column the query returned."),

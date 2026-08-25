@@ -53,6 +53,8 @@ export const tableChart: ChartDescriptor = {
     { id: 'summary', label: 'Summary', description: 'Only the chart axes, pivoted by label.' },
   ],
   params: [striped, compact, stickyHeader, alignNumbers, maxRows],
+  // Tables have no series colours or $/% value labels — only layout params + variants.
+  styleCapabilities: { valueLabels: false, colors: false },
   render({ data, style }) {
     const limit = param(style, 'maxRows', 100);
     const rawRows = style.variant !== 'summary' ? data.queryResult : undefined;

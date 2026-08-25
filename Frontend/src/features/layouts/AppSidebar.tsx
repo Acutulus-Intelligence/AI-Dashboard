@@ -120,7 +120,7 @@ export default function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader>
+      <SidebarHeader className="shrink-0">
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild size="lg" tooltip={label}>
@@ -141,11 +141,13 @@ export default function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent className="justify-between">
-        <div className="flex flex-col gap-0">{mainGroups.map((group) => renderGroup(group))}</div>
+        <div className="flex flex-col gap-0">
+          {mainGroups.map((group) => renderGroup(group))}
+        </div>
         {adminGroup && renderGroup(adminGroup)}
       </SidebarContent>
 
-      <SidebarFooter>
+      <SidebarFooter className="shrink-0">
         {!hasActiveSubscription && (
           <SidebarMenu>
             <SidebarMenuItem>

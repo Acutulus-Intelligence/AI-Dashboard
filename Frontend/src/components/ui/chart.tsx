@@ -191,7 +191,14 @@ function ChartTooltipContent({
   ])
 
   if (!active || !payload?.length) {
-    return null
+    // Keep a stub mounted so Recharts remembers the last wrapper position
+    // (custom content that returns null remounts and flies in from 0,0).
+    return (
+      <div
+        className="pointer-events-none h-0 w-0 overflow-hidden opacity-0"
+        aria-hidden
+      />
+    )
   }
 
   const nestLabel = payload.length === 1 && indicator !== "dot"
@@ -200,6 +207,8 @@ function ChartTooltipContent({
     <div
       className={cn(
         "grid min-w-32 items-start gap-1.5 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl",
+        // Fade in when the tooltip first becomes active (slide is handled by ChartHoverTooltip).
+        "animate-in fade-in-0 duration-200",
         className
       )}
     >

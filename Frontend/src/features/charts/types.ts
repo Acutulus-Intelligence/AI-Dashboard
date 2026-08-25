@@ -48,8 +48,6 @@ export interface ChartStyleConfig {
   palette?: string;
   /** Per-series colour overrides, indexed like `datasets` (or slices for pie). */
   colors?: string[];
-  /** @deprecated Swatches now come from company style; ignored when saving. */
-  customColors?: string[];
   params?: Record<string, unknown>;
   /** Shown before numeric values (e.g. "$"). */
   valuePrefix?: string;
@@ -82,6 +80,16 @@ export interface ChartRenderContext {
   style: ResolvedStyle;
 }
 
+/** Which shared style controls apply to this chart type (defaults: all on). */
+export interface ChartStyleCapabilities {
+  /** Prefix / suffix / decimals on numeric values. */
+  valueLabels?: boolean;
+  /** Theme palette + series/slice colour pickers. */
+  colors?: boolean;
+  /** Info tooltip next to the chart title. */
+  info?: boolean;
+}
+
 export interface ChartDescriptor {
   id: string;
   label: string;
@@ -91,7 +99,20 @@ export interface ChartDescriptor {
   minSize: { w: number; h: number };
   variants: ChartVariant[];
   params: ParamSpec[];
+  /** Omit or leave fields true for chart/line/pie-style value formatting & colours. */
+  styleCapabilities?: ChartStyleCapabilities;
   render: (ctx: ChartRenderContext) => ReactNode;
+}
+
+export function resolveStyleCapabilities(
+  descriptor: ChartDescriptor,
+): Required<ChartStyleCapabilities> {
+  const c = descriptor.styleCapabilities;
+  return {
+    valueLabels: c?.valueLabels !== false,
+    colors: c?.colors !== false,
+    info: c?.info !== false,
+  };
 }
 
 /** Reads a param with a compile-time fallback, since params are loosely typed. */
