@@ -678,7 +678,8 @@ public sealed class AdminRoutesTests
         await _factory.EnsureSoleAdminRoleAsync(adminEmail);
         await client.LoginAsync(adminEmail);
 
-        (await client.RegisterAsync($"user_{Guid.NewGuid():N}@example.com")).EnsureSuccessStatusCode();
+        var userEmail = $"user_{Guid.NewGuid():N}@example.com";
+        (await client.RegisterAsync(userEmail)).EnsureSuccessStatusCode();
         var modEmail = $"mod_{Guid.NewGuid():N}@example.com";
         await client.RegisterAsync(modEmail);
         await _factory.EnsureModeratorRoleAsync(modEmail);
@@ -689,7 +690,7 @@ public sealed class AdminRoutesTests
         var staffUsers = await staff.ReadJsonAsync<List<AdminUserResponse>>();
         staffUsers.Should().Contain(u => u.Email == adminEmail);
         staffUsers.Should().Contain(u => u.Email == modEmail);
-        staffUsers.Should().NotContain(u => u.Email == $"user_{Guid.NewGuid():N}@example.com");
+        staffUsers.Should().NotContain(u => u.Email == userEmail);
 
         var all = await client.GetAsync("/api/admin/users");
         var allUsers = await all.ReadJsonAsync<List<AdminUserResponse>>();

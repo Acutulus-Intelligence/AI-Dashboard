@@ -91,25 +91,16 @@ public class AdminUserService : IAdminUserService
             ?? throw new KeyNotFoundException("User not found.");
 
         if (isModerator)
-        {
-            var isCurrentlyAdmin = await _userManager.IsInRoleAsync(user, AdminRole);
-            if (isCurrentlyAdmin)
-                throw new InvalidOperationException("A user with the admin role cannot also be a moderator.");
+            throw new InvalidOperationException(
+                "Promoting users to the moderator role is not supported. Create a new moderator account or hand over the admin role instead.");
 
-            var addResult = await _userManager.AddToRoleAsync(user, ModeratorRole);
-            if (!addResult.Succeeded)
-                throw new InvalidOperationException("Failed to grant the moderator role.");
-        }
-        else
-        {
-            var isCurrentlyAdmin = await _userManager.IsInRoleAsync(user, AdminRole);
-            if (isCurrentlyAdmin)
-                throw new InvalidOperationException("Admins cannot be removed by other admins. Hand over the role to a moderator instead.");
+        var isCurrentlyAdmin = await _userManager.IsInRoleAsync(user, AdminRole);
+        if (isCurrentlyAdmin)
+            throw new InvalidOperationException("Admins cannot be removed by other admins. Hand over the role to a moderator instead.");
 
-            var removeResult = await _userManager.RemoveFromRoleAsync(user, ModeratorRole);
-            if (!removeResult.Succeeded)
-                throw new InvalidOperationException("Failed to revoke the moderator role.");
-        }
+        var removeResult = await _userManager.RemoveFromRoleAsync(user, ModeratorRole);
+        if (!removeResult.Succeeded)
+            throw new InvalidOperationException("Failed to revoke the moderator role.");
 
         // Invalidate the affected user's sessions so their in-flight JWT no longer carries
         // the stale moderator claims: rotate the security stamp (UserExistsMiddleware rejects

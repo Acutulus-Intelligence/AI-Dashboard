@@ -183,7 +183,7 @@ export default function AdminAccountsPage() {
   return (
     <AppShell
       breadcrumbs={[
-        { label: 'Administration', to: ROUTES.ADMIN },
+        { label: 'Administration', to: ROUTES.ADMIN_MAIN },
         { label: 'Users' },
       ]}
     >

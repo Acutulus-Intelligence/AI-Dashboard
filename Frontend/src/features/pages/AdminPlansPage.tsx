@@ -231,7 +231,7 @@ export default function AdminPlansPage() {
   return (
     <AppShell
       breadcrumbs={[
-        { label: 'Administration', to: ROUTES.ADMIN },
+        { label: 'Administration', to: ROUTES.ADMIN_MAIN },
         { label: 'Plans' },
       ]}
     >

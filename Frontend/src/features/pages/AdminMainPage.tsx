@@ -20,7 +20,7 @@ export default function AdminMainPage() {
 
   useEffect(() => {
     getAdminPlans()
-      .then((plans) => setPlanCount(plans.length))
+      .then((plans) => setPlanCount(plans.filter((p) => p.isActive).length))
       .catch(() => {});
     getAdminStats()
       .then(setStats)
