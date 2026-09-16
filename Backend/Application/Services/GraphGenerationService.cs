@@ -46,16 +46,7 @@ public class GraphGenerationService : IGraphGenerationService
         var schema = await _schemaInspector.GetTableSchemaAsync(request.ConnectionId, userId, request.TableName, ct);
         var allowedColors = await ResolveAccountColorsAsync(userId, ct);
 
-        var schemaJson = JsonSerializer.Serialize(new
-        {
-            table = schema.TableName,
-            columns = schema.Columns.Select(c => new
-            {
-                name = c.ColumnName,
-                type = c.DataType,
-                nullable = c.IsNullable
-            })
-        });
+        var schemaJson = ChartGenerationSchema.ToJson(schema, allowedColors);
 
         var prompt = request.Mode switch
         {
@@ -84,54 +75,33 @@ public class GraphGenerationService : IGraphGenerationService
                 StyleConfig = ChartRefineMerger.SlimStyleForAi(request.CurrentChart.StyleConfig),
             }, BaselineJsonOptions);
 
-        var aiResult = await _aiService.GenerateChartConfigAsync(
-            schemaJson,
-            prompt,
-            dbProvider,
-            request.PrefabChartType,
-            currentChartJson,
-            allowedColors,
+        var (aiResult, retryNotes) = await AiGenerationRetry.RunAsync(
+            (repairHint, token) => _aiService.GenerateChartConfigAsync(
+                schemaJson,
+                prompt,
+                dbProvider,
+                request.PrefabChartType,
+                currentChartJson,
+                allowedColors,
+                repairHint,
+                token),
+            result =>
+            {
+                var generated = FinalizeGeneratedConfig(result.Config, request.CurrentChart, prompt, allowedColors, notes: null);
+                if (string.IsNullOrWhiteSpace(generated.ChartType) || string.IsNullOrWhiteSpace(generated.SqlQuery))
+                {
+                    return "Chart config is missing required fields (chartType, sqlQuery).";
+                }
+
+                if (TryAcceptSql(generated, schema, request.CurrentChart, notes: null, out var retryHint, out _))
+                    return null;
+
+                return retryHint ?? "SQL failed schema grounding.";
+            },
             ct);
 
-        var config = aiResult.Config;
-        var notes = new List<string>();
-
-        // Named colour objects need yAxis order (prefer baseline on refine).
-        var seriesKeys = request.CurrentChart?.YAxis is { Count: > 0 } baselineY
-            ? (IReadOnlyList<string>)baselineY
-            : config.YAxis;
-        if (config.NamedColorMap is { Count: > 0 })
-        {
-            config.StyleConfig ??= new ChartStyleConfig();
-            config.StyleConfig.Colors = ChartRefineMerger.ExpandNamedColorMap(config.NamedColorMap, seriesKeys);
-            config.StyleConfig.Palette = null;
-            notes.Add("Expanded named styleConfig.colors onto yAxis/series order.");
-        }
-
-        if (request.CurrentChart is not null)
-        {
-            if (string.IsNullOrWhiteSpace(aiResult.Config.ChartType)
-                || string.IsNullOrWhiteSpace(aiResult.Config.SqlQuery))
-            {
-                notes.Add("AI omitted chartType and/or sqlQuery; filled from baseline.");
-            }
-
-            // Take AI style only when the user asked for a style change; else keep baseline.
-            config = ChartRefineMerger.Apply(request.CurrentChart, config, prompt, allowedColors);
-            config.StyleConfig = ChartStyleSanitizer.Sanitize(config.StyleConfig, config.ChartType);
-            notes.Add(
-                ChartRefineMerger.RequestsStyleChange(prompt)
-                    ? "Merged AI style fields (user requested a style change); params kept from baseline."
-                    : "Preserved baseline style — prompt had no explicit style/colour request.");
-        }
-        else
-        {
-            // First generate: allow AI colours from account palette; strip params.
-            config.StyleConfig = ChartStyleSanitizer.Sanitize(
-                ChartRefineMerger.TakeAiControlledStyleFields(config.StyleConfig, config.ChartType, allowedColors),
-                config.ChartType);
-            notes.Add("First generate: colours clamped to account palette; params stripped.");
-        }
+        var notes = new List<string>(retryNotes);
+        var config = FinalizeGeneratedConfig(aiResult.Config, request.CurrentChart, prompt, allowedColors, notes);
 
         if (string.IsNullOrWhiteSpace(config.ChartType) || string.IsNullOrWhiteSpace(config.SqlQuery))
         {
@@ -140,7 +110,14 @@ public class GraphGenerationService : IGraphGenerationService
                 $"Raw: {Truncate(aiResult.RawJson, 400)}");
         }
 
-        config = EnsureValidSql(config, request.CurrentChart, notes);
+        if (!TryAcceptSql(config, schema, request.CurrentChart, notes, out var sqlError, out var accepted))
+        {
+            throw new InvalidOperationException(
+                $"AI generated an invalid query: {sqlError}. " +
+                $"chartType={config.ChartType}. SQL: {Truncate(config.SqlQuery, 400)}");
+        }
+
+        config = accepted;
 
         var result = await _queryExecutor.ExecuteAsync(request.ConnectionId, userId, config.SqlQuery, ct);
 
@@ -164,37 +141,37 @@ public class GraphGenerationService : IGraphGenerationService
         var schema = await _schemaInspector.GetTableSchemaAsync(request.ConnectionId, userId, request.TableName, ct);
         var allowedColors = await ResolveAccountColorsAsync(userId, ct);
 
-        var schemaJson = JsonSerializer.Serialize(new
-        {
-            table = schema.TableName,
-            columns = schema.Columns.Select(c => new
-            {
-                name = c.ColumnName,
-                type = c.DataType,
-                nullable = c.IsNullable
-            })
-        });
+        var schemaJson = ChartGenerationSchema.ToJson(schema, allowedColors);
 
         var prompt = $"Create a {request.PrefabChartType ?? "bar"} chart for this table. Use xAxis={request.Prompt ?? ""} for x-axis.";
 
-        var aiResult = await _aiService.GenerateChartConfigAsync(
-            schemaJson, prompt, dbProvider, request.PrefabChartType, allowedColors: allowedColors, ct: ct);
-        var config = aiResult.Config;
-        var notes = new List<string> { "Manual generate path." };
+        var (aiResult, retryNotes) = await AiGenerationRetry.RunAsync(
+            (repairHint, token) => _aiService.GenerateChartConfigAsync(
+                schemaJson, prompt, dbProvider, request.PrefabChartType,
+                allowedColors: allowedColors, repairHint: repairHint, ct: token),
+            result =>
+            {
+                var generated = FinalizeGeneratedConfig(result.Config, baseline: null, prompt, allowedColors, notes: null);
+                if (string.IsNullOrWhiteSpace(generated.ChartType) || string.IsNullOrWhiteSpace(generated.SqlQuery))
+                    return "Chart config is missing required fields (chartType, sqlQuery).";
 
-        if (config.NamedColorMap is { Count: > 0 })
+                return TryAcceptSql(generated, schema, baseline: null, notes: null, out var retryHint, out _)
+                    ? null
+                    : retryHint ?? "SQL failed schema grounding.";
+            },
+            ct);
+
+        var notes = new List<string>(retryNotes) { "Manual generate path." };
+        var config = FinalizeGeneratedConfig(aiResult.Config, baseline: null, prompt, allowedColors, notes);
+
+        if (!TryAcceptSql(config, schema, baseline: null, notes, out var sqlError, out var accepted))
         {
-            config.StyleConfig ??= new ChartStyleConfig();
-            config.StyleConfig.Colors = ChartRefineMerger.ExpandNamedColorMap(config.NamedColorMap, config.YAxis);
-            config.StyleConfig.Palette = null;
-            notes.Add("Expanded named styleConfig.colors onto yAxis order.");
+            throw new InvalidOperationException(
+                $"AI generated an invalid query: {sqlError}. " +
+                $"chartType={config.ChartType}. SQL: {Truncate(config.SqlQuery, 400)}");
         }
 
-        config.StyleConfig = ChartStyleSanitizer.Sanitize(
-            ChartRefineMerger.TakeAiControlledStyleFields(config.StyleConfig, config.ChartType, allowedColors),
-            config.ChartType);
-
-        config = EnsureValidSql(config, baseline: null, notes);
+        config = accepted;
 
         var result = await _queryExecutor.ExecuteAsync(request.ConnectionId, userId, config.SqlQuery, ct);
 
@@ -212,34 +189,95 @@ public class GraphGenerationService : IGraphGenerationService
         );
     }
 
-    /// <summary>
-    /// Rejects invalid SQL. On refine with unchanged chart type, falls back to baseline SQL
-    /// when the model mangled the query during a style-only edit.
-    /// </summary>
-    private AiChartConfig EnsureValidSql(
+    private static AiChartConfig FinalizeGeneratedConfig(
         AiChartConfig config,
         ChartBaseline? baseline,
-        List<string> notes)
+        string prompt,
+        IReadOnlyList<string>? allowedColors,
+        List<string>? notes)
     {
-        if (_sqlValidator.IsSelectOnly(config.SqlQuery, out var errorMessage))
+        var seriesKeys = baseline?.YAxis is { Count: > 0 } baselineY
+            ? (IReadOnlyList<string>)baselineY
+            : config.YAxis;
+        if (config.NamedColorMap is { Count: > 0 })
+        {
+            config.StyleConfig ??= new ChartStyleConfig();
+            config.StyleConfig.Colors = ChartRefineMerger.ExpandNamedColorMap(config.NamedColorMap, seriesKeys);
+            config.StyleConfig.Palette = null;
+            notes?.Add("Expanded named styleConfig.colors onto yAxis/series order.");
+        }
+
+        var styleHint = GeneratedChartGrounding.ValidateStyle(config, allowedColors);
+        if (styleHint is not null)
+            notes?.Add($"Style clamped after AI output: {styleHint}");
+
+        if (baseline is not null)
+        {
+            if (string.IsNullOrWhiteSpace(config.ChartType) || string.IsNullOrWhiteSpace(config.SqlQuery))
+                notes?.Add("AI omitted chartType and/or sqlQuery; filled from baseline.");
+
+            config = ChartRefineMerger.Apply(baseline, config, prompt, allowedColors);
+            config.StyleConfig = ChartStyleSanitizer.Sanitize(config.StyleConfig, config.ChartType);
+            notes?.Add(
+                ChartRefineMerger.RequestsStyleChange(prompt)
+                    ? "Merged AI style fields (user requested a style change); params kept from baseline."
+                    : "Preserved baseline style — prompt had no explicit style/colour request.");
             return config;
+        }
+
+        config.StyleConfig = ChartStyleSanitizer.Sanitize(
+            ChartRefineMerger.TakeAiControlledStyleFields(config.StyleConfig, config.ChartType, allowedColors),
+            config.ChartType);
+        notes?.Add("First generate: colours clamped to account palette; params stripped.");
+        return config;
+    }
+
+    /// <summary>
+    /// Accepts SQL that is SELECT-only and grounded in the connected table schema.
+    /// On refine with an unchanged chart type, falls back to baseline SQL when the
+    /// model invented identifiers or mangled the query during a style-only edit.
+    /// </summary>
+    private bool TryAcceptSql(
+        AiChartConfig config,
+        TableSchema schema,
+        ChartBaseline? baseline,
+        List<string>? notes,
+        out string? retryHint,
+        out AiChartConfig accepted)
+    {
+        accepted = config;
+        retryHint = GeneratedChartGrounding.ValidateSqlChart(config, schema, _sqlValidator);
+        if (retryHint is null)
+            return true;
 
         var typeChanged = baseline is not null
             && !string.Equals(config.ChartType, baseline.ChartType, StringComparison.OrdinalIgnoreCase);
 
-        if (baseline is not null
-            && !typeChanged
-            && _sqlValidator.IsSelectOnly(baseline.SqlQuery, out _))
+        if (baseline is not null && !typeChanged)
         {
-            notes.Add(
-                $"AI SQL failed validation ({errorMessage}); kept baseline SQL. Rejected SQL: {Truncate(config.SqlQuery, 240)}");
-            config.SqlQuery = baseline.SqlQuery;
-            return config;
+            var baselineConfig = new AiChartConfig
+            {
+                ChartType = baseline.ChartType,
+                Title = baseline.Title,
+                XAxis = baseline.XAxis,
+                YAxis = [.. baseline.YAxis],
+                Aggregation = baseline.Aggregation,
+                GroupBy = baseline.GroupBy,
+                SqlQuery = baseline.SqlQuery,
+            };
+
+            if (GeneratedChartGrounding.ValidateSqlChart(baselineConfig, schema, _sqlValidator) is null)
+            {
+                notes?.Add(
+                    $"AI SQL failed schema grounding ({retryHint}); kept baseline SQL. Rejected SQL: {Truncate(config.SqlQuery, 240)}");
+                config.SqlQuery = baseline.SqlQuery;
+                accepted = config;
+                retryHint = null;
+                return true;
+            }
         }
 
-        throw new InvalidOperationException(
-            $"AI generated an invalid query: {errorMessage}. " +
-            $"chartType={config.ChartType}. SQL: {Truncate(config.SqlQuery, 400)}");
+        return false;
     }
 
     /// <summary>

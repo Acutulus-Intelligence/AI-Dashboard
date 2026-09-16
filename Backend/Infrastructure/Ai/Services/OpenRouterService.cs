@@ -35,6 +35,7 @@ public class OpenRouterService : IAiService
         string? prefabChartType = null,
         string? currentChartJson = null,
         IReadOnlyList<string>? allowedColors = null,
+        string? repairHint = null,
         CancellationToken ct = default)
     {
         var systemPrompt = BuildSystemPrompt(
@@ -43,6 +44,7 @@ public class OpenRouterService : IAiService
         var userContent = string.IsNullOrWhiteSpace(currentChartJson)
             ? prompt
             : BuildRefineUserPrompt(prompt, currentChartJson);
+        userContent = AppendRepairHint(userContent, repairHint);
 
         var result = await SendChatAsync(systemPrompt, userContent, ct);
         var config = result.Config;
@@ -99,10 +101,11 @@ public class OpenRouterService : IAiService
         string schemaJson,
         string prompt,
         string? prefabChartType = null,
+        string? repairHint = null,
         CancellationToken ct = default)
     {
         var systemPrompt = BuildCollectionSystemPrompt(schemaJson, prefabChartType);
-        var config = (await SendChatAsync(systemPrompt, prompt, ct)).Config;
+        var config = (await SendChatAsync(systemPrompt, AppendRepairHint(prompt, repairHint), ct)).Config;
 
         if (string.IsNullOrEmpty(config.ChartType) || config.DataModel is null)
             throw new InvalidOperationException("AI response is missing required fields (chartType, dataModel).");
@@ -491,6 +494,19 @@ public class OpenRouterService : IAiService
     private static string Truncate(string value, int max)
         => value.Length <= max ? value : value[..max] + "…";
 
+    private static string AppendRepairHint(string userContent, string? repairHint)
+    {
+        if (string.IsNullOrWhiteSpace(repairHint))
+            return userContent;
+
+        return
+            """
+            Your previous JSON was rejected because it invented or misused schema/style values.
+            Return a corrected JSON object. Do not invent tables, columns, chart types, variants, palettes, or colours.
+            """
+            + $"\nValidation error: {repairHint}\n\nOriginal request:\n{userContent}";
+    }
+
     private static string BuildRefineUserPrompt(string prompt, string currentChartJson)
     {
         var sb = new StringBuilder();
@@ -533,6 +549,7 @@ public class OpenRouterService : IAiService
             DbProvider.Sqlite => "SQLite",
             _ => "SQL"
         };
+        var schemaBlock = FormatSchemaGrounding(schemaJson);
 
         var styleVocabulary = """
 Style field vocabulary — use these exact values (Swedish or English user wording maps here):
@@ -578,6 +595,8 @@ Style field vocabulary — use these exact values (Swedish or English user wordi
 - table charts: do NOT set colors, palette, valuePrefix, valueSuffix, or decimals
 - Do NOT set customColors or params — the UI controls those
 - Display formatting (rounding, $, %) belongs in styleConfig — not in SQL
+- CRITICAL: sqlQuery may ONLY use tables in allowedTables and columns in allowedColumnNames. Never invent, rename, guess, or pluralize column names. Aliases are allowed; their source columns must still be listed.
+- If the user asks for a field that is not in allowedColumnNames, pick the closest listed column and reflect that in the title — never fabricate a column
 """;
 
         var template = @"
@@ -586,7 +605,6 @@ Your entire reply MUST be a single raw JSON object that starts with { and ends w
 No markdown, no code fences, no prose before or after the JSON.
 
 Database: __DBNAME__
-Table schema:
 __SCHEMA__
 
 __PREFERENCE__
@@ -599,14 +617,14 @@ Available theme palettes (styleConfig.palette — palette mode only): __PALETTES
 Available chart types and variants:
 __CATALOG__
 
-Return this exact JSON structure:
+Return this exact JSON structure (no additional properties):
 {
   ""chartType"": __TYPE_UNION__,
   ""title"": ""string — concise chart title"",
-  ""xAxis"": ""column_name — the column for the x-axis / labels"",
-  ""yAxis"": [""column_name — one or more columns for the y-axis / values""],
+  ""xAxis"": ""column_name — MUST be an allowedColumnName or a SELECT alias"",
+  ""yAxis"": [""column_name — MUST be an allowedColumnName or a SELECT alias""],
   ""aggregation"": ""sum"" | ""avg"" | ""count"" | ""min"" | ""max"" | ""none"",
-  ""groupBy"": ""column_name | null — column to group by, or null"",
+  ""groupBy"": ""column_name | null — MUST be an allowedColumnName or null"",
   ""sqlQuery"": ""SELECT ... — a safe, valid SELECT query that fetches the data needed"",
   ""styleConfig"": {
     ""variant"": ""one of the variant ids listed for the chosen chartType"",
@@ -623,6 +641,8 @@ Return this exact JSON structure:
 Rules:
 - sqlQuery must be a valid SELECT query only for __DBNAME__
 - __QUOTING_RULE__
+- SCHEMA GROUNDING: Never invent tables or columns. sqlQuery, xAxis, yAxis, and groupBy may only use allowedTables / allowedColumnNames (plus SELECT aliases whose sources are allowed columns).
+- Never JOIN a table that is not in allowedTables
 - Never include actual data values — only column names and SQL
 - styleConfig.variant must be a variant of the chartType you chose
 - Colour mode XOR: set either palette OR colors, never both; omit the unused field
@@ -636,7 +656,7 @@ __REFINE_RULES__
 
         return template
             .Replace("__DBNAME__", dbName)
-            .Replace("__SCHEMA__", schemaJson)
+            .Replace("__SCHEMA__", schemaBlock)
             .Replace("__PREFERENCE__", chartPreference)
             .Replace("__COLORS__", colorAllowlist)
             .Replace("__PALETTES__", paletteIds)
@@ -644,6 +664,65 @@ __REFINE_RULES__
             .Replace("__TYPE_UNION__", string.Join(" | ", ChartCatalog.TypeIds.Select(id => $"\"{id}\"")))
             .Replace("__QUOTING_RULE__", quotingRule)
             .Replace("__REFINE_RULES__", refineRules);
+    }
+
+    /// <summary>
+    /// Turns the structured schema JSON into a hard-to-miss allowlist the model must obey.
+    /// </summary>
+    private static string FormatSchemaGrounding(string schemaJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(schemaJson);
+            var root = doc.RootElement;
+            var sb = new StringBuilder();
+
+            var table = GetString(root, "table") ?? GetString(root, "allowedTables");
+            sb.AppendLine("Connected schema (metadata only — no row data):");
+            sb.AppendLine(schemaJson);
+            sb.AppendLine();
+            sb.AppendLine("ALLOWED TABLES (the ONLY tables you may query):");
+            if (TryGetPropertyIgnoreCase(root, "allowedTables", out var tablesEl)
+                && tablesEl.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var t in tablesEl.EnumerateArray())
+                {
+                    if (t.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(t.GetString()))
+                        sb.AppendLine($"- {t.GetString()}");
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(table))
+            {
+                sb.AppendLine($"- {table}");
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("ALLOWED COLUMNS (the ONLY columns you may reference — never invent names):");
+            if (TryGetPropertyIgnoreCase(root, "columns", out var colsEl)
+                && colsEl.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var col in colsEl.EnumerateArray())
+                {
+                    if (col.ValueKind != JsonValueKind.Object) continue;
+                    var name = GetString(col, "name");
+                    if (string.IsNullOrWhiteSpace(name)) continue;
+                    var type = GetString(col, "type") ?? "unknown";
+                    var nullable = col.TryGetProperty("nullable", out var n) && n.ValueKind is JsonValueKind.True
+                        ? "nullable"
+                        : "not null";
+                    sb.AppendLine($"- {name} ({type}, {nullable})");
+                }
+            }
+
+            sb.AppendLine();
+            sb.AppendLine(
+                "If a requested metric cannot be computed from these columns, use the closest listed columns and say so in the title. Never fabricate a column or table name.");
+            return sb.ToString();
+        }
+        catch (JsonException)
+        {
+            return "Table schema:\n" + schemaJson;
+        }
     }
 
     private static string FormatColorAllowlist(IReadOnlyList<string>? allowedColors)
@@ -704,12 +783,12 @@ __REFINE_RULES__
             not null => $"The user prefers the chart type: {prefabChartType}.",
             null => "Choose the best chart type based on the data."
         };
+        var schemaBlock = FormatSchemaGrounding(schemaJson);
 
         var template = @"
 You are a data visualization assistant. Given the schema of uploaded tabular data, generate a chart configuration.
 Return ONLY valid JSON — no markdown, no code fences, no extra text.
 
-Data schema (columns and their inferred types):
 __SCHEMA__
 
 __PREFERENCE__
@@ -721,19 +800,19 @@ Available palettes: __PALETTES__
 
 This data lives in memory, not in a database. Do NOT generate SQL — instead build a structured query (dataModel) that is applied to the rows in memory.
 
-Return this exact JSON structure:
+Return this exact JSON structure (no additional properties):
 {
   ""chartType"": __TYPE_UNION__,
   ""title"": ""string — concise chart title"",
-  ""xAxis"": ""column_name — the column used for labels / categories"",
-  ""yAxis"": [""column_name — columns used as values; must exist in the dataModel output""],
+  ""xAxis"": ""column_name — MUST be an allowedColumnName"",
+  ""yAxis"": [""column_name — MUST be an allowedColumnName present in the dataModel output""],
   ""aggregation"": ""sum"" | ""avg"" | ""count"" | ""min"" | ""max"" | ""none"",
-  ""groupBy"": ""column_name | null — column to group by, or null"",
+  ""groupBy"": ""column_name | null — MUST be an allowedColumnName or null"",
   ""dataModel"": {
     ""filters"": [
       { ""column"": ""column_name"", ""operator"": ""eq""|""neq""|""gt""|""gte""|""lt""|""lte""|""contains""|""in""|""notin""|""isnull""|""isnotnull"", ""value"": ""string — raw filter value, e.g. a category name, number, or comma-separated list for in/notin"" }
     ],
-    ""groupBy"": [""column_name — one or more group columns""],
+    ""groupBy"": [""column_name — one or more group columns from allowedColumnNames""],
     ""aggregations"": [
       { ""column"": ""column_name"", ""function"": ""count""|""sum""|""avg""|""min""|""max"" }
     ],
@@ -745,24 +824,30 @@ Return this exact JSON structure:
   ""styleConfig"": {
     ""variant"": ""one of the variant ids listed for the chosen chartType"",
     ""palette"": ""one of the palette ids listed above"",
-    ""params"": { ""paramKey"": value }
+    ""colors"": null,
+    ""valuePrefix"": ""optional string"",
+    ""valueSuffix"": ""optional string"",
+    ""decimals"": null,
+    ""decimalMode"": ""round"" | ""truncate"" | null,
+    ""info"": ""optional short info text""
   }
 }
 
 Rules:
 - yAxis columns must be present in the dataModel output: groupBy columns plus aggregated columns. When an aggregation runs on a column, the output keeps the same column name.
 - Aggregated outputs reuse the source column name (e.g. SUM of ""amount"" produces a column named ""amount"").
-- For count with no obvious column, pick a column from the schema and function ""count"".
-- filters/orderBy column names must be from the schema; omit them when no filtering/ordering is meaningful.
-- Do NOT invent columns that are not in the schema.
+- For count with no obvious column, pick a column from allowedColumnNames and function ""count"".
+- filters/orderBy/groupBy/aggregations column names MUST be from allowedColumnNames; omit them when no filtering/ordering is meaningful.
+- CRITICAL: Do NOT invent columns that are not in allowedColumnNames. Never rename, guess, or pluralize column names.
 - If the data needs no grouping or aggregation, emit groupBy: [], aggregations: [], filters: [].
-- styleConfig.variant must be a variant of the chartType you chose; styleConfig.params may only use the parameter keys listed for that chartType
+- styleConfig.variant must be a variant of the chartType you chose
+- Do NOT set customColors or params — the UI controls those
 - Omit styleConfig fields you have no opinion about rather than guessing
 - The JSON must be parseable and complete
 ";
 
         return template
-            .Replace("__SCHEMA__", schemaJson)
+            .Replace("__SCHEMA__", schemaBlock)
             .Replace("__PREFERENCE__", chartPreference)
             .Replace("__CATALOG__", DescribeCatalog())
             .Replace("__PALETTES__", string.Join(", ", ChartCatalog.Palettes.Select(p => p.Id)))

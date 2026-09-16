@@ -13,6 +13,7 @@ public sealed class FakeAiService : IAiService
         string? prefabChartType = null,
         string? currentChartJson = null,
         IReadOnlyList<string>? allowedColors = null,
+        string? repairHint = null,
         CancellationToken ct = default)
     {
         var chartType = string.IsNullOrWhiteSpace(prefabChartType) ? "bar" : prefabChartType;
@@ -45,6 +46,7 @@ public sealed class FakeAiService : IAiService
         string schemaJson,
         string prompt,
         string? prefabChartType = null,
+        string? repairHint = null,
         CancellationToken ct = default)
     {
         var chartType = string.IsNullOrWhiteSpace(prefabChartType) ? "bar" : prefabChartType;
