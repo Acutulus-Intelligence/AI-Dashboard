@@ -45,6 +45,7 @@ public sealed class FakeAiService : IAiService
         string schemaJson,
         string prompt,
         string? prefabChartType = null,
+        IReadOnlyList<string>? allowedColors = null,
         CancellationToken ct = default)
     {
         var chartType = string.IsNullOrWhiteSpace(prefabChartType) ? "bar" : prefabChartType;

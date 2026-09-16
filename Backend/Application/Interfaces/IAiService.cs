@@ -23,5 +23,6 @@ public interface IAiService
         string schemaJson,
         string prompt,
         string? prefabChartType = null,
+        IReadOnlyList<string>? allowedColors = null,
         CancellationToken ct = default);
 }

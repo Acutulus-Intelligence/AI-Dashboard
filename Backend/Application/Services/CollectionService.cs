@@ -4,6 +4,7 @@ using Application.DTos.Request;
 using Application.DTos.Response;
 using Application.Interfaces;
 using Application.Settings;
+using Domain.Charts;
 using Domain.Enums;
 using Domain.Models;
 using Microsoft.EntityFrameworkCore;
@@ -307,11 +308,9 @@ public class CollectionService : ICollectionService
         var columnTypes = dataset.ColumnTypes;
         var rows = DatasetRows.Decode(dataset);
 
-        var schemaJson = JsonSerializer.Serialize(new
-        {
-            table = dataset.TableName,
-            columns = columnNames.Select((name, i) => new { name, type = columnTypes[i], nullable = true })
-        });
+        var schema = AiSchemaContext.FromColumns(dataset.TableName, columnNames, columnTypes);
+        var schemaJson = AiSchemaContext.ToPromptJson(schema);
+        var allowedColors = await ResolveAccountColorsAsync(userId, ct);
 
         var prompt = request.Mode switch
         {
@@ -321,11 +320,38 @@ public class CollectionService : ICollectionService
             _ => "Show me this data in a chart."
         };
 
-        var config = await _aiService.GenerateCollectionChartConfigAsync(schemaJson, prompt, request.PrefabChartType, ct);
-        if (config.DataModel is null)
+        var userPrompt = prompt;
+        AiChartConfig? config = null;
+
+        for (var attempt = 1; attempt <= 2; attempt++)
+        {
+            config = await _aiService.GenerateCollectionChartConfigAsync(
+                schemaJson, userPrompt, request.PrefabChartType, allowedColors, ct);
+
+            var issues = AiOutputGrounding.ValidateCollectionChart(config, columnNames).Errors;
+
+            if (issues.Count == 0)
+                break;
+
+            if (attempt < 2)
+            {
+                userPrompt = prompt + AiOutputGrounding.BuildRepairSuffix(
+                    issues,
+                    AiSchemaContext.TableNames(schema),
+                    columnNames);
+                continue;
+            }
+
+            throw new InvalidOperationException(
+                "AI referenced columns that are not in the uploaded file: " + string.Join(" ", issues));
+        }
+
+        if (config?.DataModel is null)
             throw new InvalidOperationException("AI returned no data model for this data.");
 
-        ValidateDataModel(config.DataModel, columnNames, columnTypes);
+        config.StyleConfig = ChartStyleSanitizer.Sanitize(
+            ChartRefineMerger.TakeAiControlledStyleFields(config.StyleConfig, config.ChartType, allowedColors),
+            config.ChartType);
 
         var result = await _dataQueryExecutor.ExecuteAsync(columnNames, columnTypes, rows, config.DataModel, ct);
 
@@ -342,50 +368,16 @@ public class CollectionService : ICollectionService
             config.DataModel);
     }
 
-    private static void ValidateDataModel(DataQueryModel model, IReadOnlyList<string> columnNames, IReadOnlyList<string> columnTypes)
+    private async Task<IReadOnlyList<string>> ResolveAccountColorsAsync(Guid userId, CancellationToken ct)
     {
-        var validOperators = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "eq", "neq", "gt", "gte", "lt", "lte", "contains", "in", "notin", "isnull", "isnotnull"
-        };
+        var companyStyle = await _db.Users.AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => u.Company != null ? u.Company.StyleConfig : null)
+            .FirstOrDefaultAsync(ct);
 
-        foreach (var filter in model.Filters)
-        {
-            if (!columnNames.Contains(filter.Column))
-                throw new InvalidOperationException($"AI referenced unknown column '{filter.Column}'.");
-            if (!validOperators.Contains(filter.Operator))
-                throw new InvalidOperationException($"AI used unsupported filter operator '{filter.Operator}'.");
-        }
-
-        foreach (var group in model.GroupBy)
-        {
-            if (!columnNames.Contains(group))
-                throw new InvalidOperationException($"AI grouped by unknown column '{group}'.");
-        }
-
-        var validFunctions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "count", "sum", "avg", "min", "max"
-        };
-
-        foreach (var agg in model.Aggregations)
-        {
-            if (!columnNames.Contains(agg.Column))
-                throw new InvalidOperationException($"AI aggregated unknown column '{agg.Column}'.");
-            if (!validFunctions.Contains(agg.Function))
-                throw new InvalidOperationException($"AI used unsupported aggregation function '{agg.Function}'.");
-        }
-
-        foreach (var order in model.OrderBy)
-        {
-            if (!columnNames.Contains(order.Column))
-                throw new InvalidOperationException($"AI ordered by unknown column '{order.Column}'.");
-            if (order.Direction is not ("asc" or "desc"))
-                throw new InvalidOperationException($"AI used unsupported sort direction '{order.Direction}'.");
-        }
-
-        if (model.Limit is < 0 or > 100_000)
-            throw new InvalidOperationException("AI used an out-of-range row limit.");
+        return companyStyle is null
+            ? CompanyStyleSanitizer.DefaultColors
+            : CompanyStyleSanitizer.ResolveColors(companyStyle);
     }
 
     private async Task<VisibilityScope> ResolveVisibilityAsync(
