@@ -45,17 +45,7 @@ public class GraphGenerationService : IGraphGenerationService
         var dbProvider = await GetDbProviderAsync(request.ConnectionId, userId, ct);
         var schema = await _schemaInspector.GetTableSchemaAsync(request.ConnectionId, userId, request.TableName, ct);
         var allowedColors = await ResolveAccountColorsAsync(userId, ct);
-
-        var schemaJson = JsonSerializer.Serialize(new
-        {
-            table = schema.TableName,
-            columns = schema.Columns.Select(c => new
-            {
-                name = c.ColumnName,
-                type = c.DataType,
-                nullable = c.IsNullable
-            })
-        });
+        var schemaJson = AiSchemaPayload.Serialize(schema);
 
         var prompt = request.Mode switch
         {
@@ -84,65 +74,19 @@ public class GraphGenerationService : IGraphGenerationService
                 StyleConfig = ChartRefineMerger.SlimStyleForAi(request.CurrentChart.StyleConfig),
             }, BaselineJsonOptions);
 
-        var aiResult = await _aiService.GenerateChartConfigAsync(
+        var (aiResult, config, result, notes) = await GenerateGroundedAsync(
+            request.ConnectionId,
+            userId,
+            schema,
             schemaJson,
             prompt,
             dbProvider,
             request.PrefabChartType,
             currentChartJson,
+            request.CurrentChart,
             allowedColors,
+            isManual: false,
             ct);
-
-        var config = aiResult.Config;
-        var notes = new List<string>();
-
-        // Named colour objects need yAxis order (prefer baseline on refine).
-        var seriesKeys = request.CurrentChart?.YAxis is { Count: > 0 } baselineY
-            ? (IReadOnlyList<string>)baselineY
-            : config.YAxis;
-        if (config.NamedColorMap is { Count: > 0 })
-        {
-            config.StyleConfig ??= new ChartStyleConfig();
-            config.StyleConfig.Colors = ChartRefineMerger.ExpandNamedColorMap(config.NamedColorMap, seriesKeys);
-            config.StyleConfig.Palette = null;
-            notes.Add("Expanded named styleConfig.colors onto yAxis/series order.");
-        }
-
-        if (request.CurrentChart is not null)
-        {
-            if (string.IsNullOrWhiteSpace(aiResult.Config.ChartType)
-                || string.IsNullOrWhiteSpace(aiResult.Config.SqlQuery))
-            {
-                notes.Add("AI omitted chartType and/or sqlQuery; filled from baseline.");
-            }
-
-            // Take AI style only when the user asked for a style change; else keep baseline.
-            config = ChartRefineMerger.Apply(request.CurrentChart, config, prompt, allowedColors);
-            config.StyleConfig = ChartStyleSanitizer.Sanitize(config.StyleConfig, config.ChartType);
-            notes.Add(
-                ChartRefineMerger.RequestsStyleChange(prompt)
-                    ? "Merged AI style fields (user requested a style change); params kept from baseline."
-                    : "Preserved baseline style — prompt had no explicit style/colour request.");
-        }
-        else
-        {
-            // First generate: allow AI colours from account palette; strip params.
-            config.StyleConfig = ChartStyleSanitizer.Sanitize(
-                ChartRefineMerger.TakeAiControlledStyleFields(config.StyleConfig, config.ChartType, allowedColors),
-                config.ChartType);
-            notes.Add("First generate: colours clamped to account palette; params stripped.");
-        }
-
-        if (string.IsNullOrWhiteSpace(config.ChartType) || string.IsNullOrWhiteSpace(config.SqlQuery))
-        {
-            throw new InvalidOperationException(
-                "Chart config is missing required fields (chartType, sqlQuery) after merge. " +
-                $"Raw: {Truncate(aiResult.RawJson, 400)}");
-        }
-
-        config = EnsureValidSql(config, request.CurrentChart, notes);
-
-        var result = await _queryExecutor.ExecuteAsync(request.ConnectionId, userId, config.SqlQuery, ct);
 
         return new ChartConfigResponse(
             config.ChartType,
@@ -163,40 +107,23 @@ public class GraphGenerationService : IGraphGenerationService
         var dbProvider = await GetDbProviderAsync(request.ConnectionId, userId, ct);
         var schema = await _schemaInspector.GetTableSchemaAsync(request.ConnectionId, userId, request.TableName, ct);
         var allowedColors = await ResolveAccountColorsAsync(userId, ct);
-
-        var schemaJson = JsonSerializer.Serialize(new
-        {
-            table = schema.TableName,
-            columns = schema.Columns.Select(c => new
-            {
-                name = c.ColumnName,
-                type = c.DataType,
-                nullable = c.IsNullable
-            })
-        });
+        var schemaJson = AiSchemaPayload.Serialize(schema);
 
         var prompt = $"Create a {request.PrefabChartType ?? "bar"} chart for this table. Use xAxis={request.Prompt ?? ""} for x-axis.";
 
-        var aiResult = await _aiService.GenerateChartConfigAsync(
-            schemaJson, prompt, dbProvider, request.PrefabChartType, allowedColors: allowedColors, ct: ct);
-        var config = aiResult.Config;
-        var notes = new List<string> { "Manual generate path." };
-
-        if (config.NamedColorMap is { Count: > 0 })
-        {
-            config.StyleConfig ??= new ChartStyleConfig();
-            config.StyleConfig.Colors = ChartRefineMerger.ExpandNamedColorMap(config.NamedColorMap, config.YAxis);
-            config.StyleConfig.Palette = null;
-            notes.Add("Expanded named styleConfig.colors onto yAxis order.");
-        }
-
-        config.StyleConfig = ChartStyleSanitizer.Sanitize(
-            ChartRefineMerger.TakeAiControlledStyleFields(config.StyleConfig, config.ChartType, allowedColors),
-            config.ChartType);
-
-        config = EnsureValidSql(config, baseline: null, notes);
-
-        var result = await _queryExecutor.ExecuteAsync(request.ConnectionId, userId, config.SqlQuery, ct);
+        var (aiResult, config, result, notes) = await GenerateGroundedAsync(
+            request.ConnectionId,
+            userId,
+            schema,
+            schemaJson,
+            prompt,
+            dbProvider,
+            request.PrefabChartType,
+            currentChartJson: null,
+            baseline: null,
+            allowedColors,
+            isManual: true,
+            ct);
 
         return new ChartConfigResponse(
             config.ChartType,
@@ -210,6 +137,122 @@ public class GraphGenerationService : IGraphGenerationService
             config.StyleConfig,
             AiDebug: BuildDebug(aiResult, config, notes)
         );
+    }
+
+    private async Task<(AiChartResult AiResult, AiChartConfig Config, List<Dictionary<string, object?>> Rows, List<string> Notes)>
+        GenerateGroundedAsync(
+            Guid connectionId,
+            Guid userId,
+            TableSchema schema,
+            string schemaJson,
+            string prompt,
+            DbProvider dbProvider,
+            string? prefabChartType,
+            string? currentChartJson,
+            ChartBaseline? baseline,
+            IReadOnlyList<string> allowedColors,
+            bool isManual,
+            CancellationToken ct)
+    {
+        string? repairFeedback = null;
+        AiChartResult? aiResult = null;
+        AiChartConfig? config = null;
+        var notes = new List<string>();
+        if (isManual)
+            notes.Add("Manual generate path.");
+
+        for (var attempt = 0; attempt <= AiOutputGrounding.MaxRepairAttempts; attempt++)
+        {
+            aiResult = await _aiService.GenerateChartConfigAsync(
+                schemaJson,
+                prompt,
+                dbProvider,
+                prefabChartType,
+                currentChartJson,
+                allowedColors,
+                repairFeedback,
+                ct);
+
+            config = aiResult.Config;
+
+            var seriesKeys = baseline?.YAxis is { Count: > 0 } baselineY
+                ? (IReadOnlyList<string>)baselineY
+                : config.YAxis;
+            if (config.NamedColorMap is { Count: > 0 })
+            {
+                config.StyleConfig ??= new ChartStyleConfig();
+                config.StyleConfig.Colors = ChartRefineMerger.ExpandNamedColorMap(config.NamedColorMap, seriesKeys);
+                config.StyleConfig.Palette = null;
+                notes.Add("Expanded named styleConfig.colors onto yAxis/series order.");
+            }
+
+            if (baseline is not null)
+            {
+                if (string.IsNullOrWhiteSpace(config.ChartType)
+                    || string.IsNullOrWhiteSpace(config.SqlQuery))
+                {
+                    notes.Add("AI omitted chartType and/or sqlQuery; filled from baseline.");
+                }
+
+                config = ChartRefineMerger.Apply(baseline, config, prompt, allowedColors);
+                config.StyleConfig = ChartStyleSanitizer.Sanitize(config.StyleConfig, config.ChartType);
+                notes.Add(
+                    ChartRefineMerger.RequestsStyleChange(prompt)
+                        ? "Merged AI style fields (user requested a style change); params kept from baseline."
+                        : "Preserved baseline style — prompt had no explicit style/colour request.");
+            }
+            else
+            {
+                config.StyleConfig = ChartStyleSanitizer.Sanitize(
+                    ChartRefineMerger.TakeAiControlledStyleFields(config.StyleConfig, config.ChartType, allowedColors),
+                    config.ChartType);
+                if (attempt == 0)
+                    notes.Add("First generate: colours clamped to account palette; params stripped.");
+            }
+
+            if (string.IsNullOrWhiteSpace(config.ChartType) || string.IsNullOrWhiteSpace(config.SqlQuery))
+            {
+                throw new InvalidOperationException(
+                    "Chart config is missing required fields (chartType, sqlQuery) after merge. " +
+                    $"Raw: {Truncate(aiResult.RawJson, 400)}");
+            }
+
+            config = EnsureValidSql(config, baseline, notes);
+
+            var grounding = AiOutputGrounding.GroundSqlChart(schema, config, baseline);
+            notes.AddRange(grounding.Notes);
+            config = grounding.Config;
+
+            if (!grounding.IsGrounded)
+            {
+                if (attempt < AiOutputGrounding.MaxRepairAttempts)
+                {
+                    repairFeedback = AiOutputGrounding.BuildRepairPrompt(grounding, aiResult.RawJson);
+                    notes.Add("Schema grounding failed; requesting one AI repair pass.");
+                    continue;
+                }
+
+                throw new InvalidOperationException(
+                    "AI chart used identifiers that are not in the connected schema: " +
+                    string.Join("; ", grounding.Errors));
+            }
+
+            try
+            {
+                var rows = await _queryExecutor.ExecuteAsync(connectionId, userId, config.SqlQuery, ct);
+                return (aiResult, config, rows, notes);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException
+                && AiOutputGrounding.IsLikelySchemaError(ex.Message)
+                && attempt < AiOutputGrounding.MaxRepairAttempts)
+            {
+                repairFeedback = AiOutputGrounding.BuildExecutionRepairPrompt(ex.Message, aiResult.RawJson);
+                notes.Add($"Query execution failed on likely invented SQL; requesting one AI repair pass.");
+            }
+        }
+
+        throw new InvalidOperationException(
+            "AI chart generation failed after schema grounding and repair.");
     }
 
     /// <summary>

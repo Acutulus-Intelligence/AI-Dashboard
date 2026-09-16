@@ -70,6 +70,43 @@ public class ChartRefineMergerTests
     }
 
     [Fact]
+    public void ClampColorsToAllowlist_maps_colour_index_labels()
+    {
+        var input = new List<string> { "Colour 2", "color_3" };
+
+        var result = ChartRefineMerger.ClampColorsToAllowlist(input, Allowlist);
+
+        result.Should().Equal("var(--chart-2)", "var(--chart-3)");
+    }
+
+    [Fact]
+    public void ClampColorsToAllowlist_maps_hue_words_to_theme_tokens()
+    {
+        var input = new List<string> { "blue", "orange" };
+
+        var result = ChartRefineMerger.ClampColorsToAllowlist(input, Allowlist);
+
+        result.Should().Equal("var(--chart-1)", "var(--chart-2)");
+    }
+
+    [Fact]
+    public void ClampColorsToAllowlist_snaps_near_hex_to_allowlist_hex()
+    {
+        var allow = new[] { "#3b82f6", "#ef4444" };
+        var input = new List<string> { "#3b82f8" };
+
+        var result = ChartRefineMerger.ClampColorsToAllowlist(input, allow);
+
+        result.Should().Equal("#3b82f6");
+    }
+
+    [Fact]
+    public void SnapColorToAllowlist_maps_invented_blue_hex_to_chart_token()
+    {
+        ChartRefineMerger.SnapColorToAllowlist("#3b82f6", Allowlist).Should().Be("var(--chart-1)");
+    }
+
+    [Fact]
     public void ClampColorsToAllowlist_uses_canonical_allowlist_casing()
     {
         var input = new List<string> { "VAR(--chart-1)" };

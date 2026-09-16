@@ -35,6 +35,7 @@ public class OpenRouterService : IAiService
         string? prefabChartType = null,
         string? currentChartJson = null,
         IReadOnlyList<string>? allowedColors = null,
+        string? repairFeedback = null,
         CancellationToken ct = default)
     {
         var systemPrompt = BuildSystemPrompt(
@@ -43,6 +44,7 @@ public class OpenRouterService : IAiService
         var userContent = string.IsNullOrWhiteSpace(currentChartJson)
             ? prompt
             : BuildRefineUserPrompt(prompt, currentChartJson);
+        userContent = AppendRepairFeedback(userContent, repairFeedback);
 
         var result = await SendChatAsync(systemPrompt, userContent, ct);
         var config = result.Config;
@@ -99,10 +101,13 @@ public class OpenRouterService : IAiService
         string schemaJson,
         string prompt,
         string? prefabChartType = null,
+        IReadOnlyList<string>? allowedColors = null,
+        string? repairFeedback = null,
         CancellationToken ct = default)
     {
-        var systemPrompt = BuildCollectionSystemPrompt(schemaJson, prefabChartType);
-        var config = (await SendChatAsync(systemPrompt, prompt, ct)).Config;
+        var systemPrompt = BuildCollectionSystemPrompt(schemaJson, prefabChartType, allowedColors);
+        var userContent = AppendRepairFeedback(prompt, repairFeedback);
+        var config = (await SendChatAsync(systemPrompt, userContent, ct)).Config;
 
         if (string.IsNullOrEmpty(config.ChartType) || config.DataModel is null)
             throw new InvalidOperationException("AI response is missing required fields (chartType, dataModel).");
@@ -491,6 +496,14 @@ public class OpenRouterService : IAiService
     private static string Truncate(string value, int max)
         => value.Length <= max ? value : value[..max] + "…";
 
+    private static string AppendRepairFeedback(string userContent, string? repairFeedback)
+    {
+        if (string.IsNullOrWhiteSpace(repairFeedback))
+            return userContent;
+
+        return userContent + Environment.NewLine + Environment.NewLine + repairFeedback.Trim();
+    }
+
     private static string BuildRefineUserPrompt(string prompt, string currentChartJson)
     {
         var sb = new StringBuilder();
@@ -623,11 +636,15 @@ Return this exact JSON structure:
 Rules:
 - sqlQuery must be a valid SELECT query only for __DBNAME__
 - __QUOTING_RULE__
+- HARD GROUNDING: use ONLY allowedTableName and allowedColumnNames from the schema JSON. Never invent tables, columns, or filters on unknown fields.
+- FROM/JOIN must target allowedTableName (aliases of that table are OK). Do not join other tables.
+- xAxis, yAxis, and groupBy must be allowed column names or SELECT aliases of those columns
+- If the user asks for something not in the schema, use the closest allowed columns and reflect that in the title — do not fabricate fields
 - Never include actual data values — only column names and SQL
 - styleConfig.variant must be a variant of the chartType you chose
 - Colour mode XOR: set either palette OR colors, never both; omit the unused field
 - When setting colors, prefer { ""yAxisColumn"": ""<allowlist>"" } so each series is explicit; array form must follow yAxis order
-- styleConfig.colors must use only allowlisted values; omit colors in palette mode
+- styleConfig.colors must use only allowlisted values; omit colors in palette mode. If a colour cannot be mapped, omit it rather than inventing hex
 - Do not include customColors or params in styleConfig
 - Omit styleConfig fields you have no opinion about rather than guessing
 __REFINE_RULES__
@@ -697,19 +714,23 @@ __REFINE_RULES__
         ["8"] = "violet",
     };
 
-    private static string BuildCollectionSystemPrompt(string schemaJson, string? prefabChartType)
+    private static string BuildCollectionSystemPrompt(
+        string schemaJson,
+        string? prefabChartType,
+        IReadOnlyList<string>? allowedColors)
     {
         var chartPreference = prefabChartType switch
         {
             not null => $"The user prefers the chart type: {prefabChartType}.",
             null => "Choose the best chart type based on the data."
         };
+        var colorAllowlist = FormatColorAllowlist(allowedColors);
 
         var template = @"
 You are a data visualization assistant. Given the schema of uploaded tabular data, generate a chart configuration.
 Return ONLY valid JSON — no markdown, no code fences, no extra text.
 
-Data schema (columns and their inferred types):
+Data schema (columns and their inferred types — use ONLY allowedTableName / allowedColumnNames):
 __SCHEMA__
 
 __PREFERENCE__
@@ -718,6 +739,9 @@ Available chart types, their variants and their adjustable parameters:
 __CATALOG__
 
 Available palettes: __PALETTES__
+
+Account colours (use ONLY these exact strings in styleConfig.colors — slice/column mode only):
+__COLORS__
 
 This data lives in memory, not in a database. Do NOT generate SQL — instead build a structured query (dataModel) that is applied to the rows in memory.
 
@@ -744,19 +768,28 @@ Return this exact JSON structure:
   },
   ""styleConfig"": {
     ""variant"": ""one of the variant ids listed for the chosen chartType"",
+    ""colors"": null,
     ""palette"": ""one of the palette ids listed above"",
-    ""params"": { ""paramKey"": value }
+    ""valuePrefix"": ""optional string"",
+    ""valueSuffix"": ""optional string"",
+    ""decimals"": null,
+    ""decimalMode"": ""round"" | ""truncate"" | null,
+    ""info"": ""optional short info text""
   }
 }
 
 Rules:
+- HARD GROUNDING: every column in xAxis, yAxis, groupBy, and dataModel must be in allowedColumnNames. Never invent columns.
 - yAxis columns must be present in the dataModel output: groupBy columns plus aggregated columns. When an aggregation runs on a column, the output keeps the same column name.
 - Aggregated outputs reuse the source column name (e.g. SUM of ""amount"" produces a column named ""amount"").
 - For count with no obvious column, pick a column from the schema and function ""count"".
 - filters/orderBy column names must be from the schema; omit them when no filtering/ordering is meaningful.
-- Do NOT invent columns that are not in the schema.
+- If the user asks for something not in the schema, use the closest allowed columns and reflect that in the title.
 - If the data needs no grouping or aggregation, emit groupBy: [], aggregations: [], filters: [].
-- styleConfig.variant must be a variant of the chartType you chose; styleConfig.params may only use the parameter keys listed for that chartType
+- styleConfig.variant must be a variant of the chartType you chose
+- Colour mode XOR: set either palette OR colors, never both; omit the unused field
+- styleConfig.colors must use only allowlisted values; if a colour cannot be mapped, omit it rather than inventing hex
+- Do NOT set customColors or params — the UI controls those
 - Omit styleConfig fields you have no opinion about rather than guessing
 - The JSON must be parseable and complete
 ";
@@ -766,6 +799,7 @@ Rules:
             .Replace("__PREFERENCE__", chartPreference)
             .Replace("__CATALOG__", DescribeCatalog())
             .Replace("__PALETTES__", string.Join(", ", ChartCatalog.Palettes.Select(p => p.Id)))
+            .Replace("__COLORS__", colorAllowlist)
             .Replace("__TYPE_UNION__", string.Join(" | ", ChartCatalog.TypeIds.Select(id => $"\"{id}\"")));
     }
 

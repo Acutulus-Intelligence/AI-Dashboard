@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
 using Application.DTos.Request;
 using Domain.Charts;
 using Domain.Models;
@@ -269,8 +271,9 @@ public static partial class ChartRefineMerger
 
     /// <summary>
     /// Keeps only colours that appear in the account allowlist (case-insensitive).
-    /// Preserves index positions — empty slots mean "follow palette".
-    /// Returns null when nothing valid remains.
+    /// Invented values are snapped when possible: "Colour N" labels, hue words
+    /// (blue/red/…), and hex close to an allowlisted swatch. Unknown values
+    /// become empty slots ("follow palette") rather than leaking invalid CSS.
     /// </summary>
     public static List<string>? ClampColorsToAllowlist(
         IEnumerable<string>? colors,
@@ -289,10 +292,7 @@ public static partial class ChartRefineMerger
                 continue;
             }
 
-            var trimmed = raw.Trim();
-            var match = allowedColors.FirstOrDefault(a =>
-                a.Equals(trimmed, StringComparison.OrdinalIgnoreCase));
-            clamped.Add(match ?? string.Empty);
+            clamped.Add(SnapColorToAllowlist(raw.Trim(), allowedColors) ?? string.Empty);
         }
 
         while (clamped.Count > 0 && clamped[^1].Length == 0)
@@ -300,6 +300,147 @@ public static partial class ChartRefineMerger
 
         return clamped.Exists(c => c.Length > 0) ? clamped : null;
     }
+
+    /// <summary>
+    /// Maps a model colour onto the account allowlist, or null when it cannot be grounded.
+    /// </summary>
+    public static string? SnapColorToAllowlist(string raw, IReadOnlyList<string> allowedColors)
+    {
+        if (string.IsNullOrWhiteSpace(raw) || allowedColors.Count == 0)
+            return null;
+
+        var trimmed = raw.Trim();
+        var exact = allowedColors.FirstOrDefault(a =>
+            a.Equals(trimmed, StringComparison.OrdinalIgnoreCase));
+        if (exact is not null)
+            return exact;
+
+        var colourIndex = ParseColourIndex(trimmed);
+        if (colourIndex is >= 1 && colourIndex <= allowedColors.Count)
+            return allowedColors[colourIndex.Value - 1];
+
+        var hue = SnapHueWord(trimmed, allowedColors);
+        if (hue is not null)
+            return hue;
+
+        return SnapNearestHex(trimmed, allowedColors);
+    }
+
+    private static int? ParseColourIndex(string value)
+    {
+        var match = ColourIndexRegex().Match(value);
+        if (!match.Success) return null;
+        return int.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n)
+            ? n
+            : null;
+    }
+
+    private static string? SnapHueWord(string value, IReadOnlyList<string> allowedColors)
+    {
+        if (!HueToChartIndex.TryGetValue(value, out var chartIndex))
+            return null;
+
+        var token = $"var(--chart-{chartIndex})";
+        return allowedColors.FirstOrDefault(a =>
+            a.Equals(token, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string? SnapNearestHex(string value, IReadOnlyList<string> allowedColors)
+    {
+        if (!TryParseRgb(value, out var r, out var g, out var b))
+            return null;
+
+        string? best = null;
+        var bestDistance = int.MaxValue;
+        foreach (var allowed in allowedColors)
+        {
+            if (!TryParseRgb(allowed, out var ar, out var ag, out var ab)
+                && !TryThemeTokenRgb(allowed, out ar, out ag, out ab))
+                continue;
+
+            var distance = ColorDistance(r, g, b, ar, ag, ab);
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                best = allowed;
+            }
+        }
+
+        // Conservative: only snap near-miss hex, not arbitrary complementary colours.
+        return bestDistance <= 48 ? best : null;
+    }
+
+    private static bool TryThemeTokenRgb(string value, out int r, out int g, out int b)
+    {
+        r = g = b = 0;
+        var match = ThemeTokenRegex().Match(value.Trim());
+        if (!match.Success || !ThemeChartRgb.TryGetValue(match.Groups[1].Value, out var rgb))
+            return false;
+        (r, g, b) = rgb;
+        return true;
+    }
+
+    private static bool TryParseRgb(string value, out int r, out int g, out int b)
+    {
+        r = g = b = 0;
+        var hex = value.Trim();
+        if (!hex.StartsWith('#') || hex.Length is < 4 or > 9)
+            return false;
+
+        hex = hex[1..];
+        if (hex.Length is 3 or 4)
+            hex = $"{hex[0]}{hex[0]}{hex[1]}{hex[1]}{hex[2]}{hex[2]}";
+        else if (hex.Length >= 6)
+            hex = hex[..6];
+        else
+            return false;
+
+        if (!int.TryParse(hex[..2], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out r)
+            || !int.TryParse(hex[2..4], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out g)
+            || !int.TryParse(hex[4..6], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out b))
+            return false;
+
+        return true;
+    }
+
+    private static int ColorDistance(int r1, int g1, int b1, int r2, int g2, int b2)
+    {
+        var dr = r1 - r2;
+        var dg = g1 - g2;
+        var db = b1 - b2;
+        return (int)Math.Sqrt(dr * dr + dg * dg + db * db);
+    }
+
+    [GeneratedRegex(@"^colou?rs?\s*[-_]?\s*(\d+)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ColourIndexRegex();
+
+    [GeneratedRegex(@"^var\(\s*--chart-([1-8])\s*\)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ThemeTokenRegex();
+
+    /// <summary>Approximate light-theme hues for default <c>--chart-N</c> tokens.</summary>
+    private static readonly Dictionary<string, (int R, int G, int B)> ThemeChartRgb = new(StringComparer.Ordinal)
+    {
+        ["1"] = (59, 130, 246),
+        ["2"] = (249, 115, 22),
+        ["3"] = (34, 197, 94),
+        ["4"] = (168, 85, 247),
+        ["5"] = (234, 179, 8),
+        ["6"] = (239, 68, 68),
+        ["7"] = (20, 184, 166),
+        ["8"] = (139, 92, 246),
+    };
+
+    private static readonly Dictionary<string, int> HueToChartIndex = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["blue"] = 1, ["blå"] = 1, ["bla"] = 1,
+        ["orange"] = 2,
+        ["green"] = 3, ["grön"] = 3, ["gron"] = 3,
+        ["purple"] = 4, ["lila"] = 4,
+        ["yellow"] = 5, ["gold"] = 5, ["gul"] = 5,
+        ["red"] = 6, ["röd"] = 6, ["rod"] = 6,
+        ["teal"] = 7, ["cyan"] = 7,
+        ["violet"] = 8,
+    };
 
     private static ChartStyleConfig? MergeStyle(
         ChartStyleConfig? baseline,
