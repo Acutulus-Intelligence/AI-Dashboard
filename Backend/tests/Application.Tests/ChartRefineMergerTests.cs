@@ -100,4 +100,27 @@ public class ChartRefineMergerTests
     {
         ChartRefineMerger.HasNonEmptyColorSlot(["", "var(--chart-1)"]).Should().BeTrue();
     }
+
+    [Theory]
+    [InlineData("Colour 2", "var(--chart-2)")]
+    [InlineData("color_3", "var(--chart-3)")]
+    [InlineData("blue", "var(--chart-1)")]
+    [InlineData("orange", "var(--chart-2)")]
+    public void SnapColorToAllowlist_maps_labels_and_hue_words(string raw, string expected)
+    {
+        ChartRefineMerger.SnapColorToAllowlist(raw, Allowlist).Should().Be(expected);
+    }
+
+    [Fact]
+    public void SnapColorToAllowlist_maps_near_hex_onto_theme_token()
+    {
+        ChartRefineMerger.SnapColorToAllowlist("#3b82f8", Allowlist)
+            .Should().Be("var(--chart-1)");
+    }
+
+    [Fact]
+    public void SnapColorToAllowlist_rejects_far_hex()
+    {
+        ChartRefineMerger.SnapColorToAllowlist("#ff00aa", Allowlist).Should().BeNull();
+    }
 }
