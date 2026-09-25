@@ -207,8 +207,6 @@ function ChartTooltipContent({
     <div
       className={cn(
         "grid min-w-32 items-start gap-1.5 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl",
-        // Fade in when the tooltip first becomes active (slide is handled by ChartHoverTooltip).
-        "animate-in fade-in-0 duration-200",
         className
       )}
     >
