@@ -1,4 +1,7 @@
+using Application.DTos.Request;
 using Application.Services;
+using Domain.Charts;
+using Domain.Models;
 using FluentAssertions;
 
 namespace Application.Tests;
@@ -123,4 +126,115 @@ public class ChartRefineMergerTests
     {
         ChartRefineMerger.SnapColorToAllowlist("#ff00aa", Allowlist).Should().BeNull();
     }
+
+    [Fact]
+    public void Apply_keeps_baseline_style_for_a_data_only_prompt()
+    {
+        var baseline = Baseline(Style(
+            variant: "stacked",
+            palette: "warm",
+            valuePrefix: "€",
+            decimals: 1));
+        var ai = AiResult(new ChartStyleConfig
+        {
+            Palette = "cool",
+            Colors = ["var(--chart-1)"],
+            ValuePrefix = "$",
+            Decimals = 0,
+            DecimalMode = "truncate",
+        });
+
+        var result = ChartRefineMerger.Apply(baseline, ai, "show last 30 days", Allowlist);
+
+        result.SqlQuery.Should().Contain("30 days");
+        result.StyleConfig!.Variant.Should().Be("stacked");
+        result.StyleConfig.Palette.Should().Be("warm");
+        result.StyleConfig.Colors.Should().BeNull();
+        result.StyleConfig.ValuePrefix.Should().Be("€");
+        result.StyleConfig.Decimals.Should().Be(1);
+        result.StyleConfig.DecimalMode.Should().Be("round");
+    }
+
+    [Fact]
+    public void Apply_updates_style_when_the_prompt_asks_for_colour_and_currency_labels()
+    {
+        var baseline = Baseline(Style(
+            variant: "stacked",
+            palette: "warm",
+            valuePrefix: "€",
+            decimals: 1));
+        var ai = AiResult(new ChartStyleConfig
+        {
+            Colors = ["blue"],
+            ValuePrefix = "$",
+        });
+
+        var result = ChartRefineMerger.Apply(baseline, ai, "make it blue with $ labels", Allowlist);
+
+        result.StyleConfig!.Variant.Should().Be("stacked");
+        result.StyleConfig.Palette.Should().BeNull();
+        result.StyleConfig.Colors.Should().Equal("var(--chart-1)");
+        result.StyleConfig.ValuePrefix.Should().Be("$");
+        result.StyleConfig.Decimals.Should().Be(1);
+        result.StyleConfig.DecimalMode.Should().Be("round");
+    }
+
+    [Fact]
+    public void Apply_strips_colours_and_value_format_when_the_chart_is_a_table()
+    {
+        var baseline = Baseline(Style(variant: "raw", palette: "warm", valuePrefix: "€", decimals: 2), "table");
+        var ai = AiResult(new ChartStyleConfig
+        {
+            Variant = "summary",
+            Palette = "cool",
+            Colors = ["blue"],
+            ValuePrefix = "$",
+            ValueSuffix = "%",
+            Decimals = 0,
+        }, "table");
+
+        var result = ChartRefineMerger.Apply(baseline, ai, "make it blue with $ labels", Allowlist);
+
+        result.ChartType.Should().Be("table");
+        result.StyleConfig!.Variant.Should().Be("summary");
+        result.StyleConfig.Palette.Should().BeNull();
+        result.StyleConfig.Colors.Should().BeNull();
+        result.StyleConfig.ValuePrefix.Should().BeNull();
+        result.StyleConfig.ValueSuffix.Should().BeNull();
+        result.StyleConfig.Decimals.Should().BeNull();
+    }
+
+    private static ChartStyleConfig Style(string variant, string palette, string valuePrefix, int decimals) =>
+        new()
+        {
+            Variant = variant,
+            Palette = palette,
+            ValuePrefix = valuePrefix,
+            Decimals = decimals,
+            DecimalMode = "round",
+        };
+
+    private static ChartBaseline Baseline(ChartStyleConfig style, string chartType = "bar") =>
+        new(
+            "Sales",
+            chartType,
+            "month",
+            ["amount"],
+            "sum",
+            "month",
+            "SELECT month, SUM(amount) AS amount FROM sales GROUP BY month",
+            style);
+
+    private static AiChartConfig AiResult(ChartStyleConfig style, string chartType = "bar") =>
+        new()
+        {
+            ChartType = chartType,
+            Title = "Sales",
+            XAxis = "month",
+            YAxis = ["amount"],
+            Aggregation = "sum",
+            GroupBy = "month",
+            SqlQuery = "SELECT month, SUM(amount) AS amount FROM sales WHERE sold_at >= CURRENT_DATE - INTERVAL '30 days' GROUP BY month",
+            StyleConfig = style,
+        };
 }

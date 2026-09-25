@@ -88,4 +88,54 @@ public class ChartStyleSanitizerTests
 
         result.Should().BeNull();
     }
+
+    [Fact]
+    public void Sanitize_drops_colours_and_value_format_for_tables_but_keeps_variant()
+    {
+        var style = new ChartStyleConfig
+        {
+            Variant = "raw",
+            Palette = "cool",
+            Colors = ["var(--chart-1)"],
+            ValuePrefix = "$",
+            ValueSuffix = "%",
+            Decimals = 2,
+            DecimalMode = "round",
+        };
+
+        var result = ChartStyleSanitizer.Sanitize(style, "table");
+
+        result.Should().NotBeNull();
+        result!.Variant.Should().Be("raw");
+        result.Palette.Should().BeNull();
+        result.Colors.Should().BeNull();
+        result.ValuePrefix.Should().BeNull();
+        result.ValueSuffix.Should().BeNull();
+        result.Decimals.Should().BeNull();
+        result.DecimalMode.Should().BeNull();
+    }
+
+    [Fact]
+    public void Sanitize_keeps_colours_and_value_format_for_bar_charts()
+    {
+        var style = new ChartStyleConfig
+        {
+            Variant = "stacked",
+            Colors = ["var(--chart-1)"],
+            ValuePrefix = "$",
+            ValueSuffix = "%",
+            Decimals = 2,
+            DecimalMode = "truncate",
+        };
+
+        var result = ChartStyleSanitizer.Sanitize(style, "bar");
+
+        result.Should().NotBeNull();
+        result!.Variant.Should().Be("stacked");
+        result.Colors.Should().Equal("var(--chart-1)");
+        result.ValuePrefix.Should().Be("$");
+        result.ValueSuffix.Should().Be("%");
+        result.Decimals.Should().Be(2);
+        result.DecimalMode.Should().Be("truncate");
+    }
 }
