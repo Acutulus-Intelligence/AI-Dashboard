@@ -1,4 +1,5 @@
 using Application.DTos.Request;
+using Domain.Charts;
 using FluentValidation;
 
 namespace Application.Validators;
@@ -31,7 +32,9 @@ public class GenerateChartRequestValidator : AbstractValidator<GenerateChartRequ
         {
             RuleFor(x => x.PrefabChartType)
                 .NotEmpty()
-                .WithMessage("PrefabChartType is required when mode is 'prefab'.");
+                .WithMessage("PrefabChartType is required when mode is 'prefab'.")
+                .Must(ChartCatalog.IsKnownType)
+                .WithMessage(_ => $"PrefabChartType must be one of: {string.Join(", ", ChartCatalog.TypeIds)}.");
         });
 
         When(x => x.CurrentChart is not null, () =>

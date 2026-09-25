@@ -88,4 +88,26 @@ public class ChartStyleSanitizerTests
 
         result.Should().BeNull();
     }
+
+    [Fact]
+    public void Map_keeps_catalog_params_and_drops_invented_ones()
+    {
+        var style = new ChartStyleConfig
+        {
+            Variant = "GRID",
+            Params = new Dictionary<string, JsonElement>
+            {
+                ["fillOpacity"] = JsonDocument.Parse("2").RootElement.Clone(),
+                ["showGrid"] = JsonDocument.Parse("true").RootElement.Clone(),
+            },
+        };
+
+        var result = ChartStyleSanitizer.Sanitize(style, "map");
+
+        result.Should().NotBeNull();
+        result!.Variant.Should().Be("grid");
+        result.Params.Should().ContainKey("fillOpacity");
+        result.Params!["fillOpacity"].GetDouble().Should().Be(1);
+        result.Params.Should().NotContainKey("showGrid");
+    }
 }

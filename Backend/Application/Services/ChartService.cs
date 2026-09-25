@@ -68,7 +68,7 @@ public class ChartService : IChartService
             Id = Guid.NewGuid(),
             UserId = userId,
             Title = request.Title.Trim(),
-            ChartType = request.ChartType,
+            ChartType = ChartCatalog.CanonicalId(request.ChartType) ?? request.ChartType,
             XAxis = request.XAxis,
             YAxis = request.YAxis.ToArray(),
             Aggregation = request.Aggregation,
@@ -125,7 +125,7 @@ public class ChartService : IChartService
         await EnsureUniqueTitleAsync(userId, request.Title, excludeId: id, ct);
 
         chart.Title = request.Title.Trim();
-        chart.ChartType = request.ChartType;
+        chart.ChartType = ChartCatalog.CanonicalId(request.ChartType) ?? request.ChartType;
         chart.XAxis = request.XAxis;
         chart.YAxis = request.YAxis.ToArray();
         chart.Aggregation = request.Aggregation;

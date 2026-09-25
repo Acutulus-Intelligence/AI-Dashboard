@@ -56,12 +56,13 @@ public static class AiChartPromptBuilder
         var isRefine = !string.IsNullOrWhiteSpace(currentChartJson);
         var colorAllowlist = FormatColorAllowlist(allowedColors);
         var paletteIds = string.Join(", ", ChartCatalog.Palettes.Select(p => $"\"{p.Id}\""));
+        var requestedType = ChartCatalog.CanonicalId(prefabChartType);
 
         var chartPreference = isRefine
             ? "The user is refining an existing chart. Style-only edits must keep sqlQuery identical. Chart-type changes (bar → radar, etc.) are allowed when asked — then update chartType, variant, and SQL/axes as needed. Colours/palette only from the allowlist below; never invent free hex. Never set params."
-            : prefabChartType switch
+            : requestedType switch
             {
-                not null => $"The user prefers the chart type: {prefabChartType}.",
+                not null => $"The user prefers the chart type: {requestedType}.",
                 null => "Choose the best chart type based on the data."
             };
 
@@ -309,9 +310,10 @@ __REFINE_RULES__
         string? prefabChartType,
         IReadOnlyList<string>? allowedColors = null)
     {
-        var chartPreference = prefabChartType switch
+        var requestedType = ChartCatalog.CanonicalId(prefabChartType);
+        var chartPreference = requestedType switch
         {
-            not null => $"The user prefers the chart type: {prefabChartType}.",
+            not null => $"The user prefers the chart type: {requestedType}.",
             null => "Choose the best chart type based on the data."
         };
         var schemaBlock = FormatSchemaGrounding(schemaJson);

@@ -117,6 +117,38 @@ public class GeneratedChartGroundingTests
         var error = GeneratedChartGrounding.ValidateSqlChart(config, SalesSchema, new SelectOnlyValidator());
 
         error.Should().Contain("heatmap");
+        error.Should().Contain("map");
+    }
+
+    [Fact]
+    public void GroundSqlChart_canonicalizes_map_chart_type()
+    {
+        var config = new AiChartConfig
+        {
+            ChartType = "Map",
+            XAxis = "category",
+            YAxis = ["amount"],
+            SqlQuery = "SELECT category, amount FROM sales",
+            StyleConfig = new ChartStyleConfig { Variant = "choropleth" },
+        };
+
+        GeneratedChartGrounding.GroundSqlChart(config, SalesSchema, new SelectOnlyValidator())
+            .Should().BeNull();
+        config.ChartType.Should().Be("map");
+        GeneratedChartGrounding.ValidateStyle(config, Allowlist).Should().BeNull();
+    }
+
+    [Fact]
+    public void ValidateStyle_rejects_unknown_map_variant()
+    {
+        var config = new AiChartConfig
+        {
+            ChartType = "map",
+            StyleConfig = new ChartStyleConfig { Variant = "heatmap" },
+        };
+
+        GeneratedChartGrounding.ValidateStyle(config, Allowlist)
+            .Should().Contain("heatmap");
     }
 
     [Fact]

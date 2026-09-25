@@ -234,6 +234,26 @@ public static class ChartCatalog
         },
         new()
         {
+            Id = "map",
+            Label = "Map",
+            Description =
+                "Geographic measure by place. xAxis is a country, region, city, or ISO code. yAxis is one numeric measure. When allowedColumnNames includes latitude and longitude, include those columns in the SELECT and do not rename them. Never invent coordinate columns. Choose choropleth for countries, markers when coordinates exist, and grid for regions or cities.",
+            Variants =
+            [
+                new("choropleth", "Choropleth", "Countries colored by the measure. xAxis should be country names or ISO codes."),
+                new("markers", "Markers", "Points on an interactive map. Use latitude and longitude columns when they exist; otherwise country names are placed at known centres."),
+                new("grid", "Grid", "Equal tiles colored by the measure. Works for any place labels, including regions that are not countries.")
+            ],
+            Params =
+            [
+                Toggle("showTooltip", "Tooltip", true),
+                Toggle("showLegend", "Legend", true),
+                Toggle("showLabels", "Place labels", false),
+                Number("fillOpacity", "Fill opacity", 0.85, 0.2, 1, 0.05)
+            ]
+        },
+        new()
+        {
             Id = "table",
             Label = "Table",
             Description = "Shows the query result as rows and columns.",
@@ -262,6 +282,9 @@ public static class ChartCatalog
         chartType is not null && ByIdLookup.TryGetValue(chartType, out var spec) ? spec : null;
 
     public static bool IsKnownType(string? chartType) => Find(chartType) is not null;
+
+    /// <summary>Catalog id with canonical casing, or null when the type is not allowed.</summary>
+    public static string? CanonicalId(string? chartType) => Find(chartType)?.Id;
 
     public static bool IsKnownPalette(string? palette) =>
         palette is not null && Palettes.Any(p => p.Id.Equals(palette, StringComparison.OrdinalIgnoreCase));

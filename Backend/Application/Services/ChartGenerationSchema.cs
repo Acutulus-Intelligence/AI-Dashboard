@@ -68,6 +68,7 @@ public static class ChartGenerationSchema
                 "styleConfig.palette must be one of allowedPalettes.",
                 "styleConfig.variant must be a catalog variant of the chosen chartType.",
                 "Do not set styleConfig.params or customColors.",
+                "chartType map is only for places. Never invent latitude or longitude columns; include them only when they are listed in allowedColumnNames. Map variants are choropleth, markers, and grid.",
             },
         };
     }
@@ -83,6 +84,8 @@ public static class ChartGenerationSchema
 
         if (n is "id" or "uuid" || n.EndsWith("_id", StringComparison.Ordinal) || t.Contains("uuid"))
             return "identifier";
+        if (n is "lat" or "latitude" or "lon" or "lng" or "longitude")
+            return "coordinate";
         if (t.Contains("timestamp") || t.Contains("date") || t.Contains("time"))
             return "time";
         if (t.Contains("bool"))

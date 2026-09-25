@@ -31,6 +31,32 @@ public class AiChartPromptBuilderTests
         prompt.Should().Contain("Never invent");
         prompt.Should().Contain("var(--chart-1)");
         prompt.Should().Contain("params");
+        prompt.Should().Contain("\"map\"");
+        prompt.Should().Contain("choropleth");
+        prompt.Should().NotContain("heatmap");
+    }
+
+    [Fact]
+    public void System_prompt_canonicalizes_known_prefab_and_ignores_unknown_types()
+    {
+        var schema = ChartGenerationSchema.ToJson(new TableSchema
+        {
+            TableName = "sales",
+            Columns =
+            [
+                new ColumnSchema { ColumnName = "country", DataType = "text", IsNullable = false },
+                new ColumnSchema { ColumnName = "amount", DataType = "numeric", IsNullable = false },
+            ],
+        });
+
+        var mapPrompt = AiChartPromptBuilder.BuildSystemPrompt(
+            schema, DbProvider.PostgreSql, prefabChartType: "Map", currentChartJson: null, ["var(--chart-1)"]);
+        mapPrompt.Should().Contain("The user prefers the chart type: map.");
+
+        var unknownPrompt = AiChartPromptBuilder.BuildSystemPrompt(
+            schema, DbProvider.PostgreSql, prefabChartType: "heatmap", currentChartJson: null, ["var(--chart-1)"]);
+        unknownPrompt.Should().NotContain("heatmap");
+        unknownPrompt.Should().Contain("Choose the best chart type based on the data.");
     }
 
     [Fact]
@@ -44,6 +70,8 @@ public class AiChartPromptBuilderTests
         prompt.Should().Contain("var(--chart-2)");
         prompt.Should().Contain("dataModel");
         prompt.Should().Contain("params");
+        prompt.Should().Contain("choropleth");
+        prompt.Should().NotContain("heatmap");
     }
 
     [Fact]

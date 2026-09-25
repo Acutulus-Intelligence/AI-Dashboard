@@ -2,6 +2,19 @@ import ChartRenderer from '../charts/ChartRenderer';
 import { getAll } from '../charts/registry';
 import type { ChartData } from '../charts/types';
 
+const MAP_SAMPLE: ChartData = {
+  labels: ['Sweden', 'Norway', 'Germany', 'United States', 'Japan', 'Brazil'],
+  datasets: [{ label: 'revenue', values: [120, 80, 240, 410, 190, 150] }],
+  queryResult: [
+    { country: 'Sweden', revenue: 120, latitude: 59.33, longitude: 18.07 },
+    { country: 'Norway', revenue: 80, latitude: 59.91, longitude: 10.75 },
+    { country: 'Germany', revenue: 240, latitude: 52.52, longitude: 13.4 },
+    { country: 'United States', revenue: 410, latitude: 38.9, longitude: -77.04 },
+    { country: 'Japan', revenue: 190, latitude: 35.68, longitude: 139.69 },
+    { country: 'Brazil', revenue: 150, latitude: -15.79, longitude: -47.88 },
+  ],
+};
+
 const SAMPLE: ChartData = {
   labels: ['January', 'February', 'March', 'April', 'May', 'June'],
   datasets: [
@@ -30,7 +43,7 @@ export default function ChartGalleryPage() {
                   <div className="h-56">
                     <ChartRenderer
                       chartId={descriptor.id}
-                      data={SAMPLE}
+                      data={descriptor.id === 'map' ? MAP_SAMPLE : SAMPLE}
                       styleConfig={{ variant: variant.id }}
                     />
                   </div>

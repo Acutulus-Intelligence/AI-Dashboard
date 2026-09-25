@@ -101,10 +101,16 @@ public static class DataQueryModelGrounding
 
         if (config is not null)
         {
-            if (!string.IsNullOrWhiteSpace(config.ChartType) && !ChartCatalog.IsKnownType(config.ChartType))
+            if (!string.IsNullOrWhiteSpace(config.ChartType))
             {
-                return $"Unsupported or missing chartType '{config.ChartType}'. " +
-                       $"Allowed: {string.Join(", ", ChartCatalog.TypeIds)}.";
+                var canonicalType = ChartCatalog.CanonicalId(config.ChartType);
+                if (canonicalType is null)
+                {
+                    return $"Unsupported or missing chartType '{config.ChartType}'. " +
+                           $"Allowed: {string.Join(", ", ChartCatalog.TypeIds)}.";
+                }
+
+                config.ChartType = canonicalType;
             }
 
             if (!string.IsNullOrWhiteSpace(config.XAxis))

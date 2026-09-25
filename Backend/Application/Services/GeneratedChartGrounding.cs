@@ -26,11 +26,14 @@ public static class GeneratedChartGrounding
         TableSchema schema,
         ISqlValidator sqlValidator)
     {
-        if (string.IsNullOrWhiteSpace(config.ChartType) || !ChartCatalog.IsKnownType(config.ChartType))
+        var canonicalType = ChartCatalog.CanonicalId(config.ChartType);
+        if (canonicalType is null)
         {
             return $"Unsupported or missing chartType '{config.ChartType}'. " +
                    $"Allowed: {string.Join(", ", ChartCatalog.TypeIds)}.";
         }
+
+        config.ChartType = canonicalType;
 
         if (string.IsNullOrWhiteSpace(config.SqlQuery))
             return "sqlQuery is missing.";
