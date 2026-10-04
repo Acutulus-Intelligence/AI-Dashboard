@@ -1,10 +1,11 @@
-import { Link } from 'react-router-dom';
-import { FileQuestion } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowLeft, FileQuestion } from 'lucide-react';
 import Button from '../components/Button';
 import Header from '../layouts/Header';
-import { ROUTES } from '../routes';
 
 export default function NotFoundPage() {
+  const navigate = useNavigate();
+
   return (
     <div className="min-h-screen bg-background text-on-background">
       <Header />
@@ -18,13 +19,11 @@ export default function NotFoundPage() {
           <p className="mt-3 text-body-lg text-on-surface-variant">
             That address is not part of AI Dashboard. Check the link, or head back to a page that exists.
           </p>
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <Link to={ROUTES.HOME}>
-              <Button variant="outline">Back to home</Button>
-            </Link>
-            <Link to={ROUTES.DASHBOARD}>
-              <Button variant="dark">Go to dashboard</Button>
-            </Link>
+          <div className="mt-8 flex justify-center">
+            <Button type="button" variant="ghost" onClick={() => navigate(-1)}>
+              <ArrowLeft size={18} aria-hidden="true" />
+              Back
+            </Button>
           </div>
         </div>
       </main>
