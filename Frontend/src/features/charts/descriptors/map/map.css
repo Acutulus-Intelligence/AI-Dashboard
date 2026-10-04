@@ -44,14 +44,12 @@
 }
 
 .chart-map .leaflet-control-attribution {
-  font-size: 9px;
-  line-height: 1.2;
-  background: color-mix(in oklab, var(--background) 82%, transparent);
+  font-size: 10px;
+  line-height: 1.25;
+  background: color-mix(in oklab, var(--background) 88%, transparent);
   color: var(--muted-foreground);
-  max-width: 12rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  max-width: 14rem;
+  white-space: normal;
 }
 
 .chart-map .leaflet-control-attribution a {

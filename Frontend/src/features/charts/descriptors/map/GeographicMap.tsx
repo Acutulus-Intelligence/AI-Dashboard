@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Feature, FeatureCollection, Geometry } from 'geojson';
 import { geoJSON, latLngBounds, type Layer, type PathOptions } from 'leaflet';
-import { CircleMarker, GeoJSON, MapContainer, TileLayer, Tooltip, useMap } from 'react-leaflet';
+import { CircleMarker, GeoJSON, MapContainer, Rectangle, TileLayer, Tooltip, useMap } from 'react-leaflet';
 import { formatStyledValue } from '../../format';
 import { param, type ResolvedStyle } from '../../types';
+import { binScreenGrid, type GridCell } from './grid';
 import MapLegend from './MapLegend';
 import { aggregateCountries, mapFootnote, primaryValue, type MapRow } from './places';
 import { colorAt, extent, markerRadius, parseRgb } from './scale';
@@ -11,8 +12,13 @@ import { CENTERS, WORLD, WORLD_IDS } from './world';
 import 'leaflet/dist/leaflet.css';
 import './map.css';
 
+/** Esri World Light Gray Canvas. No API key. Attribution is the DeLorme/NAVTEQ line. */
+const ESRI_TILES =
+  'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}';
+const ESRI_ATTRIBUTION = 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ';
+
 interface GeographicMapProps {
-  variant: 'choropleth' | 'markers';
+  variant: 'choropleth' | 'markers' | 'grid';
   rows: MapRow[];
   style: ResolvedStyle;
   measure: string;
@@ -27,14 +33,6 @@ function subscribeToTheme(onStoreChange: () => void) {
   const observer = new MutationObserver(onStoreChange);
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] });
   return () => observer.disconnect();
-}
-
-function useDarkMode(): boolean {
-  return useSyncExternalStore(
-    subscribeToTheme,
-    () => document.documentElement.classList.contains('dark'),
-    () => false,
-  );
 }
 
 function readCssColor(input: string): string {
@@ -117,32 +115,147 @@ function FitView({
   const map = useMap();
 
   useEffect(() => {
-    map.invalidateSize();
-    if (features.length > 0) {
-      const bounds = geoJSON({
-        type: 'FeatureCollection',
-        features,
-      } as FeatureCollection).getBounds();
-      if (bounds.isValid()) {
-        map.fitBounds(bounds, { padding: [12, 12], maxZoom: 5, animate: false });
+    const fit = () => {
+      map.invalidateSize();
+      if (features.length > 0) {
+        const bounds = geoJSON({
+          type: 'FeatureCollection',
+          features,
+        } as FeatureCollection).getBounds();
+        if (bounds.isValid()) {
+          map.fitBounds(bounds, { padding: [12, 12], maxZoom: 5, animate: false });
+          return;
+        }
+      }
+      if (positions.length === 1) {
+        map.setView(positions[0], 4, { animate: false });
         return;
       }
-    }
-    if (positions.length === 1) {
-      map.setView(positions[0], 4, { animate: false });
-      return;
-    }
-    if (positions.length > 1) {
-      const bounds = latLngBounds(positions);
-      if (bounds.isValid()) {
-        map.fitBounds(bounds, { padding: [16, 16], maxZoom: 8, animate: false });
-        return;
+      if (positions.length > 1) {
+        const bounds = latLngBounds(positions);
+        if (bounds.isValid()) {
+          map.fitBounds(bounds, { padding: [16, 16], maxZoom: 8, animate: false });
+          return;
+        }
       }
-    }
-    map.setView([20, 0], 1, { animate: false });
+      map.setView([20, 0], 1, { animate: false });
+    };
+
+    fit();
+    map.on('resize', fit);
+    return () => {
+      map.off('resize', fit);
+    };
   }, [map, features, positions]);
 
   return null;
+}
+
+function IntensityGrid({
+  points,
+  style,
+  datasetLabels,
+  showTooltip,
+  showLabels,
+  fillOpacity,
+  lowRgb,
+  highRgb,
+  border,
+  min,
+  max,
+  onCells,
+}: {
+  points: { label: string; values: number[]; lat: number; lon: number }[];
+  style: ResolvedStyle;
+  datasetLabels: string[];
+  showTooltip: boolean;
+  showLabels: boolean;
+  fillOpacity: number;
+  lowRgb: [number, number, number];
+  highRgb: [number, number, number];
+  border: string;
+  min: number;
+  max: number;
+  onCells: (cells: GridCell[]) => void;
+}) {
+  const map = useMap();
+  const [cells, setCells] = useState<GridCell[]>([]);
+
+  useEffect(() => {
+    const rebuild = () => {
+      const size = map.getSize();
+      const next = binScreenGrid(
+        points,
+        size.x,
+        size.y,
+        (lat, lon) => {
+          const projected = map.latLngToContainerPoint([lat, lon]);
+          return { x: projected.x, y: projected.y };
+        },
+        (x, y) => {
+          const latLng = map.containerPointToLatLng([x, y]);
+          return { lat: latLng.lat, lon: latLng.lng };
+        },
+      );
+      setCells(next);
+      onCells(next);
+    };
+
+    rebuild();
+    map.on('moveend', rebuild);
+    map.on('zoomend', rebuild);
+    map.on('resize', rebuild);
+    return () => {
+      map.off('moveend', rebuild);
+      map.off('zoomend', rebuild);
+      map.off('resize', rebuild);
+    };
+  }, [map, points, onCells]);
+
+  return (
+    <>
+      {cells.map((cell) => {
+        const value = primaryValue(cell.values);
+        const title = cell.labels.join(', ');
+        return (
+          <Rectangle
+            key={`${cell.south}:${cell.west}:${cell.labels.join('|')}`}
+            bounds={[
+              [cell.south, cell.west],
+              [cell.north, cell.east],
+            ]}
+            pathOptions={{
+              color: border,
+              weight: 1,
+              fillColor: colorAt(lowRgb, highRgb, value, min, max),
+              fillOpacity,
+            }}
+          >
+            {(showTooltip || showLabels) && (
+              <Tooltip permanent={showLabels} direction="center">
+                <span className="text-xs">
+                  {title}
+                  {showTooltip && (
+                    <>
+                      {datasetLabels.length <= 1 ? (
+                        <>: {formatStyledValue(value, style)}</>
+                      ) : (
+                        datasetLabels.map((label, seriesIndex) => (
+                          <span key={`${label}-${seriesIndex}`} className="block">
+                            {label}: {formatStyledValue(cell.values[seriesIndex] ?? 0, style)}
+                          </span>
+                        ))
+                      )}
+                    </>
+                  )}
+                </span>
+              </Tooltip>
+            )}
+          </Rectangle>
+        );
+      })}
+    </>
+  );
 }
 
 export default function GeographicMap({
@@ -153,7 +266,6 @@ export default function GeographicMap({
   datasetLabels,
   truncated,
 }: GeographicMapProps) {
-  const dark = useDarkMode();
   const high = useCssColor(style.colors[0] || 'var(--chart-1)');
   const low = useCssColor('var(--muted)');
   const border = useCssColor('var(--border)');
@@ -181,6 +293,12 @@ export default function GeographicMap({
     });
   }, [rows]);
   const pointExtent = extent(points.map((point) => primaryValue(point.values)));
+  const [gridCells, setGridCells] = useState<GridCell[]>([]);
+  const gridExtent = extent(
+    (gridCells.length > 0 ? gridCells : points.map((point) => ({ values: point.values }))).map((cell) =>
+      primaryValue(cell.values),
+    ),
+  );
 
   const matchedFeatures = useMemo(
     () => WORLD.features.filter((item) => item.id != null && countries.has(String(item.id))),
@@ -200,7 +318,8 @@ export default function GeographicMap({
   }, [variant, rows, countries, points]);
 
   const footnote = mapFootnote(hiddenLabels, truncated);
-  const legendExtent = variant === 'choropleth' ? countryExtent : pointExtent;
+  const legendExtent =
+    variant === 'choropleth' ? countryExtent : variant === 'grid' ? gridExtent : pointExtent;
   const markerPositions = useMemo(
     () => points.map((point) => [point.lat, point.lon] as [number, number]),
     [points],
@@ -240,10 +359,6 @@ export default function GeographicMap({
     layer.bindTooltip(html, { sticky: true, className: 'chart-map-tip' });
   }
 
-  const tileUrl = dark
-    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-    : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
-
   return (
     <div className="chart-map nodrag flex h-full min-h-0 w-full flex-col gap-2">
       <div className="relative min-h-0 flex-1">
@@ -251,20 +366,15 @@ export default function GeographicMap({
           center={[20, 0]}
           zoom={1}
           minZoom={1}
-          maxZoom={20}
+          maxZoom={16}
           scrollWheelZoom={false}
           className="absolute inset-0 h-full w-full rounded-md"
         >
-          <TileLayer
-            key={tileUrl}
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-            url={tileUrl}
-            subdomains="abcd"
-          />
+          <TileLayer attribution={ESRI_ATTRIBUTION} url={ESRI_TILES} maxZoom={16} />
           <KeepSize />
           <FitView
             features={variant === 'choropleth' ? matchedFeatures : EMPTY_FEATURES}
-            positions={variant === 'markers' ? markerPositions : EMPTY_POSITIONS}
+            positions={variant === 'choropleth' ? EMPTY_POSITIONS : markerPositions}
           />
           {variant === 'choropleth' ? (
             <GeoJSON
@@ -272,6 +382,21 @@ export default function GeographicMap({
               data={WORLD as FeatureCollection}
               style={styleFeature}
               onEachFeature={onEachFeature}
+            />
+          ) : variant === 'grid' ? (
+            <IntensityGrid
+              points={points}
+              style={style}
+              datasetLabels={datasetLabels}
+              showTooltip={showTooltip}
+              showLabels={showLabels}
+              fillOpacity={fillOpacity}
+              lowRgb={lowRgb}
+              highRgb={highRgb}
+              border={border}
+              min={gridExtent.min}
+              max={gridExtent.max}
+              onCells={setGridCells}
             />
           ) : (
             <>

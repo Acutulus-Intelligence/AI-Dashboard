@@ -1,7 +1,6 @@
 import { lazy, Suspense } from 'react';
 import type { ResolvedStyle } from '../../types';
-import GridMap from './GridMap';
-import { mapFootnote, type MapRow } from './places';
+import type { MapRow } from './places';
 
 const GeographicMap = lazy(() => import('./GeographicMap'));
 
@@ -22,18 +21,6 @@ export default function MapView({
   datasetLabels,
   truncated,
 }: MapViewProps) {
-  if (variant === 'grid') {
-    return (
-      <GridMap
-        rows={rows}
-        style={style}
-        measure={measure}
-        datasetLabels={datasetLabels}
-        footnote={mapFootnote([], truncated)}
-      />
-    );
-  }
-
   return (
     <Suspense
       fallback={

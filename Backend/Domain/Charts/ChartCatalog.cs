@@ -237,12 +237,12 @@ public static class ChartCatalog
             Id = "map",
             Label = "Map",
             Description =
-                "Geographic measure by place. xAxis is a country, region, city, or ISO code. yAxis is one numeric measure. When allowedColumnNames includes latitude and longitude, include those columns in the SELECT and do not rename them. Never invent coordinate columns. Choose choropleth for countries, markers when coordinates exist, and grid for regions or cities.",
+                "Geographic measure by place. xAxis is a country, region, city, or ISO code. yAxis is one numeric measure. When allowedColumnNames includes latitude and longitude, include those columns in the SELECT and do not rename them. Never invent coordinate columns. Choose choropleth for countries, markers when coordinates exist, and grid for an intensity grid of squares on the map.",
             Variants =
             [
                 new("choropleth", "Choropleth", "Countries colored by the measure. xAxis should be country names or ISO codes."),
                 new("markers", "Markers", "Points on an interactive map. Use latitude and longitude columns when they exist; otherwise country names are placed at known centres."),
-                new("grid", "Grid", "Equal tiles colored by the measure. Works for any place labels, including regions that are not countries.")
+                new("grid", "Grid", "Aligned squares on the map, colored by the measure. Places in the same cell are combined.")
             ],
             Params =
             [

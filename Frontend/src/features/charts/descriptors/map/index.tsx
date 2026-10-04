@@ -32,7 +32,7 @@ const fillOpacity: ParamSpec = {
 export const mapChart: ChartDescriptor = {
   id: 'map',
   label: 'Map',
-  description: 'Shows a measure across places on a map or a colored tile grid.',
+  description: 'Shows a measure across places on a map.',
   icon: MapIcon,
   defaultSize: { w: 6, h: 5 },
   minSize: { w: 4, h: 4 },
@@ -50,7 +50,7 @@ export const mapChart: ChartDescriptor = {
     {
       id: 'grid',
       label: 'Grid',
-      description: 'Equal tiles colored by the measure. Works for any place labels.',
+      description: 'Squares on the map, colored by the measure.',
     },
   ],
   params: [showTooltip, showLegend, showLabels, fillOpacity],
