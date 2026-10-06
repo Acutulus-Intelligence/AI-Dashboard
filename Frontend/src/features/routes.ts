@@ -11,6 +11,8 @@ export const ROUTES = {
   ADMIN_PLANS: '/admin/plans',
   ADMIN_ACCOUNTS: '/admin/accounts',
   CONTACT: '/contact',
+  PRIVACY: '/privacy',
+  TERMS: '/terms',
   PAYMENT_SUCCESS: '/payment/success',
   PAYMENT_CANCEL: '/payment/cancel',
   COMPANY_CREATE: '/company/create',

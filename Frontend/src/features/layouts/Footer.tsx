@@ -1,4 +1,5 @@
 import HashLink from '../components/HashLink';
+import { ROUTES } from '../routes';
 
 const footerGroups = [
   {
@@ -13,8 +14,8 @@ const footerGroups = [
     title: 'COMPANY',
     links: [
       { label: 'Company Page', to: '#' },
-      { label: 'Privacy Policy', to: '#' },
-      { label: 'Terms of Service', to: '#' },
+      { label: 'Privacy Policy', to: ROUTES.PRIVACY },
+      { label: 'Terms of Service', to: ROUTES.TERMS },
       { label: 'Security', to: '#' },
     ],
   },
@@ -59,7 +60,7 @@ export default function Footer() {
 
       <div className="mx-auto mt-12 w-full max-w-container-max border-t border-outline-variant/50 px-gutter pt-6">
         <p className="text-body-sm text-on-surface-variant">
-          © 2026 Actulus Intelligence. All rights reserved.
+          © 2026 Acutulus Intelligence. All rights reserved.
         </p>
       </div>
     </footer>
