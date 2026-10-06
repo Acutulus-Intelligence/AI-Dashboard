@@ -43,9 +43,14 @@ public class ChartGenerationSchemaTests
             .ToList();
         rules.Should().Contain(r => r.Contains("Never invent", StringComparison.OrdinalIgnoreCase));
         rules.Should().Contain(r => r.Contains("params", StringComparison.OrdinalIgnoreCase));
+        rules.Should().Contain(r => r.Contains("latitude", StringComparison.OrdinalIgnoreCase));
+        root.GetProperty("allowedChartTypes").EnumerateArray().Select(e => e.GetString())
+            .Should().Contain("map");
 
         var amount = root.GetProperty("columns").EnumerateArray()
             .Single(e => e.GetProperty("name").GetString() == "amount");
         amount.GetProperty("usageHint").GetString().Should().Be("measure");
+        ChartGenerationSchema.UsageHint("double", "latitude").Should().Be("coordinate");
+        ChartGenerationSchema.UsageHint("double", "longitude").Should().Be("coordinate");
     }
 }

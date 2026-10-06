@@ -1,6 +1,7 @@
 import { areaChart } from './descriptors/area';
 import { barChart } from './descriptors/bar';
 import { lineChart } from './descriptors/line';
+import { mapChart } from './descriptors/map';
 import { pieChart } from './descriptors/pie';
 import { radarChart } from './descriptors/radar';
 import { radialChart } from './descriptors/radial';
@@ -16,13 +17,14 @@ const DESCRIPTORS: ChartDescriptor[] = [
   radarChart,
   radialChart,
   scatterChart,
+  mapChart,
   tableChart,
 ];
 
-const byId = new Map(DESCRIPTORS.map((d) => [d.id, d]));
+const byId = new Map(DESCRIPTORS.map((d) => [d.id.toLowerCase(), d]));
 
 export function get(id: string): ChartDescriptor | undefined {
-  return byId.get(id);
+  return byId.get(id.trim().toLowerCase());
 }
 
 export function getAll(): ChartDescriptor[] {
@@ -30,5 +32,5 @@ export function getAll(): ChartDescriptor[] {
 }
 
 export function isKnownChartType(id: string): boolean {
-  return byId.has(id);
+  return byId.has(id.trim().toLowerCase());
 }
