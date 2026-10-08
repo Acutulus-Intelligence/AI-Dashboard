@@ -130,6 +130,15 @@ export default function LoginPage() {
               Create one
             </Link>
           </p>
+          <p className="mt-4 text-center text-body-sm text-on-surface-variant">
+            <Link to={ROUTES.PRIVACY} className="font-medium text-primary hover:underline">
+              Privacy Policy
+            </Link>
+            {' · '}
+            <Link to={ROUTES.TERMS} className="font-medium text-primary hover:underline">
+              Terms of Service
+            </Link>
+          </p>
         </div>
       </div>
       </main>

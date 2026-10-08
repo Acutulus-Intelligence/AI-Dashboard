@@ -208,6 +208,18 @@ export default function RegisterPage() {
                   )}
                 </div>
 
+                <p className="text-center text-body-sm text-on-surface-variant">
+                  By creating an account, you agree to the{' '}
+                  <Link to={ROUTES.TERMS} className="font-medium text-primary hover:underline">
+                    Terms of Service
+                  </Link>{' '}
+                  and{' '}
+                  <Link to={ROUTES.PRIVACY} className="font-medium text-primary hover:underline">
+                    Privacy Policy
+                  </Link>
+                  .
+                </p>
+
                 <Button type="submit" variant="primary" className="w-full" disabled={loading}>
                   {loading ? (
                     <span className="flex items-center justify-center gap-2">

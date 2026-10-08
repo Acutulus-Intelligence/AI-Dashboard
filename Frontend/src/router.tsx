@@ -24,6 +24,9 @@ const LoginPage = lazy(() => import('./features/pages/LoginPage'));
 const RegisterPage = lazy(() => import('./features/pages/RegisterPage'));
 const PricingPage = lazy(() => import('./features/pages/PricingPage'));
 const ContactPage = lazy(() => import('./features/pages/ContactPage'));
+const PrivacyPage = lazy(() => import('./features/pages/PrivacyPage'));
+const TermsPage = lazy(() => import('./features/pages/TermsPage'));
+const NotFoundPage = lazy(() => import('./features/pages/NotFoundPage'));
 const PaymentSuccessPage = lazy(() => import('./features/pages/PaymentSuccessPage'));
 const PaymentCancelPage = lazy(() => import('./features/pages/PaymentCancelPage'));
 const CompanyCreatePage = lazy(() => import('./features/pages/CompanyCreatePage'));
@@ -52,10 +55,13 @@ export default function Router() {
           <ScrollToTop />
           <AuthProvider>
             <Routes>
+              <Route path={ROUTES.HOME} element={<LazyPage><LandingPage /></LazyPage>} />
               <Route path={ROUTES.LOGIN} element={<LazyPage><LoginPage /></LazyPage>} />
               <Route path={ROUTES.REGISTER} element={<LazyPage><RegisterPage /></LazyPage>} />
               <Route path={ROUTES.PRICING} element={<LazyPage><PricingPage /></LazyPage>} />
               <Route path={ROUTES.CONTACT} element={<LazyPage><ContactPage /></LazyPage>} />
+              <Route path={ROUTES.PRIVACY} element={<LazyPage><PrivacyPage /></LazyPage>} />
+              <Route path={ROUTES.TERMS} element={<LazyPage><TermsPage /></LazyPage>} />
               <Route path={ROUTES.PAYMENT_CANCEL} element={<LazyPage><PaymentCancelPage /></LazyPage>} />
               <Route
                 path={ROUTES.PAYMENT_SUCCESS}
@@ -160,7 +166,7 @@ export default function Router() {
               {import.meta.env.DEV && (
                 <Route path="/__charts" element={<LazyPage><ChartGalleryPage /></LazyPage>} />
               )}
-              <Route path="*" element={<LazyPage><LandingPage /></LazyPage>} />
+              <Route path="*" element={<LazyPage><NotFoundPage /></LazyPage>} />
             </Routes>
           </AuthProvider>
           <Toaster position="bottom-right" richColors closeButton />
