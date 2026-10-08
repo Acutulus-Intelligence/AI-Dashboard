@@ -15,5 +15,6 @@ public sealed record SaveChartRequest(
     Guid? DatasetId,
     string? TableName,
     ChartStyleConfig? StyleConfig = null,
-    DataQueryModel? DataModel = null
+    DataQueryModel? DataModel = null,
+    Guid? FolderId = null
 );

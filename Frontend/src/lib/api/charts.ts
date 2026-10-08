@@ -14,6 +14,7 @@ export interface SaveChartRequest {
   tableName: string | null;
   styleConfig?: ChartStyleConfig | null;
   dataModel?: DataQueryModel | null;
+  folderId?: string | null;
 }
 
 export interface DataQueryFilter {
@@ -49,6 +50,7 @@ export interface UpdateChartRequest {
   groupBy: string | null;
   sqlQuery: string;
   styleConfig?: ChartStyleConfig | null;
+  folderId?: string | null;
 }
 
 export interface ChartResponse {
@@ -56,6 +58,7 @@ export interface ChartResponse {
   title: string;
   chartType: string;
   createdAt: string;
+  folderId: string | null;
 }
 
 export interface ChartDetailResponse {
@@ -73,6 +76,7 @@ export interface ChartDetailResponse {
   createdAt: string;
   styleConfig?: ChartStyleConfig | null;
   dataModel?: DataQueryModel | null;
+  folderId: string | null;
 }
 
 export interface ChartConfigResponse {

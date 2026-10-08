@@ -25,6 +25,7 @@ public sealed class ProductRoutesTests
 
         (await client.GetAsync("/api/connections")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await client.GetAsync("/api/charts")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await client.GetAsync("/api/chart-folders")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await client.GetAsync("/api/dashboards")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
@@ -134,6 +135,79 @@ public sealed class ProductRoutesTests
     }
 
     [Fact]
+    public async Task Chart_folders_organize_charts_and_survive_folder_delete()
+    {
+        var client = CreateClient();
+        var email = $"folders_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        await _factory.SeedActiveSubscriptionAsync(email);
+
+        var createConn = await client.PostAsJsonAsync("/api/connections", new CreateConnectionRequest(
+            "FolderSample",
+            DbProvider.PostgreSql,
+            _factory.ExternalConnectionString));
+        createConn.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var connDoc = JsonDocument.Parse(await createConn.Content.ReadAsStringAsync());
+        var connectionId = connDoc.RootElement.GetProperty("id").GetGuid();
+
+        var saveChart = await client.PostAsJsonAsync("/api/charts", new SaveChartRequest(
+            "Folder chart",
+            "bar",
+            "category",
+            ["amount"],
+            "sum",
+            "category",
+            "SELECT category, SUM(amount) AS amount FROM sales GROUP BY category",
+            connectionId,
+            null,
+            "sales"));
+        saveChart.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var chartDoc = JsonDocument.Parse(await saveChart.Content.ReadAsStringAsync());
+        var chartId = chartDoc.RootElement.GetProperty("id").GetGuid();
+
+        var empty = await client.GetAsync("/api/chart-folders");
+        empty.StatusCode.Should().Be(HttpStatusCode.OK);
+        using (var emptyDoc = JsonDocument.Parse(await empty.Content.ReadAsStringAsync()))
+            emptyDoc.RootElement.GetArrayLength().Should().Be(0);
+
+        var createFolder = await client.PostAsJsonAsync("/api/chart-folders", new CreateChartFolderRequest("Reports"));
+        createFolder.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var folderDoc = JsonDocument.Parse(await createFolder.Content.ReadAsStringAsync());
+        var folderId = folderDoc.RootElement.GetProperty("id").GetGuid();
+
+        var duplicate = await client.PostAsJsonAsync("/api/chart-folders", new CreateChartFolderRequest("Reports"));
+        duplicate.StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        var move = await client.PutAsJsonAsync($"/api/charts/{chartId}/folder", new MoveChartRequest(folderId));
+        move.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var afterMove = await client.GetAsync($"/api/charts/{chartId}");
+        using (var movedDoc = JsonDocument.Parse(await afterMove.Content.ReadAsStringAsync()))
+            movedDoc.RootElement.GetProperty("folderId").GetGuid().Should().Be(folderId);
+
+        var list = await client.GetAsync("/api/chart-folders");
+        using (var listDoc = JsonDocument.Parse(await list.Content.ReadAsStringAsync()))
+        {
+            var first = listDoc.RootElement.EnumerateArray().First();
+            first.GetProperty("name").GetString().Should().Be("Reports");
+            first.GetProperty("chartCount").GetInt32().Should().Be(1);
+        }
+
+        var rename = await client.PutAsJsonAsync($"/api/chart-folders/{folderId}", new UpdateChartFolderRequest("Dashboards"));
+        rename.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await client.DeleteAsync($"/api/chart-folders/{folderId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var chartAfterDelete = await client.GetAsync($"/api/charts/{chartId}");
+        chartAfterDelete.StatusCode.Should().Be(HttpStatusCode.OK);
+        using (var unfiledDoc = JsonDocument.Parse(await chartAfterDelete.Content.ReadAsStringAsync()))
+            unfiledDoc.RootElement.GetProperty("folderId").ValueKind.Should().Be(JsonValueKind.Null);
+
+        (await client.DeleteAsync($"/api/charts/{chartId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await client.DeleteAsync($"/api/connections/{connectionId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
     public async Task Individual_users_can_only_connect_one_database()
     {
         var client = CreateClient();
@@ -156,6 +230,7 @@ public sealed class ProductRoutesTests
         var client = CreateClient();
         (await client.GetAsync("/api/connections")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         (await client.GetAsync("/api/charts")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await client.GetAsync("/api/chart-folders")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         (await client.GetAsync("/api/dashboards")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 }

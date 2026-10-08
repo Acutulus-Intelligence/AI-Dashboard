@@ -13,5 +13,6 @@ public sealed record UpdateChartRequest(
     string Aggregation,
     string? GroupBy,
     string SqlQuery,
-    ChartStyleConfig? StyleConfig = null
+    ChartStyleConfig? StyleConfig = null,
+    Guid? FolderId = null
 );
