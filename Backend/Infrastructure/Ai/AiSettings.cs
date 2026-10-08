@@ -11,7 +11,11 @@ public class AiSettings
     /// keep high enough that chart-type changes still leave room for JSON output.
     /// </summary>
     public int MaxTokens { get; set; } = 4096;
-    public double Temperature { get; set; } = 0.2;
+
+    /// <summary>
+    /// Low temperature reduces invented identifiers and style values.
+    /// </summary>
+    public double Temperature { get; set; } = 0.1;
 
     /// <summary>
     /// When true, log the extracted model JSON at Information level.

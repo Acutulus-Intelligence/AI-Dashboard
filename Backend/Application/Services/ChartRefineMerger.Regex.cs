@@ -13,6 +13,12 @@ public static partial class ChartRefineMerger
     [GeneratedRegex(@"\bcolou?r\s*\d+\b", RegexOptions.CultureInvariant)]
     private static partial Regex ColourNumberRegex();
 
+    [GeneratedRegex(@"^colou?rs?\s*[-_]?\s*(\d+)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ColourIndexRegex();
+
+    [GeneratedRegex(@"^var\(\s*--chart-([1-8])\s*\)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ThemeTokenRegex();
+
     /// <summary>Whole-word style / colour / format tokens (prompt is lowercased first).</summary>
     [GeneratedRegex(
         @"\b(style|styled|stil|styling|variant|tema|theme|differently|"
