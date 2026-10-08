@@ -122,6 +122,128 @@ public static class ApiClientExtensions
         return user.Id;
     }
 
+    public static async Task<Guid> SeedIndividualPlanWithDashboardLimitAsync(this ApiFactory factory, int maxDashboards)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var plan = new SubscriptionPlan
+        {
+            Id = Guid.NewGuid(),
+            Name = $"DashboardLimited-{Guid.NewGuid():N}",
+            UserType = UserType.Individual,
+            MonthlyPrice = 9.99m,
+            YearlyPrice = 99.99m,
+            MaxDashboards = maxDashboards,
+            IsActive = true,
+        };
+
+        db.SubscriptionPlans.Add(plan);
+        await db.SaveChangesAsync();
+        return plan.Id;
+    }
+
+    public static async Task<Guid> SeedSavedChartAsync(this ApiFactory factory, Guid userId, string title)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var chart = new SavedChart
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Title = title,
+            ChartType = "bar",
+            XAxis = "category",
+            YAxis = ["amount"],
+            Aggregation = "sum",
+            SqlQuery = "SELECT category, SUM(amount) AS amount FROM sales GROUP BY category",
+        };
+
+        db.SavedCharts.Add(chart);
+        await db.SaveChangesAsync();
+        return chart.Id;
+    }
+
+    public static async Task<Guid> SeedSavedChartWithConnectionAsync(
+        this ApiFactory factory, Guid userId, string title, Guid connectionId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var chart = new SavedChart
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Title = title,
+            ChartType = "bar",
+            XAxis = "category",
+            YAxis = ["amount"],
+            Aggregation = "sum",
+            SqlQuery = "SELECT category, SUM(amount) AS amount FROM sales GROUP BY category",
+            ConnectionId = connectionId,
+            TableName = "sales",
+        };
+
+        db.SavedCharts.Add(chart);
+        await db.SaveChangesAsync();
+        return chart.Id;
+    }
+
+    public static async Task<Guid> SeedCompanyConnectionAsync(
+        this ApiFactory factory, Guid userId, Guid companyId, string name, ConnectionVisibility visibility)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var connection = new ExternalConnection
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            CompanyId = companyId,
+            Name = name,
+            DbProvider = DbProvider.PostgreSql,
+            EncryptedConnectionString = "test",
+            IsVerified = true,
+            Visibility = visibility,
+        };
+
+        db.ExternalConnections.Add(connection);
+        await db.SaveChangesAsync();
+        return connection.Id;
+    }
+
+    public static async Task<(Guid? CompanyId, ConnectionVisibility Visibility)> GetConnectionAccessAsync(
+        this ApiFactory factory, Guid connectionId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var connection = await db.ExternalConnections
+            .AsNoTracking()
+            .FirstAsync(c => c.Id == connectionId);
+        return (connection.CompanyId, connection.Visibility);
+    }
+
+    public static async Task<Guid?> GetDashboardOwnerAsync(this ApiFactory factory, Guid dashboardId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        return await db.Dashboards
+            .Where(d => d.Id == dashboardId)
+            .Select(d => d.UserId)
+            .FirstOrDefaultAsync();
+    }
+
+    public static async Task<Guid> GetSavedChartOwnerAsync(this ApiFactory factory, Guid chartId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        return await db.SavedCharts
+            .Where(c => c.Id == chartId)
+            .Select(c => c.UserId)
+            .FirstAsync();
+    }
+
     public static async Task VerifySubscriptionStillActiveAsync(this ApiFactory factory, Guid userId)
     {
         using var scope = factory.Services.CreateScope();

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { LayoutDashboard, LogOut, UserCircle } from 'lucide-react';
+import { CreditCard, LayoutDashboard, LogOut, Shield, User, UserCircle } from 'lucide-react';
 import Button from '../components/Button';
 import HashLink from '../components/HashLink';
 import { useAuth } from '../store/useAuth';
@@ -15,6 +15,7 @@ const navItems = [
 
 export default function Header() {
   const { user, isAuthenticated, logout } = useAuth();
+  const isCompany = user?.userType === 1;
   const [hasScrolled, setHasScrolled] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
@@ -76,6 +77,33 @@ export default function Header() {
                       <LayoutDashboard size={16} aria-hidden="true" />
                       Dashboard
                     </Link>
+                    <Link
+                      to={ROUTES.PROFILE}
+                      className="flex items-center gap-2 rounded-lg px-3 py-2 text-body-sm text-on-background hover:bg-surface-container"
+                      onClick={() => setIsMenuOpen(false)}
+                    >
+                      <User size={16} aria-hidden="true" />
+                      Profile
+                    </Link>
+                    {isCompany ? (
+                      <Link
+                        to={ROUTES.ADMIN}
+                        className="flex items-center gap-2 rounded-lg px-3 py-2 text-body-sm text-on-background hover:bg-surface-container"
+                        onClick={() => setIsMenuOpen(false)}
+                      >
+                        <Shield size={16} aria-hidden="true" />
+                        {user?.companyRoleName === 'Owner' ? 'Admin settings' : 'Company'}
+                      </Link>
+                    ) : !user?.roles.includes('Admin') && !user?.roles.includes('Moderator') ? (
+                      <Link
+                        to={ROUTES.SETTINGS}
+                        className="flex items-center gap-2 rounded-lg px-3 py-2 text-body-sm text-on-background hover:bg-surface-container"
+                        onClick={() => setIsMenuOpen(false)}
+                      >
+                        <CreditCard size={16} aria-hidden="true" />
+                        Settings
+                      </Link>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => {
