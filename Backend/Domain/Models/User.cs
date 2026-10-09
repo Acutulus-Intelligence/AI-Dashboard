@@ -16,5 +16,6 @@ namespace Domain.Models
 
         public ICollection<Dashboard> Dashboards { get; set; } = [];
         public ICollection<RefreshToken> RefreshTokens { get; set; } = [];
+        public ICollection<TwoFactorRecoveryCode> TwoFactorRecoveryCodes { get; set; } = [];
     }
 }

@@ -9,5 +9,6 @@ public sealed record UserMeResponse(
     UserType UserType,
     string? FirstName,
     string? LastName,
-    string? CompanyRoleName
+    string? CompanyRoleName,
+    bool TwoFactorEnabled
 );

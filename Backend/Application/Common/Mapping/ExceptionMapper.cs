@@ -34,6 +34,12 @@ namespace Application.Common.Mapping
                 ErrorCode = "conflict"
             }},
 
+            { typeof(LockedOutException), new ExceptionMapResult {
+                StatusCode = (int)HttpStatusCode.Locked,
+                Title = "Account Locked",
+                ErrorCode = "account_locked"
+            }},
+
             { typeof(DbUpdateException), new ExceptionMapResult {
                 StatusCode = (int)HttpStatusCode.Conflict,
                 Title = "Database Error",

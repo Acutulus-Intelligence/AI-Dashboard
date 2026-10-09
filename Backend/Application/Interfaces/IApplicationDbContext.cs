@@ -19,6 +19,7 @@ public interface IApplicationDbContext
     DbSet<SubscriptionPlan> SubscriptionPlans { get; }
     DbSet<UserSubscription> UserSubscriptions { get; }
     DbSet<CardFingerprint> CardFingerprints { get; }
+    DbSet<TwoFactorRecoveryCode> TwoFactorRecoveryCodes { get; }
     DbSet<User> Users { get; }
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

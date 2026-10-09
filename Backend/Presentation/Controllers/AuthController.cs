@@ -3,6 +3,7 @@ using Application.DTos.Response;
 using Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Presentation.CookieExtensions;
 
 namespace Presentation.Controllers;
@@ -27,9 +28,24 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("login")]
+    [EnableRateLimiting("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request, CancellationToken ct)
     {
-        var result = await _authService.LoginAsync(request, ct);
+        var outcome = await _authService.LoginAsync(request, ct);
+
+        if (outcome.RequiresTwoFactor)
+            return Ok(new AuthResponse(0, true, outcome.ChallengeToken));
+
+        var auth = outcome.Auth!;
+        HttpContext.SetAuthCookies(auth.AccessToken, auth.RefreshToken, auth.ExpiresIn);
+        return Ok(new AuthResponse(auth.ExpiresIn));
+    }
+
+    [HttpPost("login/2fa")]
+    [EnableRateLimiting("login")]
+    public async Task<IActionResult> LoginTwoFactor([FromBody] TwoFactorLoginRequest request, CancellationToken ct)
+    {
+        var result = await _authService.LoginTwoFactorAsync(request, ct);
         HttpContext.SetAuthCookies(result.AccessToken, result.RefreshToken, result.ExpiresIn);
         return Ok(new AuthResponse(result.ExpiresIn));
     }
@@ -63,11 +79,11 @@ public class AuthController : ControllerBase
     [Authorize]
     public async Task<IActionResult> Me(CancellationToken ct)
     {
-        var userId = User.FindFirst("userId")?.Value;
-        if (userId is null || !Guid.TryParse(userId, out var parsedUserId))
+        var userId = GetUserId();
+        if (userId is null)
             return Unauthorized();
 
-        var me = await _authService.GetMeAsync(parsedUserId, ct);
+        var me = await _authService.GetMeAsync(userId.Value, ct);
         return Ok(me);
     }
 
@@ -75,11 +91,11 @@ public class AuthController : ControllerBase
     [Authorize]
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request, CancellationToken ct)
     {
-        var userId = User.FindFirst("userId")?.Value;
+        var userId = GetUserId();
         if (userId is null)
             return Unauthorized();
 
-        await _authService.ChangePasswordAsync(Guid.Parse(userId), request, ct);
+        await _authService.ChangePasswordAsync(userId.Value, request, ct);
         return NoContent();
     }
 
@@ -87,11 +103,11 @@ public class AuthController : ControllerBase
     [Authorize]
     public async Task<IActionResult> UpdateProfile([FromBody] UpdateProfileRequest request, CancellationToken ct)
     {
-        var userId = User.FindFirst("userId")?.Value;
+        var userId = GetUserId();
         if (userId is null)
             return Unauthorized();
 
-        await _authService.UpdateProfileAsync(Guid.Parse(userId), request, ct);
+        await _authService.UpdateProfileAsync(userId.Value, request, ct);
         return NoContent();
     }
 
@@ -99,11 +115,64 @@ public class AuthController : ControllerBase
     [Authorize]
     public async Task<IActionResult> DeleteAccount([FromBody] DeleteAccountRequest request, CancellationToken ct)
     {
-        var userId = User.FindFirst("userId")?.Value;
+        var userId = GetUserId();
         if (userId is null)
             return Unauthorized();
 
-        await _authService.DeleteAccountAsync(Guid.Parse(userId), request, ct);
+        await _authService.DeleteAccountAsync(userId.Value, request, ct);
         return NoContent();
     }
+
+    [HttpPost("2fa/setup")]
+    [Authorize]
+    public async Task<IActionResult> SetupTwoFactor([FromBody] SetupTwoFactorRequest request, CancellationToken ct)
+    {
+        var userId = GetUserId();
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await _authService.SetupTwoFactorAsync(userId.Value, request, ct);
+        return Ok(result);
+    }
+
+    [HttpPost("2fa/enable")]
+    [Authorize]
+    public async Task<IActionResult> EnableTwoFactor([FromBody] EnableTwoFactorRequest request, CancellationToken ct)
+    {
+        var userId = GetUserId();
+        if (userId is null)
+            return Unauthorized();
+
+        // Enabling two-factor authentication revokes all sessions, so the caller
+        // must sign in again with their newly configured 2FA.
+        var result = await _authService.EnableTwoFactorAsync(userId.Value, request, ct);
+        return Ok(result);
+    }
+
+    [HttpPost("2fa/disable")]
+    [Authorize]
+    public async Task<IActionResult> DisableTwoFactor([FromBody] DisableTwoFactorRequest request, CancellationToken ct)
+    {
+        var userId = GetUserId();
+        if (userId is null)
+            return Unauthorized();
+
+        await _authService.DisableTwoFactorAsync(userId.Value, request, ct);
+        return NoContent();
+    }
+
+    [HttpPost("2fa/recovery-codes")]
+    [Authorize]
+    public async Task<IActionResult> RegenerateRecoveryCodes([FromBody] RegenerateRecoveryCodesRequest request, CancellationToken ct)
+    {
+        var userId = GetUserId();
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await _authService.RegenerateRecoveryCodesAsync(userId.Value, request, ct);
+        return Ok(result);
+    }
+
+    private Guid? GetUserId()
+        => Guid.TryParse(User.FindFirst("userId")?.Value, out var userId) ? userId : null;
 }

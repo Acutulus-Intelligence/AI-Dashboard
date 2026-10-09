@@ -1,4 +1,5 @@
 using System.Text;
+using System.Threading.RateLimiting;
 using Application.Common.Mapping;
 using Application.Datasets;
 using Application.Interfaces;
@@ -20,6 +21,7 @@ using Infrastructure.Datasets;
 using Infrastructure.Payment;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Presentation.Middleware;
@@ -39,6 +41,13 @@ builder.Services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<Ap
 builder.Services.AddIdentity<User, IdentityRole<Guid>>()
     .AddEntityFrameworkStores<AppDbContext>()
     .AddDefaultTokenProviders();
+
+builder.Services.Configure<IdentityOptions>(options =>
+{
+    options.Lockout.MaxFailedAccessAttempts = 5;
+    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(5);
+    options.Lockout.AllowedForNewUsers = true;
+});
 
 var jwtSettings = builder.Configuration.GetSection("Jwt");
 builder.Services.Configure<JwtSettings>(jwtSettings);
@@ -151,6 +160,26 @@ builder.Services.AddCors(options =>
     });
 });
 
+var rateLimitingEnabled = builder.Configuration.GetValue("RateLimiting:Enabled", true);
+
+if (rateLimitingEnabled)
+{
+    builder.Services.AddRateLimiter(options =>
+    {
+        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+        options.AddPolicy("login", httpContext =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 10,
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueLimit = 0,
+                }));
+    });
+}
+
 var app = builder.Build();
 
 app.UseMiddleware<GlobalExceptionMiddleware>();
@@ -186,6 +215,11 @@ app.UseCors("Frontend");
 app.UseAuthentication();
 app.UseMiddleware<UserExistsMiddleware>();
 app.UseAuthorization();
+
+if (rateLimitingEnabled)
+{
+    app.UseRateLimiter();
+}
 
 app.MapControllers();
 

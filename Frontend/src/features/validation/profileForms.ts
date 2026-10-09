@@ -45,3 +45,12 @@ export const deleteAccountSchema = z.object({
 });
 
 export type DeleteAccountFormValues = z.infer<typeof deleteAccountSchema>;
+
+export const twoFactorCodeSchema = z.object({
+  code: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, 'Enter the 6-digit code from your authenticator app.'),
+});
+
+export type TwoFactorCodeFormValues = z.infer<typeof twoFactorCodeSchema>;
