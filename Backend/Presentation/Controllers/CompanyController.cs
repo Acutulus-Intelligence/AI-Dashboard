@@ -37,7 +37,6 @@ public class CompanyController : ControllerBase
     }
 
     [HttpGet("me/style")]
-    [RequireActiveSubscription]
     public async Task<IActionResult> GetMyStyle(CancellationToken ct)
     {
         var userId = GetUserId();
@@ -46,7 +45,6 @@ public class CompanyController : ControllerBase
     }
 
     [HttpPut("me/style")]
-    [RequireActiveSubscription]
     public async Task<IActionResult> UpdateMyStyle([FromBody] UpdateCompanyStyleRequest request, CancellationToken ct)
     {
         var userId = GetUserId();

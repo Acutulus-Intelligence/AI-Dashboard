@@ -4,7 +4,11 @@ using System.Text.Json;
 using Application.DTos.Request;
 using Application.DTos.Response;
 using Domain.Enums;
+using Domain.Models;
 using FluentAssertions;
+using Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Presentation.IntegrationTests;
 
@@ -111,7 +115,7 @@ public sealed class DashboardRoutesTests
         var wrongPassword = await ownerClient.PostAsJsonAsync(
             $"/api/dashboards/{dashboardId}/transfer-ownership",
             new TransferDashboardRequest(inviteeId, "WrongPass123!"));
-        wrongPassword.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        wrongPassword.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
         var transfer = await ownerClient.PostAsJsonAsync(
             $"/api/dashboards/{dashboardId}/transfer-ownership",
@@ -199,12 +203,92 @@ public sealed class DashboardRoutesTests
         (await _factory.GetDashboardOwnerAsync(dashboardId)).Should().Be(setup.InviteeId);
         (await _factory.GetSavedChartOwnerAsync(chartId)).Should().Be(setup.InviteeId);
 
+        // Sharing is scoped to the recipient's role, not the whole company.
+        var recipientRoleId = await _factory.GetUserCompanyRoleIdAsync(setup.InviteeEmail);
+        recipientRoleId.Should().NotBeNull();
+
         var access = await _factory.GetConnectionAccessAsync(connectionId);
         access.CompanyId.Should().Be(company.Id);
-        access.Visibility.Should().Be(ConnectionVisibility.Company);
+        access.Visibility.Should().Be(ConnectionVisibility.Roles);
+        access.AllowedRoleIds.Should().Contain(recipientRoleId!.Value);
 
         // The new owner can now read the connection.
         (await setup.InviteeClient.GetAsync($"/api/connections/{connectionId}")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // A second teammate with a different role still cannot see it.
+        var otherEmail = $"dashcoother_{Guid.NewGuid():N}@example.com";
+        var otherMember = await AddCompanyMemberAsync(setup.OwnerClient, company.Id, "Other", otherEmail);
+        (await otherMember.Client.GetAsync($"/api/connections/{connectionId}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Transferring_a_dashboard_enforces_the_new_owners_plan_limit()
+    {
+        var setup = await CreateCompanyWithMemberAsync();
+
+        // Give the recipient their own one-dashboard plan and one existing board.
+        var planId = await _factory.SeedIndividualPlanWithDashboardLimitAsync(1);
+        await _factory.SeedSubscriptionForPlanAsync(setup.InviteeId, planId);
+        await CreateDashboardAsync(setup.InviteeClient, "Invitee board");
+
+        var dashboardId = await CreateDashboardAsync(setup.OwnerClient, "Team board");
+
+        var transfer = await setup.OwnerClient.PostAsJsonAsync(
+            $"/api/dashboards/{dashboardId}/transfer-ownership",
+            new TransferDashboardRequest(setup.InviteeId, ApiClientExtensions.DefaultPassword));
+
+        transfer.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await _factory.GetDashboardOwnerAsync(dashboardId)).Should().Be(setup.OwnerId);
+    }
+
+    [Fact]
+    public async Task Failed_transfer_passwords_count_toward_lockout()
+    {
+        var setup = await CreateCompanyWithMemberAsync();
+        var dashboardId = await CreateDashboardAsync(setup.OwnerClient, "Lockout board");
+
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var response = await setup.OwnerClient.PostAsJsonAsync(
+                $"/api/dashboards/{dashboardId}/transfer-ownership",
+                new TransferDashboardRequest(setup.InviteeId, "WrongPass123!"));
+            response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        }
+
+        // Failed attempts are now counted toward lockout.
+        (await _factory.GetAccessFailedCountAsync(setup.OwnerEmail)).Should().Be(3);
+
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var response = await setup.OwnerClient.PostAsJsonAsync(
+                $"/api/dashboards/{dashboardId}/transfer-ownership",
+                new TransferDashboardRequest(setup.InviteeId, "WrongPass123!"));
+            response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        }
+
+        // Once locked out, even the correct password is refused (and returns 400, not 401).
+        var lockedOut = await setup.OwnerClient.PostAsJsonAsync(
+            $"/api/dashboards/{dashboardId}/transfer-ownership",
+            new TransferDashboardRequest(setup.InviteeId, ApiClientExtensions.DefaultPassword));
+        lockedOut.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Dashboard_names_are_unique_per_user_at_the_database_level()
+    {
+        var client = CreateClient();
+        var email = $"dashunique_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        await _factory.SeedActiveSubscriptionAsync(email);
+        var userId = await _factory.GetUserIdAsync(email);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.Dashboards.Add(new Dashboard { Id = Guid.NewGuid(), Name = "Duplicate", UserId = userId, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+        db.Dashboards.Add(new Dashboard { Id = Guid.NewGuid(), Name = "Duplicate", UserId = userId, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+
+        var act = async () => await db.SaveChangesAsync();
+        await act.Should().ThrowAsync<DbUpdateException>();
     }
 
     [Fact]
@@ -228,7 +312,7 @@ public sealed class DashboardRoutesTests
         transfer.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
-    private async Task<(HttpClient OwnerClient, Guid OwnerId, HttpClient InviteeClient, Guid InviteeId)> CreateCompanyWithMemberAsync()
+    private async Task<(HttpClient OwnerClient, Guid OwnerId, string OwnerEmail, HttpClient InviteeClient, Guid InviteeId, string InviteeEmail)> CreateCompanyWithMemberAsync()
     {
         var ownerClient = CreateClient();
         var ownerEmail = $"dashcoowner_{Guid.NewGuid():N}@example.com";
@@ -260,6 +344,31 @@ public sealed class DashboardRoutesTests
 
         var ownerId = await _factory.GetUserIdAsync(ownerEmail);
         var inviteeId = await _factory.GetUserIdAsync(inviteeEmail);
-        return (ownerClient, ownerId, inviteeClient, inviteeId);
+        return (ownerClient, ownerId, ownerEmail, inviteeClient, inviteeId, inviteeEmail);
+    }
+
+    private async Task<(HttpClient Client, Guid UserId, Guid RoleId)> AddCompanyMemberAsync(
+        HttpClient ownerClient, Guid companyId, string roleName, string email)
+    {
+        var roleResp = await ownerClient.PostAsJsonAsync($"/api/companies/{companyId}/roles",
+            new CreateRoleRequest(roleName, false, false, false, false));
+        roleResp.EnsureSuccessStatusCode();
+        var role = await roleResp.ReadJsonAsync<CompanyRoleResponse>();
+
+        var inviteResp = await ownerClient.PostAsJsonAsync($"/api/companies/{companyId}/invite",
+            new InviteUserRequest(email, role.Id));
+        inviteResp.EnsureSuccessStatusCode();
+
+        var invites = await (await ownerClient.GetAsync($"/api/companies/{companyId}/invites"))
+            .ReadJsonAsync<List<CompanyInviteResponse>>();
+        var pending = invites.First(i => i.Email == email && !i.IsAccepted);
+
+        var client = CreateClient();
+        await client.RegisterAndLoginAsync(email);
+        var accept = await client.PostAsJsonAsync("/api/companies/accept-invite", new AcceptInviteRequest(pending.Id));
+        accept.EnsureSuccessStatusCode();
+
+        var userId = await _factory.GetUserIdAsync(email);
+        return (client, userId, role.Id);
     }
 }

@@ -95,7 +95,11 @@ export default function TransferDashboardDialog({
     if (!selectedId || !password) return;
     setSaving(true);
     try {
-      await transferDashboard(dashboardId, selectedId, password, true);
+      const result = await transferDashboard(dashboardId, selectedId, password, true);
+      if (!result.transferred) {
+        setRequiresSharing(result.requiresSharing);
+        return;
+      }
       toast.success('Dashboard transferred.');
       onTransferred();
       onOpenChange(false);

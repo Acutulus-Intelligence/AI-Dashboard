@@ -213,7 +213,7 @@ public static class ApiClientExtensions
         return connection.Id;
     }
 
-    public static async Task<(Guid? CompanyId, ConnectionVisibility Visibility)> GetConnectionAccessAsync(
+    public static async Task<(Guid? CompanyId, ConnectionVisibility Visibility, List<Guid> AllowedRoleIds)> GetConnectionAccessAsync(
         this ApiFactory factory, Guid connectionId)
     {
         using var scope = factory.Services.CreateScope();
@@ -221,7 +221,25 @@ public static class ApiClientExtensions
         var connection = await db.ExternalConnections
             .AsNoTracking()
             .FirstAsync(c => c.Id == connectionId);
-        return (connection.CompanyId, connection.Visibility);
+        return (connection.CompanyId, connection.Visibility, connection.AllowedRoleIds);
+    }
+
+    public static async Task<Guid?> GetUserCompanyRoleIdAsync(this ApiFactory factory, string email)
+    {
+        using var scope = factory.Services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
+        var user = await users.FindByEmailAsync(email)
+            ?? throw new InvalidOperationException($"User {email} not found.");
+        return user.CompanyRoleId;
+    }
+
+    public static async Task<int> GetAccessFailedCountAsync(this ApiFactory factory, string email)
+    {
+        using var scope = factory.Services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
+        var user = await users.FindByEmailAsync(email)
+            ?? throw new InvalidOperationException($"User {email} not found.");
+        return await users.GetAccessFailedCountAsync(user);
     }
 
     public static async Task<Guid?> GetDashboardOwnerAsync(this ApiFactory factory, Guid dashboardId)

@@ -77,6 +77,7 @@ export default function DashboardPage() {
         }
       >
         <DashboardGrid
+          key={dashboardId}
           ref={gridRef}
           dashboardId={dashboardId}
           editMode={editMode}

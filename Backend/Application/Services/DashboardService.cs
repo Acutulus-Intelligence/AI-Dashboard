@@ -12,9 +12,11 @@ namespace Application.Services;
 public class DashboardService : IDashboardService
 {
     private const int MaxTextContentLength = 5000;
+    private const int MaxChartTitleLength = 200;
     private readonly IApplicationDbContext _db;
     private readonly ISubscriptionService _subscriptionService;
     private readonly UserManager<User> _userManager;
+    private readonly ICurrentPasswordVerifier _currentPasswordVerifier;
     private readonly IConnectionAccessService _connectionAccess;
     private readonly ICollectionAccessService _collectionAccess;
 
@@ -22,12 +24,14 @@ public class DashboardService : IDashboardService
         IApplicationDbContext db,
         ISubscriptionService subscriptionService,
         UserManager<User> userManager,
+        ICurrentPasswordVerifier currentPasswordVerifier,
         IConnectionAccessService connectionAccess,
         ICollectionAccessService collectionAccess)
     {
         _db = db;
         _subscriptionService = subscriptionService;
         _userManager = userManager;
+        _currentPasswordVerifier = currentPasswordVerifier;
         _connectionAccess = connectionAccess;
         _collectionAccess = collectionAccess;
     }
@@ -80,7 +84,7 @@ public class DashboardService : IDashboardService
         };
 
         _db.Dashboards.Add(dashboard);
-        await _db.SaveChangesAsync(ct);
+        await SaveDashboardAsync(ct);
 
         return MapToResponse(dashboard);
     }
@@ -97,7 +101,7 @@ public class DashboardService : IDashboardService
 
         dashboard.Name = name;
         dashboard.UpdatedAt = DateTime.UtcNow;
-        await _db.SaveChangesAsync(ct);
+        await SaveDashboardAsync(ct);
 
         return MapToResponse(dashboard);
     }
@@ -174,13 +178,28 @@ public class DashboardService : IDashboardService
             throw new InvalidOperationException(
                 "Dashboards can only be transferred between members of the same company.");
 
-        var identityOwner = await _userManager.FindByIdAsync(userId.ToString());
-        if (identityOwner is null || !await _userManager.CheckPasswordAsync(identityOwner, request.CurrentPassword))
-            throw new UnauthorizedAccessException("Current password is incorrect.");
+        var identityOwner = await _userManager.FindByIdAsync(userId.ToString())
+            ?? throw new UnauthorizedAccessException("Owner not found.");
+
+        var passwordCheck = await _currentPasswordVerifier.VerifyAsync(identityOwner, request.CurrentPassword);
+        if (passwordCheck == CurrentPasswordCheck.LockedOut)
+            throw new ArgumentException("Too many failed attempts. Try again later.");
+        if (passwordCheck != CurrentPasswordCheck.Success)
+            throw new ArgumentException("Current password is incorrect.");
 
         var newOwner = await _db.Users
             .FirstOrDefaultAsync(u => u.Id == request.NewOwnerId && u.CompanyId == owner.CompanyId, ct)
             ?? throw new KeyNotFoundException("New owner must be a member of your company.");
+
+        var limit = await _subscriptionService.GetMaxDashboardsAsync(newOwner.Id, ct);
+        if (limit.HasValue)
+        {
+            var count = await _db.Dashboards.CountAsync(d => d.UserId == newOwner.Id, ct);
+            if (count >= limit.Value)
+                throw new ConflictException(
+                    $"The new owner has reached the limit of {limit.Value} dashboard{(limit.Value == 1 ? "" : "s")}.",
+                    "dashboard_limit_reached");
+        }
 
         var chartIds = dashboard.Widgets
             .Where(w => w.WidgetType == WidgetType.Chart && w.SavedChartId.HasValue)
@@ -203,18 +222,30 @@ public class DashboardService : IDashboardService
         if (requiresSharing.Count > 0 && !request.ShareDataSources)
             return new TransferDashboardResponse(false, requiresSharing);
 
-        foreach (var connection in connectionsToShare)
+        // Grant the new owner access through their company role only, so the
+        // sources stay hidden from every other company member. Existing role
+        // grants are preserved.
+        if (connectionsToShare.Count > 0 || collectionsToShare.Count > 0)
         {
-            connection.CompanyId = owner.CompanyId.Value;
-            connection.Visibility = ConnectionVisibility.Company;
-            connection.AllowedRoleIds = [];
-        }
+            var recipientRoleId = newOwner.CompanyRoleId
+                ?? throw new InvalidOperationException(
+                    $"\"{newOwner.Email}\" has no company role. Assign them a role before sharing data sources.");
 
-        foreach (var collection in collectionsToShare)
-        {
-            collection.CompanyId = owner.CompanyId.Value;
-            collection.Visibility = CollectionVisibility.Company;
-            collection.AllowedRoleIds = [];
+            foreach (var connection in connectionsToShare)
+            {
+                connection.CompanyId = owner.CompanyId.Value;
+                connection.Visibility = ConnectionVisibility.Roles;
+                if (!connection.AllowedRoleIds.Contains(recipientRoleId))
+                    connection.AllowedRoleIds.Add(recipientRoleId);
+            }
+
+            foreach (var collection in collectionsToShare)
+            {
+                collection.CompanyId = owner.CompanyId.Value;
+                collection.Visibility = CollectionVisibility.Roles;
+                if (!collection.AllowedRoleIds.Contains(recipientRoleId))
+                    collection.AllowedRoleIds.Add(recipientRoleId);
+            }
         }
 
         dashboard.UserId = newOwner.Id;
@@ -228,7 +259,8 @@ public class DashboardService : IDashboardService
             var sharedChartIds = (await _db.DashboardWidgets
                 .Where(w => w.SavedChartId != null
                     && chartIds.Contains(w.SavedChartId!.Value)
-                    && w.DashboardId != dashboard.Id)
+                    && w.DashboardId != dashboard.Id
+                    && w.Dashboard.UserId == userId)
                 .Select(w => w.SavedChartId!.Value)
                 .Distinct()
                 .ToListAsync(ct))
@@ -376,6 +408,9 @@ public class DashboardService : IDashboardService
 
     private static string ResolveUniqueTitle(string title, HashSet<string> takenTitles)
     {
+        if (title.Length > MaxChartTitleLength)
+            title = title[..MaxChartTitleLength];
+
         if (takenTitles.Add(title))
             return title;
 
@@ -383,10 +418,26 @@ public class DashboardService : IDashboardService
         string candidate;
         do
         {
-            candidate = $"{title} ({suffix++})";
+            var suffixText = $" ({suffix++})";
+            var maxBaseLength = MaxChartTitleLength - suffixText.Length;
+            var baseTitle = title.Length > maxBaseLength ? title[..maxBaseLength] : title;
+            candidate = $"{baseTitle}{suffixText}";
         } while (!takenTitles.Add(candidate));
 
         return candidate;
+    }
+
+    private async Task SaveDashboardAsync(CancellationToken ct)
+    {
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException)
+        {
+            // A concurrent create/rename hit the unique (UserId, Name) index.
+            throw new ConflictException("You already have a dashboard with that name.", "dashboard_name_conflict");
+        }
     }
 
     private static void ApplyWidgetItem(DashboardWidget existing, WidgetItem item)
