@@ -36,6 +36,7 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import AppShell from '../layouts/AppShell';
 import PasswordRequirements from '../components/PasswordRequirements';
+import TwoFactorSettings from '../components/TwoFactorSettings';
 import { useAuth } from '../store/useAuth';
 import * as authApi from '../../lib/api/auth';
 import {
@@ -171,11 +172,12 @@ function SecurityTab() {
   }
 
   return (
-    <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)}>
-        <Card>
-          <CardHeader>
-            <CardTitle>Password</CardTitle>
+    <div className="grid gap-6">
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)}>
+          <Card>
+            <CardHeader>
+              <CardTitle>Password</CardTitle>
             <CardDescription>
               Choose a strong password you do not use anywhere else.
             </CardDescription>
@@ -233,6 +235,8 @@ function SecurityTab() {
         </Card>
       </form>
     </Form>
+      <TwoFactorSettings />
+    </div>
   );
 }
 

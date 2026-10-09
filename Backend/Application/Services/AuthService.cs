@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Application.Common.Exceptions;
 using Application.DTos;
 using Application.DTos.Request;
@@ -12,7 +13,13 @@ namespace Application.Services;
 
 public class AuthService : IAuthService
 {
+    private const string AuthenticatorIssuer = "AI-Dashboard";
+    private const int RecoveryCodeCount = 10;
+    private const string RecoveryCodeAlphabet = "23456789BCDFGHJKMNPQRTVWXY";
+
     private readonly UserManager<User> _userManager;
+    private readonly IUserStore<User> _userStore;
+    private readonly IPasswordHasher<User> _passwordHasher;
     private readonly ITokenService _tokenService;
     private readonly IRefreshTokenService _refreshTokenService;
     private readonly ICompanyService _companyService;
@@ -21,6 +28,8 @@ public class AuthService : IAuthService
 
     public AuthService(
         UserManager<User> userManager,
+        IUserStore<User> userStore,
+        IPasswordHasher<User> passwordHasher,
         ITokenService tokenService,
         IRefreshTokenService refreshTokenService,
         ICompanyService companyService,
@@ -28,6 +37,8 @@ public class AuthService : IAuthService
         IApplicationDbContext db)
     {
         _userManager = userManager;
+        _userStore = userStore;
+        _passwordHasher = passwordHasher;
         _tokenService = tokenService;
         _refreshTokenService = refreshTokenService;
         _companyService = companyService;
@@ -65,7 +76,7 @@ public class AuthService : IAuthService
         return await GenerateAuthResultAsync(user, roles);
     }
 
-    public async Task<AuthResult> LoginAsync(LoginRequest request, CancellationToken ct = default)
+    public async Task<LoginOutcome> LoginAsync(LoginRequest request, CancellationToken ct = default)
     {
         var user = await _userManager.FindByEmailAsync(request.Email);
         if (user is null)
@@ -75,8 +86,123 @@ public class AuthService : IAuthService
         if (!passwordValid)
             throw new UnauthorizedAccessException("Invalid email or password.");
 
+        if (user.TwoFactorEnabled)
+        {
+            var (challengeToken, _) = _tokenService.GenerateTwoFactorChallengeToken(user);
+            return LoginOutcome.TwoFactorRequired(challengeToken);
+        }
+
+        var roles = await _userManager.GetRolesAsync(user);
+        return LoginOutcome.Authenticated(await GenerateAuthResultAsync(user, roles));
+    }
+
+    public async Task<AuthResult> LoginTwoFactorAsync(TwoFactorLoginRequest request, CancellationToken ct = default)
+    {
+        var userId = _tokenService.ValidateTwoFactorChallengeToken(request.ChallengeToken)
+            ?? throw new UnauthorizedAccessException("Your verification session has expired. Please sign in again.");
+
+        var user = await _userManager.FindByIdAsync(userId.ToString())
+            ?? throw new UnauthorizedAccessException("Invalid verification session.");
+
+        if (!user.TwoFactorEnabled)
+            throw new UnauthorizedAccessException("Two-factor authentication is not enabled for this account.");
+
+        var code = request.Code.Trim();
+
+        var valid = request.UseRecoveryCode
+            ? await RedeemRecoveryCodeAsync(user, code, ct)
+            : await _userManager.VerifyTwoFactorTokenAsync(user, TokenOptions.DefaultAuthenticatorProvider, code);
+
+        if (!valid)
+            throw new UnauthorizedAccessException("Invalid verification code.");
+
         var roles = await _userManager.GetRolesAsync(user);
         return await GenerateAuthResultAsync(user, roles);
+    }
+
+    public async Task<TwoFactorSetupResponse> SetupTwoFactorAsync(Guid userId, CancellationToken ct = default)
+    {
+        var user = await _userManager.FindByIdAsync(userId.ToString())
+            ?? throw new UnauthorizedAccessException("User not found.");
+
+        // Generate a fresh shared key without rotating the security stamp, so the
+        // current authenticated session is not invalidated while the user sets up 2FA.
+        var sharedKey = _userManager.GenerateNewAuthenticatorKey();
+        await GetAuthenticatorKeyStore().SetAuthenticatorKeyAsync(user, sharedKey, ct);
+        await _userManager.UpdateAsync(user);
+
+        var account = user.Email ?? user.UserName ?? userId.ToString();
+        return new TwoFactorSetupResponse(sharedKey, BuildAuthenticatorUri(account, sharedKey));
+    }
+
+    public async Task<TwoFactorRecoveryCodesResponse> EnableTwoFactorAsync(
+        Guid userId, EnableTwoFactorRequest request, CancellationToken ct = default)
+    {
+        var user = await _userManager.FindByIdAsync(userId.ToString())
+            ?? throw new UnauthorizedAccessException("User not found.");
+
+        var key = await _userManager.GetAuthenticatorKeyAsync(user);
+        if (string.IsNullOrWhiteSpace(key))
+            throw new InvalidOperationException("Two-factor setup has not been started. Please start the setup again.");
+
+        if (!await _userManager.VerifyTwoFactorTokenAsync(
+                user, TokenOptions.DefaultAuthenticatorProvider, request.Code.Trim()))
+            throw new UnauthorizedAccessException("Invalid verification code.");
+
+        var enableResult = await _userManager.SetTwoFactorEnabledAsync(user, true);
+        if (!enableResult.Succeeded)
+            throw new InvalidOperationException("Failed to enable two-factor authentication. Please try again.");
+
+        // Enabling rotates the security stamp (invalidating active access tokens).
+        // Revoke refresh tokens too so all sessions must re-authenticate with 2FA.
+        await _refreshTokenService.RevokeAllRefreshTokensAsync(user.Id);
+
+        var codes = await GenerateRecoveryCodesAsync(user, ct);
+        return new TwoFactorRecoveryCodesResponse(codes);
+    }
+
+    public async Task DisableTwoFactorAsync(
+        Guid userId, DisableTwoFactorRequest request, CancellationToken ct = default)
+    {
+        var user = await _userManager.FindByIdAsync(userId.ToString())
+            ?? throw new UnauthorizedAccessException("User not found.");
+
+        if (!await _userManager.VerifyTwoFactorTokenAsync(
+                user, TokenOptions.DefaultAuthenticatorProvider, request.Code.Trim()))
+            throw new UnauthorizedAccessException("Invalid verification code.");
+
+        var disableResult = await _userManager.SetTwoFactorEnabledAsync(user, false);
+        if (!disableResult.Succeeded)
+            throw new InvalidOperationException("Failed to disable two-factor authentication. Please try again.");
+
+        await GetAuthenticatorKeyStore().SetAuthenticatorKeyAsync(user, string.Empty, ct);
+
+        var codes = await _db.TwoFactorRecoveryCodes
+            .Where(c => c.UserId == user.Id)
+            .ToListAsync(ct);
+        _db.TwoFactorRecoveryCodes.RemoveRange(codes);
+        await _db.SaveChangesAsync(ct);
+
+        // Invalidate every existing session for this account.
+        await _userManager.UpdateSecurityStampAsync(user);
+        await _refreshTokenService.RevokeAllRefreshTokensAsync(user.Id);
+    }
+
+    public async Task<TwoFactorRecoveryCodesResponse> RegenerateRecoveryCodesAsync(
+        Guid userId, RegenerateRecoveryCodesRequest request, CancellationToken ct = default)
+    {
+        var user = await _userManager.FindByIdAsync(userId.ToString())
+            ?? throw new UnauthorizedAccessException("User not found.");
+
+        if (!user.TwoFactorEnabled)
+            throw new InvalidOperationException("Two-factor authentication is not enabled.");
+
+        if (!await _userManager.VerifyTwoFactorTokenAsync(
+                user, TokenOptions.DefaultAuthenticatorProvider, request.Code.Trim()))
+            throw new UnauthorizedAccessException("Invalid verification code.");
+
+        var codes = await GenerateRecoveryCodesAsync(user, ct);
+        return new TwoFactorRecoveryCodesResponse(codes);
     }
 
     public async Task<AuthResult> RefreshTokenAsync(string refreshToken, CancellationToken ct = default)
@@ -168,7 +294,8 @@ public class AuthService : IAuthService
             user.UserType,
             user.FirstName,
             user.LastName,
-            companyRoleName
+            companyRoleName,
+            user.TwoFactorEnabled
         );
     }
 
@@ -239,6 +366,11 @@ public class AuthService : IAuthService
             .ToListAsync(ct);
         _db.RefreshTokens.RemoveRange(refreshTokens);
 
+        var recoveryCodes = await _db.TwoFactorRecoveryCodes
+            .Where(c => c.UserId == userId)
+            .ToListAsync(ct);
+        _db.TwoFactorRecoveryCodes.RemoveRange(recoveryCodes);
+
         var userSubscription = await _db.UserSubscriptions
             .FirstOrDefaultAsync(s => s.UserId == userId, ct);
         if (userSubscription is not null)
@@ -269,4 +401,91 @@ public class AuthService : IAuthService
 
         return new AuthResult(accessToken, refreshToken, expiresIn);
     }
+
+    private async Task<bool> RedeemRecoveryCodeAsync(User user, string code, CancellationToken ct)
+    {
+        var normalized = NormalizeRecoveryCode(code);
+        if (normalized.Length == 0)
+            return false;
+
+        var candidates = await _db.TwoFactorRecoveryCodes
+            .Where(c => c.UserId == user.Id && c.UsedAt == null)
+            .ToListAsync(ct);
+
+        foreach (var candidate in candidates)
+        {
+            var result = _passwordHasher.VerifyHashedPassword(user, candidate.CodeHash, normalized);
+            if (result == PasswordVerificationResult.Failed)
+                continue;
+
+            candidate.UsedAt = DateTime.UtcNow;
+            try
+            {
+                await _db.SaveChangesAsync(ct);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // Another request consumed the code first.
+                return false;
+            }
+            return true;
+        }
+
+        return false;
+    }
+
+    private async Task<IReadOnlyList<string>> GenerateRecoveryCodesAsync(User user, CancellationToken ct)
+    {
+        var existing = await _db.TwoFactorRecoveryCodes
+            .Where(c => c.UserId == user.Id)
+            .ToListAsync(ct);
+        _db.TwoFactorRecoveryCodes.RemoveRange(existing);
+
+        var displayCodes = new List<string>(RecoveryCodeCount);
+        var now = DateTime.UtcNow;
+
+        for (var i = 0; i < RecoveryCodeCount; i++)
+        {
+            var code = CreateRecoveryCode();
+            displayCodes.Add(code);
+
+            _db.TwoFactorRecoveryCodes.Add(new TwoFactorRecoveryCode
+            {
+                Id = Guid.NewGuid(),
+                UserId = user.Id,
+                CodeHash = _passwordHasher.HashPassword(user, NormalizeRecoveryCode(code)),
+                CreatedAt = now,
+            });
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return displayCodes;
+    }
+
+    private IUserAuthenticatorKeyStore<User> GetAuthenticatorKeyStore()
+    {
+        if (_userStore is IUserAuthenticatorKeyStore<User> keyStore)
+            return keyStore;
+
+        throw new InvalidOperationException("The configured user store does not support authenticator keys.");
+    }
+
+    private static string BuildAuthenticatorUri(string account, string sharedKey)
+    {
+        var label = Uri.EscapeDataString($"{AuthenticatorIssuer}:{account}");
+        var issuer = Uri.EscapeDataString(AuthenticatorIssuer);
+        return $"otpauth://totp/{label}?secret={sharedKey}&issuer={issuer}&digits=6";
+    }
+
+    private static string CreateRecoveryCode()
+    {
+        var chars = new char[10];
+        for (var i = 0; i < chars.Length; i++)
+            chars[i] = RecoveryCodeAlphabet[RandomNumberGenerator.GetInt32(RecoveryCodeAlphabet.Length)];
+
+        return $"{new string(chars, 0, 5)}-{new string(chars, 5, 5)}";
+    }
+
+    private static string NormalizeRecoveryCode(string code) =>
+        code.Replace("-", string.Empty).Replace(" ", string.Empty).Trim().ToUpperInvariant();
 }

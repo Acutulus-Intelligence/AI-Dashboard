@@ -23,6 +23,7 @@ namespace Infrastructure.Data
         public DbSet<SubscriptionPlan> SubscriptionPlans => Set<SubscriptionPlan>();
         public DbSet<UserSubscription> UserSubscriptions => Set<UserSubscription>();
         public DbSet<CardFingerprint> CardFingerprints => Set<CardFingerprint>();
+        public DbSet<TwoFactorRecoveryCode> TwoFactorRecoveryCodes => Set<TwoFactorRecoveryCode>();
         public DbSet<CompanySubscription> CompanySubscriptions => Set<CompanySubscription>();
         public DbSet<SavedChart> SavedCharts => Set<SavedChart>();
         public DbSet<SavedDataset> SavedDatasets => Set<SavedDataset>();
@@ -42,6 +43,7 @@ namespace Infrastructure.Data
             builder.ApplyConfiguration(new SubscriptionPlanConfiguration());
             builder.ApplyConfiguration(new UserSubscriptionConfiguration());
             builder.ApplyConfiguration(new CardFingerprintConfiguration());
+            builder.ApplyConfiguration(new TwoFactorRecoveryCodeConfiguration());
             builder.ApplyConfiguration(new CompanySubscriptionConfiguration());
             builder.ApplyConfiguration(new SavedChartConfiguration());
             builder.ApplyConfiguration(new SavedDatasetConfiguration());

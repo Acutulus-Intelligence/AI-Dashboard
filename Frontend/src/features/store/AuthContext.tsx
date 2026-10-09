@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as authApi from '../../lib/api/auth';
-import { AuthContext, type AuthUser } from './AuthContext';
+import { AuthContext, type AuthUser, type LoginResult } from './AuthContext';
 import { ROUTES } from '../routes';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -9,7 +9,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [hasActiveSubscription, setHasActiveSubscription] = useState(false);
   const [isSubscriptionLoading, setIsSubscriptionLoading] = useState(false);
+  const sessionChecksPaused = useRef(false);
   const navigate = useNavigate();
+
+  const pauseSessionChecks = useCallback((active: boolean) => {
+    sessionChecksPaused.current = active;
+  }, []);
 
   const refreshSubscriptionStatus = useCallback(async () => {
     setIsSubscriptionLoading(true);
@@ -34,6 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         firstName: userInfo.firstName ?? null,
         lastName: userInfo.lastName ?? null,
         companyRoleName: userInfo.companyRoleName ?? null,
+        twoFactorEnabled: userInfo.twoFactorEnabled ?? false,
       };
       setUser(authUser);
       return authUser;
@@ -57,13 +63,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const interval = setInterval(() => {
+      if (sessionChecksPaused.current) return;
       void refreshSubscriptionStatus();
     }, 60_000);
     return () => clearInterval(interval);
   }, [refreshSubscriptionStatus]);
 
-  const login = useCallback(async (email: string, password: string) => {
-    await authApi.login({ email, password });
+  const login = useCallback(async (email: string, password: string): Promise<LoginResult> => {
+    const response = await authApi.login({ email, password });
+
+    if (response.requiresTwoFactor) {
+      return { status: 'twoFactorRequired', challengeToken: response.challengeToken ?? '' };
+    }
+
+    const authUser = await fetchUser();
+    await refreshSubscriptionStatus();
+    return { status: 'success', user: authUser };
+  }, [fetchUser, refreshSubscriptionStatus]);
+
+  const completeTwoFactorLogin = useCallback(async (
+    challengeToken: string,
+    code: string,
+    useRecoveryCode: boolean,
+  ) => {
+    await authApi.confirmTwoFactorLogin({ challengeToken, code, useRecoveryCode });
     const authUser = await fetchUser();
     await refreshSubscriptionStatus();
     return authUser;
@@ -89,6 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     function handleSessionExpired() {
+      if (sessionChecksPaused.current) return;
       setUser(null);
       setHasActiveSubscription(false);
       navigate(ROUTES.LOGIN);
@@ -109,8 +133,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         refreshSubscriptionStatus,
         refreshUser: fetchUser,
         login,
+        completeTwoFactorLogin,
         register,
         logout,
+        pauseSessionChecks,
       }}
     >
       {children}
