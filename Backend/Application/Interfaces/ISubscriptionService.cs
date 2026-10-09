@@ -13,6 +13,7 @@ public interface ISubscriptionService
     Task ConfirmCheckoutSessionAsync(string sessionId, CancellationToken ct = default);
     Task HandleStripeWebhookAsync(string body, string signature, CancellationToken ct = default);
     Task<bool> HasActiveSubscriptionAsync(Guid userId, CancellationToken ct = default);
+    Task<int?> GetMaxDashboardsAsync(Guid userId, CancellationToken ct = default);
     Task<bool> CompanyHasActiveSubscriptionAsync(Guid companyId, CancellationToken ct = default);
     Task CancelUserSubscriptionAsync(Guid userId, CancellationToken ct = default);
     Task CancelCompanySubscriptionAsync(Guid companyId, Guid actorId, CancellationToken ct = default);

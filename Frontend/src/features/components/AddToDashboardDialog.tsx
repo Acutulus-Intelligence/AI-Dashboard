@@ -14,12 +14,14 @@ import {
 import { cn } from '@/lib/utils';
 import {
   getDashboard,
+  getDashboards,
   saveWidgets,
   WIDGET_TYPE,
   type DashboardResponse,
+  type DashboardSummary,
   type WidgetItem,
 } from '../../lib/api/dashboards';
-import { ROUTES } from '../routes';
+import { dashboardPath } from '../routes';
 
 interface AddToDashboardDialogProps {
   open: boolean;
@@ -62,20 +64,20 @@ export default function AddToDashboardDialog({
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
+  const [dashboards, setDashboards] = useState<DashboardSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setLoading(true);
-    setDashboard(null);
+    setDashboards([]);
     setSelectedId(null);
-    getDashboard()
-      .then((d) => {
+    getDashboards()
+      .then((list) => {
         if (cancelled) return;
-        setDashboard(d);
-        setSelectedId(d.id);
+        setDashboards(list);
+        if (list.length > 0) setSelectedId(list[0].id);
       })
       .catch(() => {
         if (!cancelled) toast.error('Could not load dashboards.');
@@ -89,10 +91,10 @@ export default function AddToDashboardDialog({
   }, [open]);
 
   async function handleAdd() {
-    if (!dashboard || !selectedId) return;
+    if (!selectedId) return;
     setAdding(true);
     try {
-      const current = await getDashboard();
+      const current = await getDashboard(selectedId);
       const existing = toWidgetItems(current);
       const maxBottom = existing.reduce(
         (max, w) => Math.max(max, w.positionY + w.height),
@@ -106,11 +108,12 @@ export default function AddToDashboardDialog({
         width: 6,
         height: 6,
       };
-      await saveWidgets([...existing, next]);
-      toast.success(`Added to “${current.name}”.`, {
+      await saveWidgets(selectedId, [...existing, next]);
+      const target = dashboards.find((d) => d.id === selectedId);
+      toast.success(`Added to “${target?.name ?? 'dashboard'}”.`, {
         action: {
           label: 'Open dashboard',
-          onClick: () => navigate(ROUTES.DASHBOARD),
+          onClick: () => navigate(dashboardPath(selectedId)),
         },
       });
       onOpenChange(false);
@@ -136,31 +139,35 @@ export default function AddToDashboardDialog({
               Loading dashboards…
             </p>
           )}
-          {!loading && dashboard && (
-            <button
-              type="button"
-              onClick={() => setSelectedId(dashboard.id)}
-              className={cn(
-                'flex w-full cursor-pointer items-center gap-3 rounded-lg border px-3 py-3 text-left transition-colors',
-                selectedId === dashboard.id
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border hover:bg-muted',
-              )}
-            >
-              <div className="bg-primary/10 text-primary flex size-9 items-center justify-center rounded-lg">
-                <LayoutDashboard className="size-4" />
-              </div>
-              <div className="min-w-0">
-                <p className="truncate font-medium">{dashboard.name}</p>
-                <p className="text-muted-foreground text-xs">
-                  {dashboard.widgets.length} widget
-                  {dashboard.widgets.length === 1 ? '' : 's'}
-                </p>
-              </div>
-            </button>
-          )}
-          {!loading && !dashboard && (
-            <p className="text-muted-foreground text-sm">No dashboards available.</p>
+          {!loading &&
+            dashboards.map((dashboard) => (
+              <button
+                key={dashboard.id}
+                type="button"
+                onClick={() => setSelectedId(dashboard.id)}
+                className={cn(
+                  'flex w-full cursor-pointer items-center gap-3 rounded-lg border px-3 py-3 text-left transition-colors',
+                  selectedId === dashboard.id
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border hover:bg-muted',
+                )}
+              >
+                <div className="bg-primary/10 text-primary flex size-9 items-center justify-center rounded-lg">
+                  <LayoutDashboard className="size-4" />
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{dashboard.name}</p>
+                  <p className="text-muted-foreground text-xs">
+                    {dashboard.widgetCount} widget
+                    {dashboard.widgetCount === 1 ? '' : 's'}
+                  </p>
+                </div>
+              </button>
+            ))}
+          {!loading && dashboards.length === 0 && (
+            <p className="text-muted-foreground text-sm">
+              No dashboards available. Create one from the dashboard page first.
+            </p>
           )}
         </div>
 

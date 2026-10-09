@@ -117,18 +117,28 @@ public sealed class ProductRoutesTests
         var execute = await client.PostAsync($"/api/charts/{chartId}/execute", null);
         execute.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var dashboard = await client.GetAsync("/api/dashboards");
-        dashboard.StatusCode.Should().Be(HttpStatusCode.OK);
+        var createDashboard = await client.PostAsJsonAsync("/api/dashboards", new CreateDashboardRequest("Sales board"));
+        createDashboard.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var dashboardDoc = JsonDocument.Parse(await createDashboard.Content.ReadAsStringAsync());
+        var dashboardId = dashboardDoc.RootElement.GetProperty("id").GetGuid();
 
-        var saveWidgets = await client.PutAsJsonAsync("/api/dashboards/widgets", new SaveWidgetsRequest(
+        (await client.GetAsync("/api/dashboards")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await client.GetAsync($"/api/dashboards/{dashboardId}")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var saveWidgets = await client.PutAsJsonAsync($"/api/dashboards/{dashboardId}/widgets", new SaveWidgetsRequest(
         [
             new WidgetItem(null, WidgetType.Chart, chartId, null, null, null, null, 0, 0, 4, 3),
             new WidgetItem(null, WidgetType.Text, null, "Hello", TextVariant.Header, TextHorizontalAlignment.Left, TextVerticalAlignment.Top, 4, 0, 2, 1),
         ]));
         saveWidgets.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var clearWidgets = await client.PutAsJsonAsync("/api/dashboards/widgets", new SaveWidgetsRequest([]));
+        var clearWidgets = await client.PutAsJsonAsync($"/api/dashboards/{dashboardId}/widgets", new SaveWidgetsRequest([]));
         clearWidgets.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await client.PutAsJsonAsync($"/api/dashboards/{dashboardId}", new RenameDashboardRequest("Sales board renamed")))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await client.DeleteAsync($"/api/dashboards/{dashboardId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         (await client.DeleteAsync($"/api/charts/{chartId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
         (await client.DeleteAsync($"/api/connections/{connectionId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);

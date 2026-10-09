@@ -332,6 +332,40 @@ public class SubscriptionService : ISubscriptionService
         }
     }
 
+    public async Task<int?> GetMaxDashboardsAsync(Guid userId, CancellationToken ct = default)
+    {
+        var now = DateTime.UtcNow;
+
+        var userSub = await _db.UserSubscriptions
+            .AsNoTracking()
+            .Where(s => s.UserId == userId &&
+                ((s.Status == SubscriptionStatus.Trial && (s.EndDate == null || s.EndDate > now)) ||
+                 (s.Status == SubscriptionStatus.Active && (s.EndDate == null || s.EndDate > now))))
+            .Select(s => new { s.Plan.MaxDashboards })
+            .FirstOrDefaultAsync(ct);
+
+        if (userSub is not null)
+            return userSub.MaxDashboards;
+
+        var companyId = await _db.Users
+            .Where(u => u.Id == userId)
+            .Select(u => u.CompanyId)
+            .FirstOrDefaultAsync(ct);
+
+        if (!companyId.HasValue)
+            return null;
+
+        var companySub = await _db.CompanySubscriptions
+            .AsNoTracking()
+            .Where(s => s.CompanyId == companyId.Value &&
+                ((s.Status == SubscriptionStatus.Trial && (s.EndDate == null || s.EndDate > now)) ||
+                 (s.Status == SubscriptionStatus.Active && (s.EndDate == null || s.EndDate > now))))
+            .Select(s => new { s.Plan.MaxDashboards })
+            .FirstOrDefaultAsync(ct);
+
+        return companySub?.MaxDashboards;
+    }
+
     public async Task<bool> HasActiveSubscriptionAsync(Guid userId, CancellationToken ct = default)
     {
         var now = DateTime.UtcNow;

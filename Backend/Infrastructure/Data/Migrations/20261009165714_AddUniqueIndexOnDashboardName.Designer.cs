@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Infrastructure.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261009165714_AddUniqueIndexOnDashboardName")]
+    partial class AddUniqueIndexOnDashboardName
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -73,31 +76,6 @@ namespace Infrastructure.Data.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("CardFingerprints", (string)null);
-                });
-
-            modelBuilder.Entity("Domain.Models.ChartFolder", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId", "Name")
-                        .IsUnique();
-
-                    b.ToTable("chart_folders", (string)null);
                 });
 
             modelBuilder.Entity("Domain.Models.Company", b =>
@@ -551,9 +529,6 @@ namespace Infrastructure.Data.Migrations
                     b.Property<Guid?>("DatasetId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("FolderId")
-                        .HasColumnType("uuid");
-
                     b.Property<string>("GroupBy")
                         .HasColumnType("text");
 
@@ -589,8 +564,6 @@ namespace Infrastructure.Data.Migrations
                         .HasColumnType("text[]");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("FolderId");
 
                     b.HasIndex("UserId", "Title")
                         .IsUnique();
@@ -1006,17 +979,6 @@ namespace Infrastructure.Data.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("Domain.Models.ChartFolder", b =>
-                {
-                    b.HasOne("Domain.Models.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("Domain.Models.Company", b =>
                 {
                     b.HasOne("Domain.Models.User", "Owner")
@@ -1161,18 +1123,11 @@ namespace Infrastructure.Data.Migrations
 
             modelBuilder.Entity("Domain.Models.SavedChart", b =>
                 {
-                    b.HasOne("Domain.Models.ChartFolder", "Folder")
-                        .WithMany()
-                        .HasForeignKey("FolderId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("Domain.Models.User", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-
-                    b.Navigation("Folder");
 
                     b.Navigation("User");
                 });

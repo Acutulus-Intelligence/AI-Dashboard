@@ -37,7 +37,9 @@ export interface DashboardGridHandle {
 }
 
 interface DashboardGridProps {
+  dashboardId: string;
   editMode: boolean;
+  onLoaded?: (name: string) => void;
 }
 
 interface ChartWidget {
@@ -271,7 +273,7 @@ function persistPayloadHash(widgets: Widget[], layout: LayoutItem[]) {
   return JSON.stringify(widgetsToRequestItems(widgets, layout));
 }
 
-const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(function DashboardGrid({ editMode }, ref) {
+const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(function DashboardGrid({ dashboardId, editMode, onLoaded }, ref) {
   const navigate = useNavigate();
   const { width: containerWidth, containerRef } = useContainerWidth();
 
@@ -294,9 +296,10 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
 
   useEffect(() => {
     let cancelled = false;
-    getDashboard()
+    getDashboard(dashboardId)
       .then(async (dash) => {
         if (cancelled) return;
+        onLoaded?.(dash.name);
         const w: Widget[] = [];
         const l: LayoutItem[] = [];
         const chartWidgets: ChartWidget[] = [];
@@ -362,7 +365,7 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
       })
       .catch(() => setLoaded(true));
     return () => { cancelled = true; };
-  }, []);
+  }, [dashboardId, onLoaded]);
 
   useEffect(() => {
     if (editMode && !prevEditModeRef.current) {
@@ -380,7 +383,7 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
     persistInFlightRef.current = true;
     try {
       const items = widgetsToRequestItems(w, l);
-      const response = await saveWidgets(items);
+      const response = await saveWidgets(dashboardId, items);
       lastPersistHashRef.current = hash;
 
       const merged = mergeWidgetsFromServer(w, l, response.widgets);
@@ -393,7 +396,7 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
     } finally {
       persistInFlightRef.current = false;
     }
-  }, []);
+  }, [dashboardId]);
 
   const handleLayoutChange = useCallback((newLayout: Layout) => {
     if (!editMode) return;
