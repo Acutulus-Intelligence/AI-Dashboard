@@ -11,5 +11,8 @@ public class RegenerateRecoveryCodesRequestValidator : AbstractValidator<Regener
             .NotEmpty()
             .Matches(@"^\d{6}$")
             .WithMessage("Enter the 6-digit code from your authenticator app.");
+
+        RuleFor(x => x.Password)
+            .NotEmpty();
     }
 }

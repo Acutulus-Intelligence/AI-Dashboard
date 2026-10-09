@@ -32,6 +32,16 @@ export default function LoginPage() {
   }
 
   function messageForError(err: unknown, fallback: string) {
+    if (err && typeof err === 'object') {
+      const status = 'status' in err ? (err as { status?: number }).status : undefined;
+      const code = 'code' in err ? (err as { code?: string }).code : undefined;
+      if (code === 'account_locked' || status === 423) {
+        return 'Your account is temporarily locked after too many failed attempts. Please try again in a few minutes.';
+      }
+      if (status === 429) {
+        return 'Too many attempts. Please wait a moment and try again.';
+      }
+    }
     return err instanceof Error ? err.message : fallback;
   }
 

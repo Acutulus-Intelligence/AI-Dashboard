@@ -103,6 +103,7 @@ export default function TwoFactorSettings() {
   const [setupData, setSetupData] = useState<authApi.TwoFactorSetupResponse | null>(null);
   const [codes, setCodes] = useState<string[]>([]);
   const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [logoutAfterRecovery, setLogoutAfterRecovery] = useState(false);
@@ -114,19 +115,26 @@ export default function TwoFactorSettings() {
     setSetupData(null);
     setCodes([]);
     setCode('');
+    setPassword('');
     setError('');
   }
 
   async function startSetup() {
+    if (!password) {
+      setError('Enter your current password.');
+      return;
+    }
+
     setBusy(true);
     setError('');
     try {
-      const data = await authApi.setupTwoFactor();
+      const data = await authApi.setupTwoFactor(password);
       setSetupData(data);
+      setPassword('');
       setCode('');
       setMode('setup');
     } catch (err) {
-      toast.error(errorMessage(err, 'Failed to start two-factor setup.'));
+      setError(errorMessage(err, 'Failed to start two-factor setup.'));
     } finally {
       setBusy(false);
     }
@@ -174,16 +182,20 @@ export default function TwoFactorSettings() {
       setError('Enter the 6-digit code from your authenticator app.');
       return;
     }
+    if (!password) {
+      setError('Enter your current password.');
+      return;
+    }
 
     setBusy(true);
     setError('');
     try {
-      await authApi.disableTwoFactor(code.trim());
+      await authApi.disableTwoFactor(code.trim(), password);
       toast.success('Two-factor authentication disabled. Please sign in again.');
       await logout();
       navigate(ROUTES.LOGIN, { replace: true });
     } catch (err) {
-      setError(errorMessage(err, 'Invalid verification code.'));
+      setError(errorMessage(err, 'Invalid code or password.'));
     } finally {
       setBusy(false);
     }
@@ -194,17 +206,23 @@ export default function TwoFactorSettings() {
       setError('Enter the 6-digit code from your authenticator app.');
       return;
     }
+    if (!password) {
+      setError('Enter your current password.');
+      return;
+    }
 
     setBusy(true);
     setError('');
     try {
-      const result = await authApi.regenerateRecoveryCodes(code.trim());
+      const result = await authApi.regenerateRecoveryCodes(code.trim(), password);
       setLogoutAfterRecovery(false);
       setCodes(result.recoveryCodes);
       setCode('');
+      setPassword('');
+      setError('');
       setMode('recovery');
     } catch (err) {
-      setError(errorMessage(err, 'Invalid verification code.'));
+      setError(errorMessage(err, 'Invalid code or password.'));
     } finally {
       setBusy(false);
     }
@@ -295,7 +313,7 @@ export default function TwoFactorSettings() {
           <CardContent className="grid gap-4 sm:max-w-lg">
             <div className="grid gap-1.5">
               <label htmlFor="disable-code" className="text-sm font-medium">
-                Enter a code to disable or regenerate recovery codes
+                Authenticator code
               </label>
               <Input
                 id="disable-code"
@@ -304,6 +322,19 @@ export default function TwoFactorSettings() {
                 placeholder="123456"
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
+                aria-invalid={!!error}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <label htmlFor="disable-password" className="text-sm font-medium">
+                Current password
+              </label>
+              <Input
+                id="disable-password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
                 aria-invalid={!!error}
               />
               {error && <p className="text-sm text-destructive">{error}</p>}
@@ -322,12 +353,30 @@ export default function TwoFactorSettings() {
           </CardFooter>
         </>
       ) : (
-        <CardFooter>
-          <Button type="button" onClick={startSetup} disabled={busy}>
-            {busy ? <Loader2 className="animate-spin" /> : <ShieldCheck />}
-            Enable two-factor authentication
-          </Button>
-        </CardFooter>
+        <>
+          <CardContent className="grid gap-4 sm:max-w-lg">
+            <div className="grid gap-1.5">
+              <label htmlFor="enable-password" className="text-sm font-medium">
+                Confirm your password
+              </label>
+              <Input
+                id="enable-password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                aria-invalid={!!error}
+              />
+              {error && <p className="text-sm text-destructive">{error}</p>}
+            </div>
+          </CardContent>
+          <CardFooter>
+            <Button type="button" onClick={startSetup} disabled={busy}>
+              {busy ? <Loader2 className="animate-spin" /> : <ShieldCheck />}
+              Enable two-factor authentication
+            </Button>
+          </CardFooter>
+        </>
       )}
     </Card>
   );

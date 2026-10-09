@@ -15,7 +15,7 @@ public interface IAuthService
     Task UpdateProfileAsync(Guid userId, UpdateProfileRequest request, CancellationToken ct = default);
     Task DeleteAccountAsync(Guid userId, DeleteAccountRequest request, CancellationToken ct = default);
     Task<UserMeResponse> GetMeAsync(Guid userId, CancellationToken ct = default);
-    Task<TwoFactorSetupResponse> SetupTwoFactorAsync(Guid userId, CancellationToken ct = default);
+    Task<TwoFactorSetupResponse> SetupTwoFactorAsync(Guid userId, SetupTwoFactorRequest request, CancellationToken ct = default);
     Task<TwoFactorRecoveryCodesResponse> EnableTwoFactorAsync(Guid userId, EnableTwoFactorRequest request, CancellationToken ct = default);
     Task DisableTwoFactorAsync(Guid userId, DisableTwoFactorRequest request, CancellationToken ct = default);
     Task<TwoFactorRecoveryCodesResponse> RegenerateRecoveryCodesAsync(Guid userId, RegenerateRecoveryCodesRequest request, CancellationToken ct = default);

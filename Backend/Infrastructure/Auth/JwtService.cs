@@ -60,6 +60,7 @@ public class JwtService : ITokenService
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
             new("userId", user.Id.ToString()),
             new("token_use", "2fa"),
+            new("securityStamp", user.SecurityStamp ?? ""),
         };
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_settings.Secret));
@@ -79,7 +80,7 @@ public class JwtService : ITokenService
         return (challengeToken, _settings.TwoFactorChallengeExpirationMinutes * 60);
     }
 
-    public Guid? ValidateTwoFactorChallengeToken(string challengeToken)
+    public (Guid UserId, string SecurityStamp)? ValidateTwoFactorChallengeToken(string challengeToken)
     {
         if (string.IsNullOrWhiteSpace(challengeToken))
             return null;
@@ -107,7 +108,11 @@ public class JwtService : ITokenService
                 return null;
 
             var userIdClaim = principal.FindFirst("userId")?.Value;
-            return Guid.TryParse(userIdClaim, out var userId) ? userId : null;
+            if (!Guid.TryParse(userIdClaim, out var userId))
+                return null;
+
+            var securityStamp = principal.FindFirst("securityStamp")?.Value ?? string.Empty;
+            return (userId, securityStamp);
         }
         catch
         {

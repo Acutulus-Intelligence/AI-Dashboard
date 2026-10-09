@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
+import { useNavigate } from 'react-router-dom';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
 import { Loader2, TriangleAlert } from 'lucide-react';
@@ -37,6 +38,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import AppShell from '../layouts/AppShell';
 import PasswordRequirements from '../components/PasswordRequirements';
 import TwoFactorSettings from '../components/TwoFactorSettings';
+import { ROUTES } from '../routes';
 import { useAuth } from '../store/useAuth';
 import * as authApi from '../../lib/api/auth';
 import {
@@ -154,6 +156,8 @@ function AccountTab() {
 }
 
 function SecurityTab() {
+  const { logout } = useAuth();
+  const navigate = useNavigate();
   const form = useForm<PasswordFormValues>({
     resolver: zodResolver(passwordSchema),
     defaultValues: { currentPassword: '', newPassword: '', confirmNewPassword: '' },
@@ -165,7 +169,9 @@ function SecurityTab() {
     try {
       await authApi.changePassword(values);
       form.reset();
-      toast.success('Password changed.');
+      toast.success('Password changed. Please sign in again.');
+      await logout();
+      navigate(ROUTES.LOGIN, { replace: true });
     } catch (err) {
       toast.error(errorMessage(err, 'Failed to change password.'));
     }

@@ -117,9 +117,10 @@ export function confirmTwoFactorLogin(data: TwoFactorLoginRequest): Promise<Auth
   });
 }
 
-export function setupTwoFactor(): Promise<TwoFactorSetupResponse> {
+export function setupTwoFactor(password: string): Promise<TwoFactorSetupResponse> {
   return apiFetch<TwoFactorSetupResponse>('/api/auth/2fa/setup', {
     method: 'POST',
+    body: JSON.stringify({ password }),
   });
 }
 
@@ -130,16 +131,19 @@ export function enableTwoFactor(code: string): Promise<TwoFactorRecoveryCodesRes
   });
 }
 
-export function disableTwoFactor(code: string): Promise<void> {
+export function disableTwoFactor(code: string, password: string): Promise<void> {
   return apiFetch<void>('/api/auth/2fa/disable', {
     method: 'POST',
-    body: JSON.stringify({ code }),
+    body: JSON.stringify({ code, password }),
   });
 }
 
-export function regenerateRecoveryCodes(code: string): Promise<TwoFactorRecoveryCodesResponse> {
+export function regenerateRecoveryCodes(
+  code: string,
+  password: string,
+): Promise<TwoFactorRecoveryCodesResponse> {
   return apiFetch<TwoFactorRecoveryCodesResponse>('/api/auth/2fa/recovery-codes', {
     method: 'POST',
-    body: JSON.stringify({ code }),
+    body: JSON.stringify({ code, password }),
   });
 }

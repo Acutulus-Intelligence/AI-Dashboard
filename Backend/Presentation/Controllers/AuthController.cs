@@ -3,6 +3,7 @@ using Application.DTos.Response;
 using Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Presentation.CookieExtensions;
 
 namespace Presentation.Controllers;
@@ -27,6 +28,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("login")]
+    [EnableRateLimiting("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request, CancellationToken ct)
     {
         var outcome = await _authService.LoginAsync(request, ct);
@@ -40,6 +42,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("login/2fa")]
+    [EnableRateLimiting("login")]
     public async Task<IActionResult> LoginTwoFactor([FromBody] TwoFactorLoginRequest request, CancellationToken ct)
     {
         var result = await _authService.LoginTwoFactorAsync(request, ct);
@@ -122,13 +125,13 @@ public class AuthController : ControllerBase
 
     [HttpPost("2fa/setup")]
     [Authorize]
-    public async Task<IActionResult> SetupTwoFactor(CancellationToken ct)
+    public async Task<IActionResult> SetupTwoFactor([FromBody] SetupTwoFactorRequest request, CancellationToken ct)
     {
         var userId = GetUserId();
         if (userId is null)
             return Unauthorized();
 
-        var result = await _authService.SetupTwoFactorAsync(userId.Value, ct);
+        var result = await _authService.SetupTwoFactorAsync(userId.Value, request, ct);
         return Ok(result);
     }
 

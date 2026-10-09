@@ -82,9 +82,15 @@ public class AuthService : IAuthService
         if (user is null)
             throw new UnauthorizedAccessException("Invalid email or password.");
 
+        if (await _userManager.IsLockedOutAsync(user))
+            throw new LockedOutException();
+
         var passwordValid = await _userManager.CheckPasswordAsync(user, request.Password);
         if (!passwordValid)
+        {
+            await _userManager.AccessFailedAsync(user);
             throw new UnauthorizedAccessException("Invalid email or password.");
+        }
 
         if (user.TwoFactorEnabled)
         {
@@ -92,20 +98,27 @@ public class AuthService : IAuthService
             return LoginOutcome.TwoFactorRequired(challengeToken);
         }
 
+        await _userManager.ResetAccessFailedCountAsync(user);
         var roles = await _userManager.GetRolesAsync(user);
         return LoginOutcome.Authenticated(await GenerateAuthResultAsync(user, roles));
     }
 
     public async Task<AuthResult> LoginTwoFactorAsync(TwoFactorLoginRequest request, CancellationToken ct = default)
     {
-        var userId = _tokenService.ValidateTwoFactorChallengeToken(request.ChallengeToken)
+        var challenge = _tokenService.ValidateTwoFactorChallengeToken(request.ChallengeToken)
             ?? throw new UnauthorizedAccessException("Your verification session has expired. Please sign in again.");
 
-        var user = await _userManager.FindByIdAsync(userId.ToString())
+        var user = await _userManager.FindByIdAsync(challenge.UserId.ToString())
             ?? throw new UnauthorizedAccessException("Invalid verification session.");
 
         if (!user.TwoFactorEnabled)
             throw new UnauthorizedAccessException("Two-factor authentication is not enabled for this account.");
+
+        if (!string.Equals(challenge.SecurityStamp, user.SecurityStamp, StringComparison.Ordinal))
+            throw new UnauthorizedAccessException("Your verification session has expired. Please sign in again.");
+
+        if (await _userManager.IsLockedOutAsync(user))
+            throw new LockedOutException();
 
         var code = request.Code.Trim();
 
@@ -114,16 +127,26 @@ public class AuthService : IAuthService
             : await _userManager.VerifyTwoFactorTokenAsync(user, TokenOptions.DefaultAuthenticatorProvider, code);
 
         if (!valid)
+        {
+            await _userManager.AccessFailedAsync(user);
             throw new UnauthorizedAccessException("Invalid verification code.");
+        }
 
+        await _userManager.ResetAccessFailedCountAsync(user);
         var roles = await _userManager.GetRolesAsync(user);
         return await GenerateAuthResultAsync(user, roles);
     }
 
-    public async Task<TwoFactorSetupResponse> SetupTwoFactorAsync(Guid userId, CancellationToken ct = default)
+    public async Task<TwoFactorSetupResponse> SetupTwoFactorAsync(
+        Guid userId, SetupTwoFactorRequest request, CancellationToken ct = default)
     {
         var user = await _userManager.FindByIdAsync(userId.ToString())
             ?? throw new UnauthorizedAccessException("User not found.");
+
+        // Sensitive operation: require the current password so a hijacked session
+        // cannot enrol an attacker-controlled authenticator.
+        if (!await _userManager.CheckPasswordAsync(user, request.Password))
+            throw new UnauthorizedAccessException("Current password is incorrect.");
 
         // Generate a fresh shared key without rotating the security stamp, so the
         // current authenticated session is not invalidated while the user sets up 2FA.
@@ -167,6 +190,9 @@ public class AuthService : IAuthService
         var user = await _userManager.FindByIdAsync(userId.ToString())
             ?? throw new UnauthorizedAccessException("User not found.");
 
+        if (!await _userManager.CheckPasswordAsync(user, request.Password))
+            throw new UnauthorizedAccessException("Current password is incorrect.");
+
         if (!await _userManager.VerifyTwoFactorTokenAsync(
                 user, TokenOptions.DefaultAuthenticatorProvider, request.Code.Trim()))
             throw new UnauthorizedAccessException("Invalid verification code.");
@@ -196,6 +222,9 @@ public class AuthService : IAuthService
 
         if (!user.TwoFactorEnabled)
             throw new InvalidOperationException("Two-factor authentication is not enabled.");
+
+        if (!await _userManager.CheckPasswordAsync(user, request.Password))
+            throw new UnauthorizedAccessException("Current password is incorrect.");
 
         if (!await _userManager.VerifyTwoFactorTokenAsync(
                 user, TokenOptions.DefaultAuthenticatorProvider, request.Code.Trim()))
@@ -241,6 +270,10 @@ public class AuthService : IAuthService
         var result = await _userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
         if (!result.Succeeded)
             throw new InvalidOperationException("Password change failed. Please check your input and try again.");
+
+        // Changing the password rotates the security stamp (invalidating access tokens);
+        // revoke refresh tokens so every session must sign in again.
+        await _refreshTokenService.RevokeAllRefreshTokensAsync(userId);
     }
 
     public async Task UpdateProfileAsync(Guid userId, UpdateProfileRequest request, CancellationToken ct = default)
@@ -409,6 +442,7 @@ public class AuthService : IAuthService
             return false;
 
         var candidates = await _db.TwoFactorRecoveryCodes
+            .AsNoTracking()
             .Where(c => c.UserId == user.Id && c.UsedAt == null)
             .ToListAsync(ct);
 
@@ -418,17 +452,13 @@ public class AuthService : IAuthService
             if (result == PasswordVerificationResult.Failed)
                 continue;
 
-            candidate.UsedAt = DateTime.UtcNow;
-            try
-            {
-                await _db.SaveChangesAsync(ct);
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                // Another request consumed the code first.
-                return false;
-            }
-            return true;
+            // Atomically consume the code so it cannot be redeemed twice concurrently.
+            var now = DateTime.UtcNow;
+            var affected = await _db.TwoFactorRecoveryCodes
+                .Where(c => c.Id == candidate.Id && c.UsedAt == null)
+                .ExecuteUpdateAsync(s => s.SetProperty(c => c.UsedAt, now), ct);
+
+            return affected == 1;
         }
 
         return false;
