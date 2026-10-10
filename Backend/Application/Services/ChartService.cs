@@ -61,6 +61,8 @@ public class ChartService : IChartService
                 throw new UnauthorizedAccessException("Dataset collection is not accessible to you.");
         }
 
+        await EnsureFolderOwnershipAsync(request.FolderId, userId, ct);
+
         await EnsureUniqueTitleAsync(userId, request.Title, excludeId: null, ct);
 
         var chart = new SavedChart
@@ -76,6 +78,7 @@ public class ChartService : IChartService
             SqlQuery = request.SqlQuery,
             ConnectionId = request.ConnectionId,
             DatasetId = request.DatasetId,
+            FolderId = request.FolderId,
             TableName = request.TableName,
             DataModel = request.DataModel,
             StyleConfig = ChartStyleSanitizer.Sanitize(request.StyleConfig, request.ChartType),
@@ -86,7 +89,7 @@ public class ChartService : IChartService
         _db.SavedCharts.Add(chart);
         await _db.SaveChangesAsync(ct);
 
-        return new ChartResponse(chart.Id, chart.Title, chart.ChartType, chart.CreatedAt);
+        return new ChartResponse(chart.Id, chart.Title, chart.ChartType, chart.CreatedAt, chart.FolderId);
     }
 
     public async Task<List<ChartResponse>> GetChartsAsync(Guid userId, CancellationToken ct = default)
@@ -95,7 +98,7 @@ public class ChartService : IChartService
             .AsNoTracking()
             .Where(sc => sc.UserId == userId)
             .OrderByDescending(sc => sc.CreatedAt)
-            .Select(sc => new ChartResponse(sc.Id, sc.Title, sc.ChartType, sc.CreatedAt))
+            .Select(sc => new ChartResponse(sc.Id, sc.Title, sc.ChartType, sc.CreatedAt, sc.FolderId))
             .ToListAsync(ct);
     }
 
@@ -111,7 +114,7 @@ public class ChartService : IChartService
             chart.XAxis, [.. chart.YAxis], chart.Aggregation,
             chart.GroupBy, chart.SqlQuery,
             chart.ConnectionId, chart.DatasetId, chart.TableName, chart.CreatedAt,
-            chart.StyleConfig
+            chart.StyleConfig, FolderId: chart.FolderId
         );
     }
 
@@ -141,7 +144,7 @@ public class ChartService : IChartService
             chart.XAxis, [.. chart.YAxis], chart.Aggregation,
             chart.GroupBy, chart.SqlQuery,
             chart.ConnectionId, chart.DatasetId, chart.TableName, chart.CreatedAt,
-            chart.StyleConfig
+            chart.StyleConfig, FolderId: chart.FolderId
         );
     }
 
@@ -154,6 +157,19 @@ public class ChartService : IChartService
             ?? throw new KeyNotFoundException("Chart not found.");
 
         _db.SavedCharts.Remove(chart);
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task MoveChartAsync(Guid id, Guid userId, Guid? folderId, CancellationToken ct = default)
+    {
+        var chart = await _db.SavedCharts
+            .FirstOrDefaultAsync(sc => sc.Id == id && sc.UserId == userId, ct)
+            ?? throw new KeyNotFoundException("Chart not found.");
+
+        await EnsureFolderOwnershipAsync(folderId, userId, ct);
+
+        chart.FolderId = folderId;
+        chart.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
     }
 
@@ -229,5 +245,18 @@ public class ChartService : IChartService
                 $"A chart named \"{trimmed}\" already exists. Rename it and try again.",
                 "chart_title_conflict");
         }
+    }
+
+    private async Task EnsureFolderOwnershipAsync(
+        Guid? folderId, Guid userId, CancellationToken ct)
+    {
+        if (folderId is null)
+            return;
+
+        var exists = await _db.ChartFolders.AnyAsync(
+            f => f.Id == folderId.Value && f.UserId == userId, ct);
+
+        if (!exists)
+            throw new KeyNotFoundException("Folder not found.");
     }
 }

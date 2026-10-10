@@ -13,6 +13,7 @@ public interface IApplicationDbContext
     DbSet<DashboardWidget> DashboardWidgets { get; }
     DbSet<ExternalConnection> ExternalConnections { get; }
     DbSet<SavedChart> SavedCharts { get; }
+    DbSet<ChartFolder> ChartFolders { get; }
     DbSet<SavedDataset> SavedDatasets { get; }
     DbSet<DataCollection> DataCollections { get; }
     DbSet<RefreshToken> RefreshTokens { get; }

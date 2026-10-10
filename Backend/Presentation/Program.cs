@@ -115,6 +115,7 @@ builder.Services.AddHttpClient<IAiService, OpenRouterService>();
 // Graph generation
 builder.Services.AddScoped<IGraphGenerationService, GraphGenerationService>();
 builder.Services.AddScoped<IChartService, ChartService>();
+builder.Services.AddScoped<IChartFolderService, ChartFolderService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 
 // Application layer

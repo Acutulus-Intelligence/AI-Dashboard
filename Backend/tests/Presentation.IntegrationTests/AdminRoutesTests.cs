@@ -257,7 +257,7 @@ public sealed class AdminRoutesTests
         await client.LoginAsync(actorEmail);
         var targetId = await _factory.GetUserIdAsync(targetEmail);
 
-        var list = await client.GetAsync("/api/admin/users");
+        var list = await client.GetAsync($"/api/admin/users?search={Uri.EscapeDataString(targetEmail)}");
         list.StatusCode.Should().Be(HttpStatusCode.OK);
         var users = await list.ReadJsonAsync<List<AdminUserResponse>>();
         users.Should().Contain(u => u.Email == targetEmail);
