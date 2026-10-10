@@ -53,7 +53,7 @@ function Row({ icon: Icon, label, count, selected, onSelect, onRename, onDelete 
         <span className="text-muted-foreground text-xs tabular-nums">{count}</span>
       </button>
       {onRename && onDelete && (
-        <div className="flex items-center pr-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <div className="flex items-center pr-1 opacity-100 transition-opacity focus-within:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100">
           <button
             type="button"
             onClick={onRename}

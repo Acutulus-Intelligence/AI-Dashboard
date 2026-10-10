@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -20,6 +20,60 @@ interface FolderNameDialogProps {
   onSubmit: (name: string) => void | Promise<void>;
 }
 
+interface FolderNameFormProps {
+  initialName: string;
+  submitLabel: string;
+  loading: boolean;
+  onSubmit: (name: string) => void | Promise<void>;
+  onCancel: () => void;
+}
+
+function FolderNameForm({
+  initialName,
+  submitLabel,
+  loading,
+  onSubmit,
+  onCancel,
+}: FolderNameFormProps) {
+  const [name, setName] = useState(initialName);
+
+  function handleSubmit() {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    void onSubmit(trimmed);
+  }
+
+  return (
+    <>
+      <div className="grid gap-2 py-1">
+        <Input
+          autoFocus
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              handleSubmit();
+            }
+          }}
+          placeholder="Folder name"
+          maxLength={200}
+          aria-label="Folder name"
+        />
+      </div>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>
+          Cancel
+        </Button>
+        <Button type="button" onClick={handleSubmit} disabled={loading || !name.trim()}>
+          {loading && <Loader2 className="animate-spin" />}
+          {submitLabel}
+        </Button>
+      </DialogFooter>
+    </>
+  );
+}
+
 export default function FolderNameDialog({
   open,
   onOpenChange,
@@ -29,18 +83,6 @@ export default function FolderNameDialog({
   loading = false,
   onSubmit,
 }: FolderNameDialogProps) {
-  const [name, setName] = useState(initialName);
-
-  useEffect(() => {
-    if (open) setName(initialName);
-  }, [open, initialName]);
-
-  function handleSubmit() {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    void onSubmit(trimmed);
-  }
-
   return (
     <Dialog
       open={open}
@@ -52,36 +94,13 @@ export default function FolderNameDialog({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
-        <div className="grid gap-2 py-1">
-          <Input
-            autoFocus
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                handleSubmit();
-              }
-            }}
-            placeholder="Folder name"
-            maxLength={200}
-            aria-label="Folder name"
-          />
-        </div>
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={loading}
-          >
-            Cancel
-          </Button>
-          <Button type="button" onClick={handleSubmit} disabled={loading || !name.trim()}>
-            {loading && <Loader2 className="animate-spin" />}
-            {submitLabel}
-          </Button>
-        </DialogFooter>
+        <FolderNameForm
+          initialName={initialName}
+          submitLabel={submitLabel}
+          loading={loading}
+          onSubmit={onSubmit}
+          onCancel={() => onOpenChange(false)}
+        />
       </DialogContent>
     </Dialog>
   );

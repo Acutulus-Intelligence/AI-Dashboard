@@ -30,7 +30,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { executeChart, getChart, saveChart, updateChart } from '../../lib/api/charts';
-import { getChartFolders, type ChartFolderResponse } from '../../lib/api/chartFolders';
+import {
+  getChartFolders,
+  moveChartToFolder,
+  type ChartFolderResponse,
+} from '../../lib/api/chartFolders';
 import * as companyApi from '../../lib/api/company';
 import {
   getConnections,
@@ -207,6 +211,7 @@ export default function GraphCreationPage() {
   const [folderId, setFolderId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [savedTitleSnapshot, setSavedTitleSnapshot] = useState<string | null>(null);
+  const [savedFolderSnapshot, setSavedFolderSnapshot] = useState<string | null>(null);
   const [styleConfig, setStyleConfig] = useState<ChartStyleConfig>({});
   const [savedStyleSnapshot, setSavedStyleSnapshot] = useState<ChartStyleConfig | null>(null);
   const [savedResultSnapshot, setSavedResultSnapshot] = useState<ChartConfigResponse | null>(null);
@@ -283,6 +288,7 @@ export default function GraphCreationPage() {
         setEditableTitle(executed.title);
         setSavedTitleSnapshot(executed.title);
         setFolderId(detail.folderId ?? null);
+        setSavedFolderSnapshot(detail.folderId ?? null);
         const style = executed.styleConfig ?? detail.styleConfig ?? {};
         setStyleConfig(style);
         setSavedStyleSnapshot(cloneStyle(style));
@@ -405,12 +411,13 @@ export default function GraphCreationPage() {
     !stylesEqual(styleConfig, savedStyleSnapshot);
   const isTitleDirty =
     !!savedChartId && savedTitleSnapshot !== null && editableTitle.trim() !== savedTitleSnapshot;
+  const isFolderDirty = !!savedChartId && savedFolderSnapshot !== folderId;
   const isConfigDirty =
     !!savedChartId &&
     !!result &&
     !!savedResultSnapshot &&
     !configEqual(result, savedResultSnapshot);
-  const isDirty = isStyleDirty || isTitleDirty || isConfigDirty;
+  const isDirty = isStyleDirty || isTitleDirty || isFolderDirty || isConfigDirty;
   const colorSlots = chartData
     ? Math.max(
         chartData.datasets.length,
@@ -488,6 +495,7 @@ export default function GraphCreationPage() {
     setSavedChartId(null);
     setSavedStyleSnapshot(null);
     setSavedTitleSnapshot(null);
+    setSavedFolderSnapshot(null);
     setError('');
     setStep('generate');
   }
@@ -501,6 +509,7 @@ export default function GraphCreationPage() {
     setSavedChartId(null);
     setSavedStyleSnapshot(null);
     setSavedTitleSnapshot(null);
+    setSavedFolderSnapshot(null);
     setError('');
     setStep('generate');
   }
@@ -545,6 +554,7 @@ export default function GraphCreationPage() {
     setSavedChartId(null);
     setSavedStyleSnapshot(null);
     setSavedTitleSnapshot(null);
+    setSavedFolderSnapshot(null);
     setSavedResultSnapshot(null);
     setPreRefineSnapshot(null);
     setEditingTitle(false);
@@ -625,11 +635,13 @@ export default function GraphCreationPage() {
     title: string,
     style: ChartStyleConfig,
     chart: ChartConfigResponse,
+    folder: string | null,
   ) {
     setSavedChartId(id);
     setEditableTitle(title);
     setStyleConfig(style);
     setSavedTitleSnapshot(title);
+    setSavedFolderSnapshot(folder);
     setSavedStyleSnapshot(cloneStyle(style));
     setSavedResultSnapshot(cloneResult({ ...chart, title, styleConfig: style }));
     setPreRefineSnapshot(null);
@@ -655,8 +667,10 @@ export default function GraphCreationPage() {
           groupBy: result.groupBy,
           sqlQuery: result.sqlQuery,
           styleConfig,
-          folderId,
         });
+        if (isFolderDirty) {
+          await moveChartToFolder(savedChartId, folderId);
+        }
         const savedStyle = updated.styleConfig ?? {};
         const nextResult: ChartConfigResponse = {
           ...result,
@@ -670,7 +684,7 @@ export default function GraphCreationPage() {
           styleConfig: savedStyle,
         };
         setResult(nextResult);
-        applySavedSnapshots(savedChartId, updated.title, savedStyle, nextResult);
+        applySavedSnapshots(savedChartId, updated.title, savedStyle, nextResult, folderId);
         toast.success('Chart saved.');
       } else {
         const res = await saveChart({
@@ -702,7 +716,7 @@ export default function GraphCreationPage() {
           styleConfig: savedStyle,
         };
         setResult(nextResult);
-        applySavedSnapshots(res.id, detail.title, savedStyle, nextResult);
+        applySavedSnapshots(res.id, detail.title, savedStyle, nextResult, folderId);
         toast.success('Chart saved.');
       }
     } catch (err: unknown) {
@@ -747,7 +761,7 @@ export default function GraphCreationPage() {
         styleConfig: savedStyle,
       };
       setResult(nextResult);
-      applySavedSnapshots(res.id, detail.title, savedStyle, nextResult);
+      applySavedSnapshots(res.id, detail.title, savedStyle, nextResult, folderId);
       toast.success('Saved as new chart.');
       navigate(graphEditPath(res.id), {
         replace: true,
@@ -766,6 +780,7 @@ export default function GraphCreationPage() {
     if (savedStyleSnapshot) setStyleConfig(cloneStyle(savedStyleSnapshot));
     if (savedTitleSnapshot !== null) setEditableTitle(savedTitleSnapshot);
     if (savedResultSnapshot) setResult(cloneResult(savedResultSnapshot));
+    setFolderId(savedFolderSnapshot);
     setRefinePrompt('');
     setPreRefineSnapshot(null);
     setEditingTitle(false);
@@ -789,6 +804,7 @@ export default function GraphCreationPage() {
     setSavedChartId(null);
     setSavedStyleSnapshot(null);
     setSavedTitleSnapshot(null);
+    setSavedFolderSnapshot(null);
     setSavedResultSnapshot(null);
     setPreRefineSnapshot(null);
     setRefinePrompt('');

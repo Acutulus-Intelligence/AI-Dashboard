@@ -126,7 +126,6 @@ public class ChartService : IChartService
             ?? throw new KeyNotFoundException("Chart not found.");
 
         await EnsureUniqueTitleAsync(userId, request.Title, excludeId: id, ct);
-        await EnsureFolderOwnershipAsync(request.FolderId, userId, ct);
 
         chart.Title = request.Title.Trim();
         chart.ChartType = ChartCatalog.CanonicalId(request.ChartType) ?? request.ChartType;
@@ -135,7 +134,6 @@ public class ChartService : IChartService
         chart.Aggregation = request.Aggregation;
         chart.GroupBy = request.GroupBy;
         chart.SqlQuery = request.SqlQuery;
-        chart.FolderId = request.FolderId;
         chart.StyleConfig = ChartStyleSanitizer.Sanitize(request.StyleConfig, request.ChartType);
         chart.UpdatedAt = DateTime.UtcNow;
 

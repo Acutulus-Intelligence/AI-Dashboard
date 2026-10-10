@@ -218,6 +218,91 @@ public sealed class ProductRoutesTests
     }
 
     [Fact]
+    public async Task Chart_update_preserves_folder_and_folders_are_private_to_the_owner()
+    {
+        var owner = CreateClient();
+        var ownerEmail = $"folderowner_{Guid.NewGuid():N}@example.com";
+        await owner.RegisterAndLoginAsync(ownerEmail);
+        await _factory.SeedActiveSubscriptionAsync(ownerEmail);
+
+        var createConn = await owner.PostAsJsonAsync("/api/connections", new CreateConnectionRequest(
+            "OwnerSample",
+            DbProvider.PostgreSql,
+            _factory.ExternalConnectionString));
+        createConn.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var connDoc = JsonDocument.Parse(await createConn.Content.ReadAsStringAsync());
+        var connectionId = connDoc.RootElement.GetProperty("id").GetGuid();
+
+        var createFolder = await owner.PostAsJsonAsync("/api/chart-folders", new CreateChartFolderRequest("Reports"));
+        createFolder.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var folderDoc = JsonDocument.Parse(await createFolder.Content.ReadAsStringAsync());
+        var folderId = folderDoc.RootElement.GetProperty("id").GetGuid();
+
+        var saveChart = await owner.PostAsJsonAsync("/api/charts", new SaveChartRequest(
+            "Owner chart",
+            "bar",
+            "category",
+            ["amount"],
+            "sum",
+            "category",
+            "SELECT category, SUM(amount) AS amount FROM sales GROUP BY category",
+            connectionId,
+            null,
+            "sales",
+            FolderId: folderId));
+        saveChart.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var chartDoc = JsonDocument.Parse(await saveChart.Content.ReadAsStringAsync());
+        var chartId = chartDoc.RootElement.GetProperty("id").GetGuid();
+
+        // Updating a filed chart without a folderId must leave the folder untouched.
+        var update = await owner.PutAsJsonAsync($"/api/charts/{chartId}", new UpdateChartRequest(
+            "Owner chart renamed",
+            "bar",
+            "category",
+            ["amount"],
+            "sum",
+            "category",
+            "SELECT category, SUM(amount) AS amount FROM sales GROUP BY category ORDER BY amount DESC"));
+        update.StatusCode.Should().Be(HttpStatusCode.OK);
+        using (var updatedDoc = JsonDocument.Parse(await update.Content.ReadAsStringAsync()))
+            updatedDoc.RootElement.GetProperty("folderId").GetGuid().Should().Be(folderId);
+
+        // A second user cannot read or mutate the owner's chart or folder.
+        var outsider = CreateClient();
+        var outsiderEmail = $"folderoutsider_{Guid.NewGuid():N}@example.com";
+        await outsider.RegisterAndLoginAsync(outsiderEmail);
+        await _factory.SeedActiveSubscriptionAsync(outsiderEmail);
+
+        (await outsider.GetAsync($"/api/charts/{chartId}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await outsider.PutAsJsonAsync($"/api/charts/{chartId}", new UpdateChartRequest(
+            "Hijacked",
+            "bar",
+            "category",
+            ["amount"],
+            "sum",
+            "category",
+            "SELECT category, SUM(amount) AS amount FROM sales GROUP BY category"))).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await outsider.PutAsJsonAsync($"/api/charts/{chartId}/folder", new MoveChartRequest(null)))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await outsider.DeleteAsync($"/api/charts/{chartId}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await outsider.PutAsJsonAsync($"/api/chart-folders/{folderId}", new UpdateChartFolderRequest("Hijacked")))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await outsider.DeleteAsync($"/api/chart-folders/{folderId}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        // Unfiling through the explicit move endpoint still works for the owner.
+        (await owner.PutAsJsonAsync($"/api/charts/{chartId}/folder", new MoveChartRequest(null)))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var afterUnfile = await owner.GetAsync($"/api/charts/{chartId}");
+        using (var unfiledDoc = JsonDocument.Parse(await afterUnfile.Content.ReadAsStringAsync()))
+            unfiledDoc.RootElement.GetProperty("folderId").ValueKind.Should().Be(JsonValueKind.Null);
+
+        (await owner.DeleteAsync($"/api/charts/{chartId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await owner.DeleteAsync($"/api/chart-folders/{folderId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await owner.DeleteAsync($"/api/connections/{connectionId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
     public async Task Individual_users_can_only_connect_one_database()
     {
         var client = CreateClient();

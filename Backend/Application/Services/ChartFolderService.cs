@@ -87,9 +87,10 @@ public class ChartFolderService : IChartFolderService
     private async Task EnsureUniqueNameAsync(
         Guid userId, string name, Guid? excludeId, CancellationToken ct)
     {
+        var normalized = name.ToLower();
         var taken = await _db.ChartFolders.AnyAsync(
             f => f.UserId == userId
-                && f.Name == name
+                && f.Name.ToLower() == normalized
                 && (!excludeId.HasValue || f.Id != excludeId.Value),
             ct);
 

@@ -50,7 +50,6 @@ export interface UpdateChartRequest {
   groupBy: string | null;
   sqlQuery: string;
   styleConfig?: ChartStyleConfig | null;
-  folderId?: string | null;
 }
 
 export interface ChartResponse {
