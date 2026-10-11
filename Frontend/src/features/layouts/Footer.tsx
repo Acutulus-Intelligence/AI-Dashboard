@@ -1,12 +1,13 @@
 import HashLink from '../components/HashLink';
 import { ROUTES } from '../routes';
+import logoSrc from '../../assets/images/IconTransNoText.png';
 
 const footerGroups = [
   {
     title: 'PRODUCT',
     links: [
       { label: 'Features', to: '/#features' },
-      { label: 'Integrations', to: '/#product' },
+      { label: 'Integrations', to: '/#platform' },
       { label: 'Pricing', to: '/pricing' },
     ],
   },
@@ -33,7 +34,10 @@ export default function Footer() {
     <footer className="w-full border-t border-outline-variant bg-surface-container-lowest py-8">
       <div className="mx-auto grid w-full max-w-container-max grid-cols-1 gap-gutter px-gutter md:grid-cols-2 lg:grid-cols-4">
         <div>
-          <div className="mb-4 text-headline-md font-bold text-primary">AI Dashboard</div>
+          <div className="mb-4 flex items-center gap-2.5 text-headline-md font-bold text-primary">
+            <img src={logoSrc} alt="" className="size-8 object-contain" />
+            AI Dashboard
+          </div>
           <p className="max-w-xs text-body-sm text-on-surface-variant">
             Intelligent data analysis for modern businesses. Visualize the future with AI.
           </p>

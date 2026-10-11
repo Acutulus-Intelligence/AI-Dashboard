@@ -275,3 +275,138 @@
   border-radius: var(--radius);
   opacity: 0.18;
 }
+
+/* ---------------------------------------------------------------------------
+   Landing page
+   The marketing page is a designed light surface. Reset theme tokens so the
+   shared footer stays readable when the app theme is dark.
+   --------------------------------------------------------------------------- */
+.landing-page {
+  color-scheme: light;
+  --background: oklch(0.985 0.002 247);
+  --foreground: oklch(0.21 0.006 247);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.006 247);
+  --primary: oklch(0.21 0.006 247);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.967 0.003 247);
+  --secondary-foreground: oklch(0.21 0.006 247);
+  --muted: oklch(0.967 0.003 247);
+  --muted-foreground: oklch(0.5 0.014 254);
+  --accent: oklch(0.947 0.005 247);
+  --accent-foreground: oklch(0.21 0.006 247);
+  --border: oklch(0.912 0.006 255);
+  --ring: oklch(0.55 0.09 220);
+  --brand: oklch(0.47 0.087 220);
+  --brand-foreground: oklch(0.99 0 0);
+  --brand-container: oklch(0.85 0.11 213);
+  --on-brand-container: oklch(0.32 0.06 220);
+  --brand-strong: oklch(0.26 0.045 265);
+}
+
+@keyframes landing-glow {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.75;
+  }
+  50% {
+    transform: translate3d(5%, -4%, 0) scale(1.08);
+    opacity: 1;
+  }
+}
+
+@keyframes landing-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes landing-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes landing-bar {
+  to {
+    transform: scaleY(1);
+  }
+}
+
+.landing-orb {
+  animation: landing-glow 16s ease-in-out infinite;
+}
+
+.landing-orb-delay {
+  animation-duration: 20s;
+  animation-delay: -8s;
+}
+
+.landing-float {
+  animation: landing-float 7s ease-in-out infinite;
+}
+
+.landing-float-delay {
+  animation-delay: -3.2s;
+}
+
+.landing-draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: landing-draw 1.8s ease forwards 0.35s;
+}
+
+.landing-bar {
+  transform-origin: bottom;
+  transform: scaleY(0);
+  animation: landing-bar 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.landing-card {
+  transition:
+    transform 0.35s ease,
+    box-shadow 0.35s ease;
+}
+
+.landing-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 22px 50px -28px rgba(15, 23, 42, 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .landing-orb,
+  .landing-float,
+  .landing-draw,
+  .landing-bar {
+    animation: none !important;
+  }
+
+  .landing-draw {
+    stroke-dashoffset: 0;
+  }
+
+  .landing-bar {
+    transform: none;
+  }
+
+  .landing-card,
+  .landing-card:hover {
+    transition: none;
+    transform: none;
+  }
+
+  .reveal-motion {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+}

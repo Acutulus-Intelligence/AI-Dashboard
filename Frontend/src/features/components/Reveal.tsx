@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { usePrefersReducedMotion } from '../../hooks/usePrefersReducedMotion';
 
 interface RevealProps {
   children: ReactNode;
@@ -7,15 +8,15 @@ interface RevealProps {
 }
 
 export default function Reveal({ children, className = '', delay = 0 }: RevealProps) {
+  const reduced = usePrefersReducedMotion();
   const ref = useRef<HTMLDivElement>(null);
-  const [isVisible, setIsVisible] = useState(false);
+  const [isVisible, setIsVisible] = useState(reduced);
 
   useEffect(() => {
-    const node = ref.current;
+    if (reduced) return;
 
-    if (!node) {
-      return;
-    }
+    const node = ref.current;
+    if (!node) return;
 
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -28,15 +29,16 @@ export default function Reveal({ children, className = '', delay = 0 }: RevealPr
     );
 
     observer.observe(node);
-
     return () => observer.disconnect();
-  }, []);
+  }, [reduced]);
 
   return (
     <div
       ref={ref}
-      className={`translate-y-8 opacity-0 transition-all duration-700 ease-out ${isVisible ? 'translate-y-0 opacity-100' : ''} ${className}`}
-      style={{ transitionDelay: `${delay}ms` }}
+      className={`reveal-motion translate-y-6 opacity-0 transition-all duration-700 ease-out ${
+        isVisible ? 'translate-y-0 opacity-100' : ''
+      } ${className}`}
+      style={reduced ? undefined : { transitionDelay: `${delay}ms` }}
     >
       {children}
     </div>
