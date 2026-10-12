@@ -75,6 +75,31 @@ namespace Infrastructure.Data.Migrations
                     b.ToTable("CardFingerprints", (string)null);
                 });
 
+            modelBuilder.Entity("Domain.Models.ChartFolder", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("chart_folders", (string)null);
+                });
+
             modelBuilder.Entity("Domain.Models.Company", b =>
                 {
                     b.Property<Guid>("Id")
@@ -296,7 +321,8 @@ namespace Infrastructure.Data.Migrations
 
                     b.HasIndex("CompanyId");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("UserId", "Name")
+                        .IsUnique();
 
                     b.ToTable("Dashboards", (string)null);
                 });
@@ -525,6 +551,9 @@ namespace Infrastructure.Data.Migrations
                     b.Property<Guid?>("DatasetId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("FolderId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("GroupBy")
                         .HasColumnType("text");
 
@@ -560,6 +589,8 @@ namespace Infrastructure.Data.Migrations
                         .HasColumnType("text[]");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("FolderId");
 
                     b.HasIndex("UserId", "Title")
                         .IsUnique();
@@ -1001,6 +1032,17 @@ namespace Infrastructure.Data.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Domain.Models.ChartFolder", b =>
+                {
+                    b.HasOne("Domain.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("Domain.Models.Company", b =>
                 {
                     b.HasOne("Domain.Models.User", "Owner")
@@ -1145,11 +1187,18 @@ namespace Infrastructure.Data.Migrations
 
             modelBuilder.Entity("Domain.Models.SavedChart", b =>
                 {
+                    b.HasOne("Domain.Models.ChartFolder", "Folder")
+                        .WithMany()
+                        .HasForeignKey("FolderId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Domain.Models.User", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("Folder");
 
                     b.Navigation("User");
                 });

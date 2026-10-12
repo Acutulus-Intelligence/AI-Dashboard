@@ -63,6 +63,15 @@ public class ChartController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>Moves a chart into a folder, or unfiles it when folderId is null.</summary>
+    [HttpPut("{id:guid}/folder")]
+    public async Task<IActionResult> MoveToFolder(Guid id, [FromBody] MoveChartRequest request, CancellationToken ct)
+    {
+        var userId = GetUserId();
+        await _chartService.MoveChartAsync(id, userId, request.FolderId, ct);
+        return NoContent();
+    }
+
     [HttpPost("{id:guid}/execute")]
     public async Task<IActionResult> Execute(Guid id, CancellationToken ct)
     {

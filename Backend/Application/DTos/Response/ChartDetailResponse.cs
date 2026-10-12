@@ -17,5 +17,6 @@ public sealed record ChartDetailResponse(
     string? TableName,
     DateTime CreatedAt,
     ChartStyleConfig? StyleConfig = null,
-    DataQueryModel? DataModel = null
+    DataQueryModel? DataModel = null,
+    Guid? FolderId = null
 );

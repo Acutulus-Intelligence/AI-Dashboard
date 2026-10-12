@@ -19,6 +19,8 @@ public class SavedChart
     public DataQueryModel? DataModel { get; set; }
     public Guid? ConnectionId { get; set; }
     public Guid? DatasetId { get; set; }
+    public Guid? FolderId { get; set; }
+    public ChartFolder? Folder { get; set; }
     public string? TableName { get; set; }
     public ChartStyleConfig? StyleConfig { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

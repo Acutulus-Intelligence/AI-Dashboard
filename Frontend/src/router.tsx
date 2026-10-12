@@ -10,6 +10,7 @@ import ScrollToTop from './features/components/ScrollToTop';
 import { ROUTES } from './features/routes';
 
 const LandingPage = lazy(() => import('./features/pages/LandingPage'));
+const DashboardsPage = lazy(() => import('./features/pages/DashboardsPage'));
 const DashboardPage = lazy(() => import('./features/pages/DashboardPage'));
 const ConnectionsPage = lazy(() => import('./features/pages/ConnectionsPage'));
 const ChartsPage = lazy(() => import('./features/pages/ChartsPage'));
@@ -114,7 +115,7 @@ export default function Router() {
               <Route
                 path={ROUTES.ADMIN_STYLE}
                 element={
-                  <ProtectedRoute requireSubscription={false}>
+                  <ProtectedRoute>
                     <LazyPage><AdminStylePage /></LazyPage>
                   </ProtectedRoute>
                 }
@@ -153,6 +154,14 @@ export default function Router() {
               />
               <Route
                 path={ROUTES.DASHBOARD}
+                element={
+                  <ProtectedRoute>
+                    <LazyPage><DashboardsPage /></LazyPage>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path={ROUTES.DASHBOARD_VIEW}
                 element={
                   <ProtectedRoute>
                     <LazyPage><DashboardPage /></LazyPage>

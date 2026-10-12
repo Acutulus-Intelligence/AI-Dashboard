@@ -4,5 +4,6 @@ public sealed record ChartResponse(
     Guid Id,
     string Title,
     string ChartType,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    Guid? FolderId = null
 );

@@ -12,6 +12,8 @@ public class DashboardConfiguration : IEntityTypeConfiguration<Dashboard>
 
         builder.HasKey(d => d.Id);
 
+        builder.HasIndex(d => new { d.UserId, d.Name }).IsUnique();
+
         builder.Property(d => d.Name)
             .IsRequired()
             .HasMaxLength(200)

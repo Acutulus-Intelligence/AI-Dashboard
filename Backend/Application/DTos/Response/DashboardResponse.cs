@@ -22,5 +22,6 @@ public sealed record DashboardWidgetItem(
 public sealed record DashboardResponse(
     Guid Id,
     string Name,
+    Guid OwnerId,
     List<DashboardWidgetItem> Widgets
 );

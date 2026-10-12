@@ -1,6 +1,7 @@
 export const ROUTES = {
   HOME: '/',
   DASHBOARD: '/dashboard',
+  DASHBOARD_VIEW: '/dashboard/:dashboardId',
   LOGIN: '/login',
   REGISTER: '/register',
   PRICING: '/pricing',
@@ -27,4 +28,8 @@ export const ROUTES = {
 
 export function graphEditPath(chartId: string) {
   return `/dashboard/graphs/${chartId}/edit`;
+}
+
+export function dashboardPath(dashboardId: string) {
+  return `/dashboard/${dashboardId}`;
 }

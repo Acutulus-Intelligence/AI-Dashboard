@@ -108,7 +108,9 @@ export default function AppSidebar() {
   }, [isCompany, companyName, user?.firstName, user?.lastName, user?.email]);
 
   function isActive(item: NavItem) {
-    if (item.url === ROUTES.DASHBOARD) return pathname === ROUTES.DASHBOARD;
+    if (item.url === ROUTES.DASHBOARD) {
+      return pathname === ROUTES.DASHBOARD || /^\/dashboard\/[0-9a-f-]{36}$/i.test(pathname);
+    }
     return pathname === item.url || pathname.startsWith(`${item.url}/`);
   }
 

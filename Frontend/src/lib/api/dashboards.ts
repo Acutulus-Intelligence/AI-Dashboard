@@ -86,16 +86,72 @@ export interface DashboardWidgetItem {
 export interface DashboardResponse {
   id: string;
   name: string;
+  ownerId: string;
   widgets: DashboardWidgetItem[];
 }
 
-export function getDashboard(): Promise<DashboardResponse> {
-  return apiFetch<DashboardResponse>('/api/dashboards');
+export interface DashboardSummary {
+  id: string;
+  name: string;
+  ownerId: string;
+  widgetCount: number;
+  updatedAt: string;
 }
 
-export function saveWidgets(widgets: WidgetItem[]): Promise<DashboardResponse> {
-  return apiFetch<DashboardResponse>('/api/dashboards/widgets', {
+export function getDashboards(): Promise<DashboardSummary[]> {
+  return apiFetch<DashboardSummary[]>('/api/dashboards');
+}
+
+export function getDashboard(id: string): Promise<DashboardResponse> {
+  return apiFetch<DashboardResponse>(`/api/dashboards/${id}`);
+}
+
+export function createDashboard(name: string): Promise<DashboardResponse> {
+  return apiFetch<DashboardResponse>('/api/dashboards', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function renameDashboard(id: string, name: string): Promise<DashboardResponse> {
+  return apiFetch<DashboardResponse>(`/api/dashboards/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function deleteDashboard(id: string): Promise<void> {
+  return apiFetch<void>(`/api/dashboards/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export function saveWidgets(id: string, widgets: WidgetItem[]): Promise<DashboardResponse> {
+  return apiFetch<DashboardResponse>(`/api/dashboards/${id}/widgets`, {
     method: 'PUT',
     body: JSON.stringify({ widgets }),
+  });
+}
+
+export interface TransferDataSourceItem {
+  type: 'connection' | 'collection';
+  id: string;
+  name: string;
+}
+
+export interface TransferDashboardResult {
+  transferred: boolean;
+  requiresSharing: TransferDataSourceItem[];
+}
+
+export function transferDashboard(
+  id: string,
+  newOwnerId: string,
+  currentPassword: string,
+  shareDataSources = false,
+): Promise<TransferDashboardResult> {
+  return apiFetch<TransferDashboardResult>(`/api/dashboards/${id}/transfer-ownership`, {
+    method: 'POST',
+    body: JSON.stringify({ newOwnerId, currentPassword, shareDataSources }),
   });
 }

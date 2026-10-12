@@ -25,6 +25,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Presentation.Middleware;
+using Presentation.Services;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -116,6 +117,7 @@ builder.Services.AddHttpClient<IAiService, OpenRouterService>();
 // Graph generation
 builder.Services.AddScoped<IGraphGenerationService, GraphGenerationService>();
 builder.Services.AddScoped<IChartService, ChartService>();
+builder.Services.AddScoped<IChartFolderService, ChartFolderService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 
 // Application layer
@@ -129,6 +131,7 @@ builder.Services.AddScoped<RequireActiveSubscriptionFilter>();
 
 builder.Services.AddScoped<ITokenService, JwtService>();
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
+builder.Services.AddScoped<ICurrentPasswordVerifier, CurrentPasswordVerifier>();
 
 
 builder.Services.AddFluentValidationAutoValidation();

@@ -61,6 +61,12 @@ public class SavedChartConfiguration : IEntityTypeConfiguration<SavedChart>
             .HasForeignKey(sc => sc.UserId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        // Deleting a folder unfiles its charts rather than deleting them.
+        builder.HasOne(sc => sc.Folder)
+            .WithMany()
+            .HasForeignKey(sc => sc.FolderId)
+            .OnDelete(DeleteBehavior.SetNull);
+
         builder.HasIndex(sc => new { sc.UserId, sc.Title }).IsUnique();
     }
 }
