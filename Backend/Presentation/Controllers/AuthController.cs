@@ -113,6 +113,7 @@ public class AuthController : ControllerBase
 
     [HttpDelete("account")]
     [Authorize]
+    [EnableRateLimiting("login")]
     public async Task<IActionResult> DeleteAccount([FromBody] DeleteAccountRequest request, CancellationToken ct)
     {
         var userId = GetUserId();

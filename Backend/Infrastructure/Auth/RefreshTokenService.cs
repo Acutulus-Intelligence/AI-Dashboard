@@ -48,6 +48,14 @@ public class RefreshTokenService : IRefreshTokenService
             .FirstOrDefaultAsync(rt => rt.Token == hashed && !rt.IsUsed && !rt.IsRevoked && rt.ExpiresAt > DateTime.UtcNow);
     }
 
+    public async Task<RefreshToken?> GetRefreshTokenAsync(string refreshToken)
+    {
+        var hashed = HashToken(refreshToken);
+
+        return await _db.Set<RefreshToken>()
+            .FirstOrDefaultAsync(rt => rt.Token == hashed);
+    }
+
     public async Task<string> RotateRefreshTokenAsync(string oldRefreshToken, string newJwtId)
     {
         var hashed = HashToken(oldRefreshToken);
@@ -55,22 +63,24 @@ public class RefreshTokenService : IRefreshTokenService
         var storedToken = await _db.Set<RefreshToken>()
             .FirstOrDefaultAsync(rt => rt.Token == hashed);
 
-        if (storedToken is null || !storedToken.IsActive)
+        if (storedToken is null || storedToken.IsRevoked || storedToken.IsExpired)
             throw new UnauthorizedAccessException("Invalid or expired refresh token.");
 
         if (storedToken.IsUsed)
         {
-            storedToken.IsRevoked = true;
-            storedToken.RevokedAt = DateTime.UtcNow;
-
+            // A previously used token is being replayed: treat the account as
+            // compromised and revoke every active token so all sessions must
+            // sign in again. (JwtId changes on every rotation, so it cannot be
+            // used to scope this to a single token chain.)
+            var now = DateTime.UtcNow;
             await _db.Set<RefreshToken>()
-                .Where(rt => rt.UserId == storedToken.UserId && rt.JwtId == storedToken.JwtId)
+                .Where(rt => rt.UserId == storedToken.UserId && !rt.IsRevoked)
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(rt => rt.IsRevoked, true)
-                    .SetProperty(rt => rt.RevokedAt, DateTime.UtcNow));
+                    .SetProperty(rt => rt.RevokedAt, now));
 
-            await _db.SaveChangesAsync();
-            throw new UnauthorizedAccessException("Refresh token reuse detected. All tokens for this session have been revoked.");
+            throw new UnauthorizedAccessException(
+                "Refresh token reuse detected. All sessions have been revoked.");
         }
 
         storedToken.IsUsed = true;

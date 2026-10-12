@@ -242,6 +242,16 @@ public static class ApiClientExtensions
         return await users.GetAccessFailedCountAsync(user);
     }
 
+    public static async Task<int> GetTwoFactorFailedAttemptsAsync(this ApiFactory factory, string email)
+    {
+        using var scope = factory.Services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
+        var user = await users.FindByEmailAsync(email)
+            ?? throw new InvalidOperationException($"User {email} not found.");
+        var stored = await users.GetAuthenticationTokenAsync(user, "AI-Dashboard", "TwoFactorFailedAttempts");
+        return int.TryParse(stored, out var value) ? value : 0;
+    }
+
     public static async Task SetUserLockoutAsync(this ApiFactory factory, string email, DateTimeOffset lockoutEnd)
     {
         using var scope = factory.Services.CreateScope();

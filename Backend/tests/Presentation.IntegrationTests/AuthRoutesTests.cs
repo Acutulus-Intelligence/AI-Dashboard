@@ -106,10 +106,91 @@ public sealed class AuthRoutesTests
     }
 
     [Fact]
+    public async Task Delete_account_with_wrong_password_is_rejected()
+    {
+        var client = CreateClient();
+        var email = $"delwrong_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+
+        var delete = await client.SendAsync(new HttpRequestMessage(HttpMethod.Delete, "/api/auth/account")
+        {
+            Content = JsonContent.Create(new DeleteAccountRequest("WrongPass123!!")),
+        });
+        delete.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await _factory.GetUserDeletionStateAsync(email)).IsDeactivated.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Reactivation_after_grace_period_is_rejected()
+    {
+        var client = CreateClient();
+        var email = $"react_expired_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+
+        await _factory.SetUserDeletionScheduledAtAsync(email, DateTime.UtcNow.AddDays(-1));
+
+        var reactivate = await client.PostAsJsonAsync("/api/auth/account/reactivate",
+            new ReactivateAccountRequest(ApiClientExtensions.DefaultPassword));
+        reactivate.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Changing_email_revokes_all_sessions()
+    {
+        var client = CreateClient();
+        var email = $"emailchg_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        var newEmail = $"emailchg_new_{Guid.NewGuid():N}@example.com";
+
+        var profile = await client.PutAsJsonAsync("/api/auth/profile",
+            new UpdateProfileRequest("Ada", "Lovelace", newEmail));
+        profile.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        (await client.GetAsync("/api/auth/me")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await client.PostAsync("/api/auth/refresh", null)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        var relogin = CreateClient();
+        (await relogin.LoginAsync(newEmail)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Reusing_a_refresh_token_revokes_all_sessions()
+    {
+        var client = CreateClient();
+        var email = $"refresh_reuse_{Guid.NewGuid():N}@example.com";
+
+        var register = await client.RegisterAsync(email);
+        register.EnsureSuccessStatusCode();
+        var firstRefreshToken = ReadRefreshCookie(register);
+
+        // Rotate once; the client now holds a newer refresh token.
+        (await client.PostAsync("/api/auth/refresh", null)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Replaying the original token is detected...
+        var replay = CreateClient();
+        replay.DefaultRequestHeaders.Add("Cookie", $"refresh_token={firstRefreshToken}");
+        (await replay.PostAsync("/api/auth/refresh", null)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        // ...and revokes every session, including the rotated token.
+        (await client.PostAsync("/api/auth/refresh", null)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
     public async Task Me_without_auth_returns_401()
     {
         var client = CreateClient();
         var me = await client.GetAsync("/api/auth/me");
         me.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    private static string ReadRefreshCookie(HttpResponseMessage response)
+    {
+        var setCookie = response.Headers.TryGetValues("Set-Cookie", out var values)
+            ? values.FirstOrDefault(v => v.StartsWith("refresh_token=", StringComparison.Ordinal))
+            : null;
+        setCookie.Should().NotBeNull();
+
+        var value = setCookie!["refresh_token=".Length..];
+        return value[..value.IndexOf(';')];
     }
 }

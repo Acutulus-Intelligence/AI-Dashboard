@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using Application.Common.Exceptions;
 using Application.DTos;
@@ -8,6 +9,7 @@ using Domain.Enums;
 using Domain.Models;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Application.Services;
 
@@ -22,6 +24,8 @@ public class AuthService : IAuthService
     private const string PendingAuthenticatorKeyToken = "PendingAuthenticatorKey";
     private const string PendingAuthenticatorAttemptsToken = "PendingAuthenticatorAttempts";
     private const string LastTimeStepToken = "LastTwoFactorTimeStep";
+    private const string TwoFactorFailedAttemptsToken = "TwoFactorFailedAttempts";
+    private const string TwoFactorLockoutEndToken = "TwoFactorLockoutEnd";
 
     private readonly UserManager<User> _userManager;
     private readonly IUserStore<User> _userStore;
@@ -33,6 +37,9 @@ public class AuthService : IAuthService
     private readonly IApplicationDbContext _db;
     private readonly IEncryptionService _encryption;
     private readonly ITotpService _totp;
+    private readonly ICurrentPasswordVerifier _currentPasswordVerifier;
+    private readonly int _maxTwoFactorAttempts;
+    private readonly TimeSpan _twoFactorLockoutTimeSpan;
 
     public AuthService(
         UserManager<User> userManager,
@@ -44,7 +51,9 @@ public class AuthService : IAuthService
         IPaymentService paymentService,
         IApplicationDbContext db,
         IEncryptionService encryption,
-        ITotpService totp)
+        ITotpService totp,
+        ICurrentPasswordVerifier currentPasswordVerifier,
+        IOptions<IdentityOptions> identityOptions)
     {
         _userManager = userManager;
         _userStore = userStore;
@@ -56,6 +65,11 @@ public class AuthService : IAuthService
         _db = db;
         _encryption = encryption;
         _totp = totp;
+        _currentPasswordVerifier = currentPasswordVerifier;
+
+        var lockout = identityOptions.Value.Lockout;
+        _maxTwoFactorAttempts = lockout.MaxFailedAccessAttempts;
+        _twoFactorLockoutTimeSpan = lockout.DefaultLockoutTimeSpan;
     }
 
     public async Task<AuthResult> RegisterAsync(RegisterRequest request, CancellationToken ct = default)
@@ -104,13 +118,19 @@ public class AuthService : IAuthService
             throw new UnauthorizedAccessException("Invalid email or password.");
         }
 
+        // A correct password clears earlier password failures. Second-factor
+        // failures are tracked by a separate counter so they keep accumulating.
+        await _userManager.ResetAccessFailedCountAsync(user);
+
         if (user.TwoFactorEnabled)
         {
+            if (await IsTwoFactorLockedOutAsync(user))
+                throw new LockedOutException();
+
             var (challengeToken, _) = _tokenService.GenerateTwoFactorChallengeToken(user);
             return LoginOutcome.TwoFactorRequired(challengeToken);
         }
 
-        await _userManager.ResetAccessFailedCountAsync(user);
         var roles = await _userManager.GetRolesAsync(user);
         return LoginOutcome.Authenticated(await GenerateAuthResultAsync(user, roles));
     }
@@ -132,13 +152,16 @@ public class AuthService : IAuthService
         if (await _userManager.IsLockedOutAsync(user))
             throw new LockedOutException();
 
+        if (await IsTwoFactorLockedOutAsync(user))
+            throw new LockedOutException();
+
         var code = request.Code.Trim();
 
         if (request.UseRecoveryCode)
         {
             if (!await RedeemRecoveryCodeAsync(user, code, ct))
             {
-                await _userManager.AccessFailedAsync(user);
+                await RegisterTwoFactorFailureAsync(user);
                 throw new UnauthorizedAccessException("Invalid verification code.");
             }
         }
@@ -149,7 +172,7 @@ public class AuthService : IAuthService
 
             if (key is null || !_totp.TryValidate(key, code, lastTimeStep, out var matchedTimeStep))
             {
-                await _userManager.AccessFailedAsync(user);
+                await RegisterTwoFactorFailureAsync(user);
                 throw new UnauthorizedAccessException("Invalid verification code.");
             }
 
@@ -158,6 +181,7 @@ public class AuthService : IAuthService
             await SetLastTimeStepAsync(user, matchedTimeStep);
         }
 
+        await ResetTwoFactorFailuresAsync(user);
         await _userManager.ResetAccessFailedCountAsync(user);
 
         // Rotating the security stamp invalidates every outstanding 2FA
@@ -198,6 +222,7 @@ public class AuthService : IAuthService
 
         // Restarting setup grants a fresh set of verification attempts.
         await SetPendingSetupAttemptsAsync(user, 0);
+        await ResetTwoFactorFailuresAsync(user);
 
         var account = user.Email ?? user.UserName ?? userId.ToString();
         return new TwoFactorSetupResponse(sharedKey, BuildAuthenticatorUri(account, sharedKey));
@@ -250,9 +275,11 @@ public class AuthService : IAuthService
         if (!enableResult.Succeeded)
             throw new InvalidOperationException("Failed to enable two-factor authentication. Please try again.");
 
-        // Enabling rotates the security stamp (invalidating active access tokens).
+        // Enabling rotates the security stamp, invalidating active access tokens.
         // Revoke refresh tokens too so all sessions must re-authenticate with 2FA.
+        await _userManager.UpdateSecurityStampAsync(user);
         await _refreshTokenService.RevokeAllRefreshTokensAsync(user.Id);
+        await ResetTwoFactorFailuresAsync(user);
 
         var codes = await GenerateRecoveryCodesAsync(user, ct);
         return new TwoFactorRecoveryCodesResponse(codes);
@@ -288,6 +315,7 @@ public class AuthService : IAuthService
         await GetAuthenticatorKeyStore().SetAuthenticatorKeyAsync(user, string.Empty, ct);
         await _userManager.RemoveAuthenticationTokenAsync(user, ServiceTokenProvider, PendingAuthenticatorKeyToken);
         await _userManager.RemoveAuthenticationTokenAsync(user, ServiceTokenProvider, LastTimeStepToken);
+        await ResetTwoFactorFailuresAsync(user);
 
         var codes = await _db.TwoFactorRecoveryCodes
             .Where(c => c.UserId == user.Id)
@@ -324,8 +352,10 @@ public class AuthService : IAuthService
 
     public async Task<AuthResult> RefreshTokenAsync(string refreshToken, CancellationToken ct = default)
     {
-        var storedToken = await _refreshTokenService.ValidateRefreshTokenAsync(refreshToken);
-        if (storedToken is null)
+        // Look the token up regardless of state so a replayed (already used)
+        // token reaches RotateRefreshTokenAsync, which revokes the family.
+        var storedToken = await _refreshTokenService.GetRefreshTokenAsync(refreshToken);
+        if (storedToken is null || storedToken.IsRevoked || storedToken.IsExpired)
             throw new UnauthorizedAccessException("Invalid or expired refresh token.");
 
         var user = await _userManager.FindByIdAsync(storedToken.UserId.ToString());
@@ -373,6 +403,7 @@ public class AuthService : IAuthService
         user.FirstName = request.FirstName;
         user.LastName = request.LastName;
 
+        var emailChanged = false;
         if (request.Email is not null && !string.Equals(user.Email, request.Email, StringComparison.OrdinalIgnoreCase))
         {
             var emailOwner = await _userManager.FindByEmailAsync(request.Email);
@@ -386,11 +417,21 @@ public class AuthService : IAuthService
             var setUserNameResult = await _userManager.SetUserNameAsync(user, request.Email);
             if (!setUserNameResult.Succeeded)
                 throw new InvalidOperationException("Profile update failed. Please check your input and try again.");
+
+            emailChanged = true;
         }
 
         var updateResult = await _userManager.UpdateAsync(user);
         if (!updateResult.Succeeded)
             throw new InvalidOperationException("Profile update failed. Please check your input and try again.");
+
+        // Email is a sign-in identifier, so changing it invalidates every
+        // existing session and forces the account to sign in again.
+        if (emailChanged)
+        {
+            await _userManager.UpdateSecurityStampAsync(user);
+            await _refreshTokenService.RevokeAllRefreshTokensAsync(userId);
+        }
     }
 
     public async Task<UserMeResponse> GetMeAsync(Guid userId, CancellationToken ct = default)
@@ -430,7 +471,12 @@ public class AuthService : IAuthService
         if (user.DeletionScheduledAt is not null)
             throw new InvalidOperationException("This account is already scheduled for deletion.");
 
-        if (!await _userManager.CheckPasswordAsync(user, request.CurrentPassword))
+        // Verify with lockout so this endpoint cannot be used to brute-force
+        // the account password.
+        var passwordCheck = await _currentPasswordVerifier.VerifyAsync(user, request.CurrentPassword);
+        if (passwordCheck == CurrentPasswordCheck.LockedOut)
+            throw new LockedOutException();
+        if (passwordCheck != CurrentPasswordCheck.Success)
             throw new UnauthorizedAccessException("Current password is incorrect.");
 
         if (await _userManager.IsInRoleAsync(user, "Admin"))
@@ -482,6 +528,10 @@ public class AuthService : IAuthService
 
         if (user.DeletionScheduledAt is null)
             throw new InvalidOperationException("This account is not scheduled for deletion.");
+
+        if (user.DeletionScheduledAt <= DateTime.UtcNow)
+            throw new InvalidOperationException(
+                "The deletion grace period has ended; this account can no longer be reactivated.");
 
         if (await _userManager.IsLockedOutAsync(user))
             throw new LockedOutException();
@@ -539,7 +589,17 @@ public class AuthService : IAuthService
             return false;
 
         var key = await GetDecryptedAuthenticatorKeyAsync(user);
-        return key is not null && _totp.TryValidate(key, code.Trim(), long.MinValue, out _);
+        if (key is null)
+            return false;
+
+        // Reject replaying a code that was already accepted within its validity
+        // window (shared with the login flow's replay protection).
+        var lastTimeStep = await GetLastTimeStepAsync(user);
+        if (!_totp.TryValidate(key, code.Trim(), lastTimeStep, out var matchedTimeStep))
+            return false;
+
+        await SetLastTimeStepAsync(user, matchedTimeStep);
+        return true;
     }
 
     private async Task<bool> VerifyAccountFactorAsync(
@@ -561,6 +621,68 @@ public class AuthService : IAuthService
     {
         await _userManager.SetAuthenticationTokenAsync(
             user, ServiceTokenProvider, LastTimeStepToken, timeStep.ToString());
+    }
+
+    private async Task<int> GetTwoFactorFailedAttemptsAsync(User user)
+    {
+        var stored = await _userManager.GetAuthenticationTokenAsync(
+            user, ServiceTokenProvider, TwoFactorFailedAttemptsToken);
+        return int.TryParse(stored, out var value) ? value : 0;
+    }
+
+    private async Task SetTwoFactorFailedAttemptsAsync(User user, int attempts)
+    {
+        await _userManager.SetAuthenticationTokenAsync(
+            user, ServiceTokenProvider, TwoFactorFailedAttemptsToken, attempts.ToString());
+    }
+
+    private async Task<DateTime?> GetTwoFactorLockoutEndAsync(User user)
+    {
+        var stored = await _userManager.GetAuthenticationTokenAsync(
+            user, ServiceTokenProvider, TwoFactorLockoutEndToken);
+        return DateTime.TryParse(
+            stored, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var value)
+            ? value
+            : null;
+    }
+
+    private async Task<bool> IsTwoFactorLockedOutAsync(User user)
+    {
+        var lockoutEnd = await GetTwoFactorLockoutEndAsync(user);
+        if (lockoutEnd is null)
+            return false;
+
+        if (lockoutEnd <= DateTime.UtcNow)
+        {
+            await ResetTwoFactorFailuresAsync(user);
+            return false;
+        }
+
+        return true;
+    }
+
+    private async Task RegisterTwoFactorFailureAsync(User user)
+    {
+        var attempts = await GetTwoFactorFailedAttemptsAsync(user) + 1;
+        if (attempts >= _maxTwoFactorAttempts)
+        {
+            // Lock the second factor. The current attempt still surfaces as an
+            // invalid code; the lockout takes effect on the next attempt, which
+            // mirrors Identity's own password-lockout semantics.
+            await _userManager.SetAuthenticationTokenAsync(
+                user, ServiceTokenProvider, TwoFactorLockoutEndToken,
+                DateTime.UtcNow.Add(_twoFactorLockoutTimeSpan).ToString("o", CultureInfo.InvariantCulture));
+            await SetTwoFactorFailedAttemptsAsync(user, 0);
+            return;
+        }
+
+        await SetTwoFactorFailedAttemptsAsync(user, attempts);
+    }
+
+    private async Task ResetTwoFactorFailuresAsync(User user)
+    {
+        await _userManager.RemoveAuthenticationTokenAsync(user, ServiceTokenProvider, TwoFactorFailedAttemptsToken);
+        await _userManager.RemoveAuthenticationTokenAsync(user, ServiceTokenProvider, TwoFactorLockoutEndToken);
     }
 
     private async Task<int> GetPendingSetupAttemptsAsync(User user)

@@ -55,7 +55,8 @@ function errorMessage(err: unknown, fallback: string) {
 }
 
 function AccountTab() {
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, logout } = useAuth();
+  const navigate = useNavigate();
 
   const form = useForm<AccountFormValues>({
     resolver: zodResolver(accountSchema),
@@ -67,12 +68,23 @@ function AccountTab() {
   });
 
   async function onSubmit(values: AccountFormValues) {
+    const emailChanged = values.email !== user?.email;
+
     try {
       await authApi.updateProfile({
         firstName: values.firstName,
         lastName: values.lastName,
-        email: values.email !== user?.email ? values.email : undefined,
+        email: emailChanged ? values.email : undefined,
       });
+
+      // Changing the sign-in email invalidates all sessions on the server.
+      if (emailChanged) {
+        toast.success('Profile updated. Please sign in again.');
+        await logout();
+        navigate(ROUTES.LOGIN, { replace: true });
+        return;
+      }
+
       await refreshUser();
       form.reset(values);
       toast.success('Profile updated.');
