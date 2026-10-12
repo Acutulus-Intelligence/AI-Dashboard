@@ -18,6 +18,7 @@ using Infrastructure.ExternalDb;
 using Infrastructure.ExternalDb.Services;
 using Infrastructure.Collections;
 using Infrastructure.Datasets;
+using Infrastructure.HostedServices;
 using Infrastructure.Payment;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
@@ -127,11 +128,15 @@ builder.Services.AddScoped<IAdminService, AdminService>();
 builder.Services.AddScoped<IAdminUserService, AdminUserService>();
 builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
 builder.Services.AddScoped<IPaymentService, StripeService>();
+builder.Services.AddScoped<IAccountDeletionService, AccountDeletionService>();
 builder.Services.AddScoped<RequireActiveSubscriptionFilter>();
+
+builder.Services.AddHostedService<AccountPurgeBackgroundService>();
 
 builder.Services.AddScoped<ITokenService, JwtService>();
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 builder.Services.AddScoped<ICurrentPasswordVerifier, CurrentPasswordVerifier>();
+builder.Services.AddScoped<ITotpService, TotpService>();
 
 
 builder.Services.AddFluentValidationAutoValidation();

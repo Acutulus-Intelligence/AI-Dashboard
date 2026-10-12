@@ -40,6 +40,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         lastName: userInfo.lastName ?? null,
         companyRoleName: userInfo.companyRoleName ?? null,
         twoFactorEnabled: userInfo.twoFactorEnabled ?? false,
+        isDeactivated: userInfo.isDeactivated ?? false,
+        deletionScheduledAt: userInfo.deletionScheduledAt ?? null,
       };
       setUser(authUser);
       return authUser;
@@ -110,6 +112,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     navigate('/');
   }, [navigate]);
 
+  const reactivateAccount = useCallback(async (data: {
+    currentPassword: string;
+    code?: string;
+    recoveryCode?: string;
+  }) => {
+    await authApi.reactivateAccount(data);
+    return await fetchUser();
+  }, [fetchUser]);
+
   useEffect(() => {
     function handleSessionExpired() {
       if (sessionChecksPaused.current) return;
@@ -136,6 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         completeTwoFactorLogin,
         register,
         logout,
+        reactivateAccount,
         pauseSessionChecks,
       }}
     >

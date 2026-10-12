@@ -8,27 +8,78 @@ import { ROUTES } from '../routes';
 
 type LoginStep = 'credentials' | 'twofactor';
 
+const CHALLENGE_STORAGE_KEY = 'auth.2fa.challenge';
+const CHALLENGE_TTL_MS = 5 * 60 * 1000;
+
+type StoredChallenge = { token: string; expiresAt: number };
+
+function readStoredChallenge(): StoredChallenge | null {
+  try {
+    const raw = sessionStorage.getItem(CHALLENGE_STORAGE_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as Partial<StoredChallenge>;
+    if (
+      typeof parsed.token !== 'string' ||
+      typeof parsed.expiresAt !== 'number' ||
+      Date.now() >= parsed.expiresAt
+    ) {
+      sessionStorage.removeItem(CHALLENGE_STORAGE_KEY);
+      return null;
+    }
+
+    return { token: parsed.token, expiresAt: parsed.expiresAt };
+  } catch {
+    return null;
+  }
+}
+
+function storeChallenge(token: string) {
+  try {
+    sessionStorage.setItem(
+      CHALLENGE_STORAGE_KEY,
+      JSON.stringify({ token, expiresAt: Date.now() + CHALLENGE_TTL_MS }),
+    );
+  } catch {
+    /* ignore unavailable storage */
+  }
+}
+
+function clearStoredChallenge() {
+  try {
+    sessionStorage.removeItem(CHALLENGE_STORAGE_KEY);
+  } catch {
+    /* ignore unavailable storage */
+  }
+}
+
 export default function LoginPage() {
-  const { login, completeTwoFactorLogin, refreshSubscriptionStatus } = useAuth();
+  const { login, completeTwoFactorLogin } = useAuth();
   const navigate = useNavigate();
 
-  const [step, setStep] = useState<LoginStep>('credentials');
+  const [initialChallenge] = useState(readStoredChallenge);
+  const [step, setStep] = useState<LoginStep>(initialChallenge ? 'twofactor' : 'credentials');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [code, setCode] = useState('');
   const [useRecoveryCode, setUseRecoveryCode] = useState(false);
-  const [challengeToken, setChallengeToken] = useState('');
+  const [challengeToken, setChallengeToken] = useState(initialChallenge?.token ?? '');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  async function navigateAfterLogin(user: { roles: string[] } | null) {
+  async function navigateAfterLogin(user: { roles: string[]; isDeactivated?: boolean } | null) {
     if (user?.roles.includes('Admin') || user?.roles.includes('Moderator')) {
       navigate(ROUTES.ADMIN_MAIN);
       return;
     }
-    const isActive = await refreshSubscriptionStatus();
-    navigate(isActive ? ROUTES.DASHBOARD : ROUTES.PRICING);
+    if (user?.isDeactivated) {
+      navigate(ROUTES.PROFILE);
+      return;
+    }
+    // Always land in-app. Users without a subscription see an in-app upsell
+    // (and can still reach profile/settings) rather than the public pricing page.
+    navigate(ROUTES.DASHBOARD);
   }
 
   function messageForError(err: unknown, fallback: string) {
@@ -60,6 +111,7 @@ export default function LoginPage() {
 
       if (result.status === 'twoFactorRequired') {
         setChallengeToken(result.challengeToken);
+        storeChallenge(result.challengeToken);
         setCode('');
         setUseRecoveryCode(false);
         setStep('twofactor');
@@ -86,6 +138,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const user = await completeTwoFactorLogin(challengeToken, code.trim(), useRecoveryCode);
+      clearStoredChallenge();
       await navigateAfterLogin(user);
     } catch (err: unknown) {
       setError(messageForError(err, 'Verification failed. Please try again.'));
@@ -95,6 +148,7 @@ export default function LoginPage() {
   }
 
   function backToCredentials() {
+    clearStoredChallenge();
     setStep('credentials');
     setChallengeToken('');
     setCode('');

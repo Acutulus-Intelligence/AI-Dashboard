@@ -1,5 +1,6 @@
 namespace Application.DTos.Request;
 
 public sealed record DisableTwoFactorRequest(
-    string Code,
-    string Password);
+    string Password,
+    string? Code = null,
+    string? RecoveryCode = null);

@@ -10,6 +10,8 @@ export interface AuthUser {
   lastName?: string | null;
   companyRoleName?: string | null;
   twoFactorEnabled: boolean;
+  isDeactivated: boolean;
+  deletionScheduledAt?: string | null;
 }
 
 export type LoginResult =
@@ -32,6 +34,11 @@ export interface AuthContextType {
   ) => Promise<AuthUser | null>;
   register: (data: authApi.RegisterRequest) => Promise<AuthUser | null>;
   logout: () => Promise<void>;
+  reactivateAccount: (data: {
+    currentPassword: string;
+    code?: string;
+    recoveryCode?: string;
+  }) => Promise<AuthUser | null>;
   /** Temporarily suppress background session checks (e.g. while showing one-time recovery codes). */
   pauseSessionChecks: (active: boolean) => void;
 }

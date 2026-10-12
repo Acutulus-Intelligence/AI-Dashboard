@@ -119,12 +119,29 @@ public class AuthController : ControllerBase
         if (userId is null)
             return Unauthorized();
 
+        // Deletion is a soft delete: the account is deactivated for a grace
+        // period, so end the current session here.
         await _authService.DeleteAccountAsync(userId.Value, request, ct);
+        HttpContext.RemoveAuthCookies();
+        return NoContent();
+    }
+
+    [HttpPost("account/reactivate")]
+    [Authorize]
+    [EnableRateLimiting("login")]
+    public async Task<IActionResult> ReactivateAccount([FromBody] ReactivateAccountRequest request, CancellationToken ct)
+    {
+        var userId = GetUserId();
+        if (userId is null)
+            return Unauthorized();
+
+        await _authService.ReactivateAccountAsync(userId.Value, request, ct);
         return NoContent();
     }
 
     [HttpPost("2fa/setup")]
     [Authorize]
+    [EnableRateLimiting("login")]
     public async Task<IActionResult> SetupTwoFactor([FromBody] SetupTwoFactorRequest request, CancellationToken ct)
     {
         var userId = GetUserId();
@@ -137,6 +154,7 @@ public class AuthController : ControllerBase
 
     [HttpPost("2fa/enable")]
     [Authorize]
+    [EnableRateLimiting("login")]
     public async Task<IActionResult> EnableTwoFactor([FromBody] EnableTwoFactorRequest request, CancellationToken ct)
     {
         var userId = GetUserId();
@@ -146,11 +164,13 @@ public class AuthController : ControllerBase
         // Enabling two-factor authentication revokes all sessions, so the caller
         // must sign in again with their newly configured 2FA.
         var result = await _authService.EnableTwoFactorAsync(userId.Value, request, ct);
+        HttpContext.RemoveAuthCookies();
         return Ok(result);
     }
 
     [HttpPost("2fa/disable")]
     [Authorize]
+    [EnableRateLimiting("login")]
     public async Task<IActionResult> DisableTwoFactor([FromBody] DisableTwoFactorRequest request, CancellationToken ct)
     {
         var userId = GetUserId();
@@ -158,11 +178,13 @@ public class AuthController : ControllerBase
             return Unauthorized();
 
         await _authService.DisableTwoFactorAsync(userId.Value, request, ct);
+        HttpContext.RemoveAuthCookies();
         return NoContent();
     }
 
     [HttpPost("2fa/recovery-codes")]
     [Authorize]
+    [EnableRateLimiting("login")]
     public async Task<IActionResult> RegenerateRecoveryCodes([FromBody] RegenerateRecoveryCodesRequest request, CancellationToken ct)
     {
         var userId = GetUserId();

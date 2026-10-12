@@ -753,6 +753,12 @@ namespace Infrastructure.Data.Migrations
                         .IsConcurrencyToken()
                         .HasColumnType("text");
 
+                    b.Property<DateTime?>("DeactivatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DeletionScheduledAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Email")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
@@ -810,6 +816,8 @@ namespace Infrastructure.Data.Migrations
                     b.HasIndex("CompanyId");
 
                     b.HasIndex("CompanyRoleId");
+
+                    b.HasIndex("DeletionScheduledAt");
 
                     b.HasIndex("NormalizedEmail")
                         .HasDatabaseName("EmailIndex");

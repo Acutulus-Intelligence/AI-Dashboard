@@ -104,6 +104,7 @@ export default function TwoFactorSettings() {
   const [codes, setCodes] = useState<string[]>([]);
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
+  const [useRecoveryCode, setUseRecoveryCode] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [logoutAfterRecovery, setLogoutAfterRecovery] = useState(false);
@@ -116,6 +117,7 @@ export default function TwoFactorSettings() {
     setCodes([]);
     setCode('');
     setPassword('');
+    setUseRecoveryCode(false);
     setError('');
   }
 
@@ -178,19 +180,28 @@ export default function TwoFactorSettings() {
   }
 
   async function disable() {
-    if (!/^\d{6}$/.test(code.trim())) {
-      setError('Enter the 6-digit code from your authenticator app.');
-      return;
-    }
     if (!password) {
       setError('Enter your current password.');
+      return;
+    }
+    if (useRecoveryCode) {
+      if (!code.trim()) {
+        setError('Enter one of your recovery codes.');
+        return;
+      }
+    } else if (!/^\d{6}$/.test(code.trim())) {
+      setError('Enter the 6-digit code from your authenticator app.');
       return;
     }
 
     setBusy(true);
     setError('');
     try {
-      await authApi.disableTwoFactor(code.trim(), password);
+      await authApi.disableTwoFactor({
+        password,
+        code: useRecoveryCode ? undefined : code.trim(),
+        recoveryCode: useRecoveryCode ? code.trim() : undefined,
+      });
       toast.success('Two-factor authentication disabled. Please sign in again.');
       await logout();
       navigate(ROUTES.LOGIN, { replace: true });
@@ -313,17 +324,28 @@ export default function TwoFactorSettings() {
           <CardContent className="grid gap-4 sm:max-w-lg">
             <div className="grid gap-1.5">
               <label htmlFor="disable-code" className="text-sm font-medium">
-                Authenticator code
+                {useRecoveryCode ? 'Recovery code' : 'Authenticator code'}
               </label>
               <Input
                 id="disable-code"
-                inputMode="numeric"
+                inputMode={useRecoveryCode ? 'text' : 'numeric'}
                 autoComplete="one-time-code"
-                placeholder="123456"
+                placeholder={useRecoveryCode ? 'XXXXX-XXXXX' : '123456'}
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 aria-invalid={!!error}
               />
+              <button
+                type="button"
+                onClick={() => {
+                  setUseRecoveryCode((v) => !v);
+                  setCode('');
+                  setError('');
+                }}
+                className="w-fit text-sm font-medium text-primary hover:underline"
+              >
+                {useRecoveryCode ? 'Use an authenticator code instead' : 'Use a recovery code'}
+              </button>
             </div>
             <div className="grid gap-1.5">
               <label htmlFor="disable-password" className="text-sm font-medium">
@@ -342,7 +364,15 @@ export default function TwoFactorSettings() {
           </CardContent>
 
           <CardFooter className="flex-wrap gap-2">
-            <Button type="button" variant="outline" onClick={regenerate} disabled={busy}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setUseRecoveryCode(false);
+                void regenerate();
+              }}
+              disabled={busy}
+            >
               {busy ? <Loader2 className="animate-spin" /> : <KeyRound />}
               Regenerate recovery codes
             </Button>

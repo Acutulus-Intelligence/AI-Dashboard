@@ -32,6 +32,8 @@ export interface UserInfo {
   lastName?: string | null;
   companyRoleName?: string | null;
   twoFactorEnabled: boolean;
+  isDeactivated?: boolean;
+  deletionScheduledAt?: string | null;
 }
 
 export function register(data: RegisterRequest): Promise<AuthResponse> {
@@ -88,10 +90,25 @@ export function updateProfile(data: UpdateProfileRequest): Promise<void> {
   });
 }
 
-export function deleteAccount(currentPassword: string): Promise<void> {
+export function deleteAccount(data: {
+  currentPassword: string;
+  code?: string;
+  recoveryCode?: string;
+}): Promise<void> {
   return apiFetch<void>('/api/auth/account', {
     method: 'DELETE',
-    body: JSON.stringify({ currentPassword }),
+    body: JSON.stringify(data),
+  });
+}
+
+export function reactivateAccount(data: {
+  currentPassword: string;
+  code?: string;
+  recoveryCode?: string;
+}): Promise<void> {
+  return apiFetch<void>('/api/auth/account/reactivate', {
+    method: 'POST',
+    body: JSON.stringify(data),
   });
 }
 
@@ -131,10 +148,14 @@ export function enableTwoFactor(code: string): Promise<TwoFactorRecoveryCodesRes
   });
 }
 
-export function disableTwoFactor(code: string, password: string): Promise<void> {
+export function disableTwoFactor(data: {
+  password: string;
+  code?: string;
+  recoveryCode?: string;
+}): Promise<void> {
   return apiFetch<void>('/api/auth/2fa/disable', {
     method: 'POST',
-    body: JSON.stringify({ code, password }),
+    body: JSON.stringify(data),
   });
 }
 

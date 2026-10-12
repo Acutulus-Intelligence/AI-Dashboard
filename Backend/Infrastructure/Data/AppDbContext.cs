@@ -51,6 +51,7 @@ namespace Infrastructure.Data
             builder.ApplyConfiguration(new SavedDatasetConfiguration());
             builder.ApplyConfiguration(new DataCollectionConfiguration());
             builder.ApplyConfiguration(new DashboardWidgetConfiguration());
+            builder.ApplyConfiguration(new UserConfiguration());
 
             builder.Entity<Company>(entity =>
             {

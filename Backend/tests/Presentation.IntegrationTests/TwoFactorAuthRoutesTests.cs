@@ -3,9 +3,12 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using Application.DTos.Request;
 using Application.DTos.Response;
+using Application.Interfaces;
 using Domain.Enums;
+using Domain.Models;
 using FluentAssertions;
 using Infrastructure.Data;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -133,6 +136,158 @@ public sealed class TwoFactorAuthRoutesTests
     }
 
     [Fact]
+    public async Task Enable_when_already_enabled_is_rejected()
+    {
+        var client = CreateClient();
+        var email = $"tfa_double_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+
+        var (sharedKey, _) = await EnableTwoFactorAsync(client);
+        await LoginWithTotpAsync(client, email, sharedKey);
+
+        var enableAgain = await client.PostAsJsonAsync("/api/auth/2fa/enable",
+            new EnableTwoFactorRequest(CurrentCode(sharedKey)));
+        enableAgain.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Setup_when_already_enabled_is_rejected()
+    {
+        var client = CreateClient();
+        var email = $"tfa_resetup_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+
+        var (sharedKey, _) = await EnableTwoFactorAsync(client);
+        await LoginWithTotpAsync(client, email, sharedKey);
+
+        var setupAgain = await client.PostAsJsonAsync("/api/auth/2fa/setup",
+            new SetupTwoFactorRequest(Password));
+        setupAgain.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        // The account is still protected by 2FA after the rejected setup attempt.
+        var me = await client.GetAsync("/api/auth/me");
+        me.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await me.ReadJsonAsync<UserMeResponse>()).TwoFactorEnabled.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Authenticator_key_is_encrypted_at_rest()
+    {
+        var client = CreateClient();
+        var email = $"tfa_enc_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+
+        var (sharedKey, _) = await EnableTwoFactorAsync(client);
+
+        var tokens = await GetUserTokensAsync(email);
+        var keyToken = tokens.First(t => t.Name == "AuthenticatorKey");
+        keyToken.Value.Should().StartWith("v2:");
+        keyToken.Value.Should().NotBe(sharedKey);
+    }
+
+    [Fact]
+    public async Task Totp_code_cannot_be_replayed_within_window()
+    {
+        var client = CreateClient();
+        var email = $"tfa_replay_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+
+        var (sharedKey, _) = await EnableTwoFactorAsync(client);
+
+        // Capture a single code and use it once successfully.
+        var code = CurrentCode(sharedKey);
+        var firstChallenge = await GetChallengeAsync(client, email);
+        var first = await client.PostAsJsonAsync("/api/auth/login/2fa",
+            new TwoFactorLoginRequest(firstChallenge, code, false));
+        first.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // The exact same code must be refused on a fresh challenge.
+        var secondChallenge = await GetChallengeAsync(client, email);
+        var replay = await client.PostAsJsonAsync("/api/auth/login/2fa",
+            new TwoFactorLoginRequest(secondChallenge, code, false));
+        replay.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Challenge_token_cannot_be_reused_after_success()
+    {
+        var client = CreateClient();
+        var email = $"tfa_chal_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+
+        var (sharedKey, _) = await EnableTwoFactorAsync(client);
+
+        var challenge = await GetChallengeAsync(client, email);
+        var first = await client.PostAsJsonAsync("/api/auth/login/2fa",
+            new TwoFactorLoginRequest(challenge, CurrentCode(sharedKey), false));
+        first.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Reusing the same challenge (even with a fresh code) must fail.
+        var reuse = await client.PostAsJsonAsync("/api/auth/login/2fa",
+            new TwoFactorLoginRequest(challenge, CurrentCode(sharedKey), false));
+        reuse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Disable_with_recovery_code_succeeds()
+    {
+        var client = CreateClient();
+        var email = $"tfa_rcoff_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+
+        var (sharedKey, recoveryCodes) = await EnableTwoFactorAsync(client);
+        await LoginWithTotpAsync(client, email, sharedKey);
+
+        var disable = await client.PostAsJsonAsync("/api/auth/2fa/disable",
+            new DisableTwoFactorRequest(Password, null, recoveryCodes[0]));
+        disable.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        (await GetRecoveryRowsAsync(email)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Enable_cancels_setup_after_three_failed_codes_without_locking_account()
+    {
+        var client = CreateClient();
+        var email = $"tfa_lock_enable_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+
+        var setup = await client.PostAsJsonAsync("/api/auth/2fa/setup", new SetupTwoFactorRequest(Password));
+        setup.StatusCode.Should().Be(HttpStatusCode.OK);
+        var setupBody = await setup.ReadJsonAsync<TwoFactorSetupResponse>();
+
+        // First two wrong codes are plain rejections.
+        for (var i = 0; i < 2; i++)
+        {
+            var attempt = await client.PostAsJsonAsync("/api/auth/2fa/enable",
+                new EnableTwoFactorRequest(WrongCode(CurrentCode(setupBody.SharedKey))));
+            attempt.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        }
+
+        // The third wrong code cancels the pending setup rather than locking the account.
+        var third = await client.PostAsJsonAsync("/api/auth/2fa/enable",
+            new EnableTwoFactorRequest(WrongCode(CurrentCode(setupBody.SharedKey))));
+        third.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        // The staged key is gone, so enabling immediately fails.
+        var afterCancel = await client.PostAsJsonAsync("/api/auth/2fa/enable",
+            new EnableTwoFactorRequest(CurrentCode(setupBody.SharedKey)));
+        afterCancel.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        // Failed setup must not lock sign-in.
+        var relogin = CreateClient();
+        (await relogin.LoginAsync(email)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Restarting setup grants a fresh set of attempts and succeeds.
+        var restart = await client.PostAsJsonAsync("/api/auth/2fa/setup", new SetupTwoFactorRequest(Password));
+        restart.StatusCode.Should().Be(HttpStatusCode.OK);
+        var restartBody = await restart.ReadJsonAsync<TwoFactorSetupResponse>();
+        var enable = await client.PostAsJsonAsync("/api/auth/2fa/enable",
+            new EnableTwoFactorRequest(CurrentCode(restartBody.SharedKey)));
+        enable.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task Adjacent_time_step_is_accepted_but_far_code_is_rejected()
     {
         var client = CreateClient();
@@ -166,15 +321,15 @@ public sealed class TwoFactorAuthRoutesTests
         await LoginWithTotpAsync(client, email, sharedKey);
 
         var badCode = await client.PostAsJsonAsync("/api/auth/2fa/disable",
-            new DisableTwoFactorRequest(WrongCode(CurrentCode(sharedKey)), Password));
+            new DisableTwoFactorRequest(Password, WrongCode(CurrentCode(sharedKey))));
         badCode.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
         var badPassword = await client.PostAsJsonAsync("/api/auth/2fa/disable",
-            new DisableTwoFactorRequest(CurrentCode(sharedKey), "WrongPass123!!"));
+            new DisableTwoFactorRequest("WrongPass123!!", CurrentCode(sharedKey)));
         badPassword.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
         var disable = await client.PostAsJsonAsync("/api/auth/2fa/disable",
-            new DisableTwoFactorRequest(CurrentCode(sharedKey), Password));
+            new DisableTwoFactorRequest(Password, CurrentCode(sharedKey)));
         disable.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         // Security stamp rotation invalidates the current session.
@@ -264,6 +419,73 @@ public sealed class TwoFactorAuthRoutesTests
     }
 
     [Fact]
+    public async Task Failed_two_factor_disable_attempts_do_not_lock_account()
+    {
+        var client = CreateClient();
+        var email = $"tfa_disable_lock_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+
+        var (sharedKey, _) = await EnableTwoFactorAsync(client);
+        await LoginWithTotpAsync(client, email, sharedKey);
+
+        // Well past the login lockout threshold: wrong password and wrong code.
+        for (var i = 0; i < 5; i++)
+        {
+            var badPassword = await client.PostAsJsonAsync("/api/auth/2fa/disable",
+                new DisableTwoFactorRequest("WrongPass123!!", CurrentCode(sharedKey)));
+            badPassword.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+            var badCode = await client.PostAsJsonAsync("/api/auth/2fa/disable",
+                new DisableTwoFactorRequest(Password, WrongCode(CurrentCode(sharedKey))));
+            badCode.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        }
+
+        // Managing 2FA must not feed the sign-in lockout.
+        (await _factory.GetAccessFailedCountAsync(email)).Should().Be(0);
+        var relogin = CreateClient();
+        (await relogin.LoginAsync(email)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Failed_recovery_code_regeneration_does_not_lock_account()
+    {
+        var client = CreateClient();
+        var email = $"tfa_regen_lock_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+
+        var (sharedKey, _) = await EnableTwoFactorAsync(client);
+        await LoginWithTotpAsync(client, email, sharedKey);
+
+        for (var i = 0; i < 5; i++)
+        {
+            var badPassword = await client.PostAsJsonAsync("/api/auth/2fa/recovery-codes",
+                new RegenerateRecoveryCodesRequest(CurrentCode(sharedKey), "WrongPass123!!"));
+            badPassword.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+            var badCode = await client.PostAsJsonAsync("/api/auth/2fa/recovery-codes",
+                new RegenerateRecoveryCodesRequest(WrongCode(CurrentCode(sharedKey)), Password));
+            badCode.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        }
+
+        (await _factory.GetAccessFailedCountAsync(email)).Should().Be(0);
+        var relogin = CreateClient();
+        (await relogin.LoginAsync(email)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Setup_is_refused_while_account_is_locked()
+    {
+        var client = CreateClient();
+        var email = $"tfa_setup_lock_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+
+        await _factory.SetUserLockoutAsync(email, DateTimeOffset.UtcNow.AddMinutes(5));
+
+        var setup = await client.PostAsJsonAsync("/api/auth/2fa/setup", new SetupTwoFactorRequest(Password));
+        setup.StatusCode.Should().Be(HttpStatusCode.Locked);
+    }
+
+    [Fact]
     public async Task Company_invite_preserves_two_factor()
     {
         var ownerClient = CreateClient();
@@ -311,6 +533,120 @@ public sealed class TwoFactorAuthRoutesTests
         (await login.ReadJsonAsync<AuthResponse>()).RequiresTwoFactor.Should().BeTrue();
     }
 
+    [Fact]
+    public async Task Delete_account_requires_two_factor_code_when_enabled()
+    {
+        var client = CreateClient();
+        var email = $"tfa_del_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+
+        var (sharedKey, _) = await EnableTwoFactorAsync(client);
+        await LoginWithTotpAsync(client, email, sharedKey);
+
+        // A missing or wrong second factor is rejected.
+        var missing = await client.SendAsync(new HttpRequestMessage(HttpMethod.Delete, "/api/auth/account")
+        {
+            Content = JsonContent.Create(new DeleteAccountRequest(Password)),
+        });
+        missing.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        var wrong = await client.SendAsync(new HttpRequestMessage(HttpMethod.Delete, "/api/auth/account")
+        {
+            Content = JsonContent.Create(new DeleteAccountRequest(Password, WrongCode(CurrentCode(sharedKey)))),
+        });
+        wrong.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await _factory.GetUserDeletionStateAsync(email)).IsDeactivated.Should().BeFalse();
+
+        // A correct code deactivates the account.
+        var ok = await client.SendAsync(new HttpRequestMessage(HttpMethod.Delete, "/api/auth/account")
+        {
+            Content = JsonContent.Create(new DeleteAccountRequest(Password, CurrentCode(sharedKey))),
+        });
+        ok.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await _factory.GetUserDeletionStateAsync(email)).IsDeactivated.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Delete_account_accepts_recovery_code_when_two_factor_enabled()
+    {
+        var client = CreateClient();
+        var email = $"tfa_delrc_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+
+        var (sharedKey, recoveryCodes) = await EnableTwoFactorAsync(client);
+        await LoginWithTotpAsync(client, email, sharedKey);
+
+        var ok = await client.SendAsync(new HttpRequestMessage(HttpMethod.Delete, "/api/auth/account")
+        {
+            Content = JsonContent.Create(new DeleteAccountRequest(Password, null, recoveryCodes[0])),
+        });
+        ok.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await _factory.GetUserDeletionStateAsync(email)).IsDeactivated.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Reactivate_account_requires_password_and_two_factor()
+    {
+        var client = CreateClient();
+        var email = $"tfa_react_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+
+        var (sharedKey, _) = await EnableTwoFactorAsync(client);
+        await LoginWithTotpAsync(client, email, sharedKey);
+
+        // Simulate a scheduled deletion while keeping the current session valid so
+        // the 2FA-required reactivation path can be exercised in isolation.
+        await _factory.SetUserDeletionScheduledAtAsync(email, DateTime.UtcNow.AddDays(14));
+
+        // The second factor is required.
+        var missing = await client.PostAsJsonAsync("/api/auth/account/reactivate",
+            new ReactivateAccountRequest(Password));
+        missing.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        var wrongPassword = await client.PostAsJsonAsync("/api/auth/account/reactivate",
+            new ReactivateAccountRequest("WrongPass123!!", CurrentCode(sharedKey)));
+        wrongPassword.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        var wrongCode = await client.PostAsJsonAsync("/api/auth/account/reactivate",
+            new ReactivateAccountRequest(Password, WrongCode(CurrentCode(sharedKey))));
+        wrongCode.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        var ok = await client.PostAsJsonAsync("/api/auth/account/reactivate",
+            new ReactivateAccountRequest(Password, CurrentCode(sharedKey)));
+        ok.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await _factory.GetUserDeletionStateAsync(email)).IsDeactivated.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Purge_removes_accounts_past_the_grace_period()
+    {
+        var client = CreateClient();
+        var email = $"purge_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+
+        var delete = await client.SendAsync(new HttpRequestMessage(HttpMethod.Delete, "/api/auth/account")
+        {
+            Content = JsonContent.Create(new DeleteAccountRequest(Password)),
+        });
+        delete.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var userId = await _factory.GetUserIdAsync(email);
+        await _factory.SetUserDeletionScheduledAtAsync(email, DateTime.UtcNow.AddDays(-1));
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var deletionService = scope.ServiceProvider.GetRequiredService<IAccountDeletionService>();
+            var purged = await deletionService.PurgeExpiredAccountsAsync();
+            purged.Should().BeGreaterThanOrEqualTo(1);
+        }
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
+            (await users.FindByIdAsync(userId.ToString())).Should().BeNull();
+        }
+    }
+
     private static async Task<(string SharedKey, IReadOnlyList<string> RecoveryCodes)> EnableTwoFactorAsync(
         HttpClient client, string password = Password)
     {
@@ -354,6 +690,16 @@ public sealed class TwoFactorAuthRoutesTests
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         return await db.TwoFactorRecoveryCodes
             .Where(c => c.UserId == userId)
+            .ToListAsync();
+    }
+
+    private async Task<List<Microsoft.AspNetCore.Identity.IdentityUserToken<Guid>>> GetUserTokensAsync(string email)
+    {
+        var userId = await _factory.GetUserIdAsync(email);
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        return await db.UserTokens
+            .Where(t => t.UserId == userId)
             .ToListAsync();
     }
 

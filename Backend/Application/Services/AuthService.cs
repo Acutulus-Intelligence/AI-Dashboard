@@ -15,7 +15,13 @@ public class AuthService : IAuthService
 {
     private const string AuthenticatorIssuer = "AI-Dashboard";
     private const int RecoveryCodeCount = 10;
+    private const int MaxTwoFactorSetupAttempts = 3;
+    private const int DeactivationGracePeriodDays = 14;
     private const string RecoveryCodeAlphabet = "23456789BCDFGHJKMNPQRTVWXY";
+    private const string ServiceTokenProvider = "AI-Dashboard";
+    private const string PendingAuthenticatorKeyToken = "PendingAuthenticatorKey";
+    private const string PendingAuthenticatorAttemptsToken = "PendingAuthenticatorAttempts";
+    private const string LastTimeStepToken = "LastTwoFactorTimeStep";
 
     private readonly UserManager<User> _userManager;
     private readonly IUserStore<User> _userStore;
@@ -25,6 +31,8 @@ public class AuthService : IAuthService
     private readonly ICompanyService _companyService;
     private readonly IPaymentService _paymentService;
     private readonly IApplicationDbContext _db;
+    private readonly IEncryptionService _encryption;
+    private readonly ITotpService _totp;
 
     public AuthService(
         UserManager<User> userManager,
@@ -34,7 +42,9 @@ public class AuthService : IAuthService
         IRefreshTokenService refreshTokenService,
         ICompanyService companyService,
         IPaymentService paymentService,
-        IApplicationDbContext db)
+        IApplicationDbContext db,
+        IEncryptionService encryption,
+        ITotpService totp)
     {
         _userManager = userManager;
         _userStore = userStore;
@@ -44,6 +54,8 @@ public class AuthService : IAuthService
         _companyService = companyService;
         _paymentService = paymentService;
         _db = db;
+        _encryption = encryption;
+        _totp = totp;
     }
 
     public async Task<AuthResult> RegisterAsync(RegisterRequest request, CancellationToken ct = default)
@@ -122,17 +134,37 @@ public class AuthService : IAuthService
 
         var code = request.Code.Trim();
 
-        var valid = request.UseRecoveryCode
-            ? await RedeemRecoveryCodeAsync(user, code, ct)
-            : await _userManager.VerifyTwoFactorTokenAsync(user, TokenOptions.DefaultAuthenticatorProvider, code);
-
-        if (!valid)
+        if (request.UseRecoveryCode)
         {
-            await _userManager.AccessFailedAsync(user);
-            throw new UnauthorizedAccessException("Invalid verification code.");
+            if (!await RedeemRecoveryCodeAsync(user, code, ct))
+            {
+                await _userManager.AccessFailedAsync(user);
+                throw new UnauthorizedAccessException("Invalid verification code.");
+            }
+        }
+        else
+        {
+            var key = await GetDecryptedAuthenticatorKeyAsync(user);
+            var lastTimeStep = await GetLastTimeStepAsync(user);
+
+            if (key is null || !_totp.TryValidate(key, code, lastTimeStep, out var matchedTimeStep))
+            {
+                await _userManager.AccessFailedAsync(user);
+                throw new UnauthorizedAccessException("Invalid verification code.");
+            }
+
+            // Remember the accepted step so the same code cannot be replayed
+            // while it is still inside its validity window.
+            await SetLastTimeStepAsync(user, matchedTimeStep);
         }
 
         await _userManager.ResetAccessFailedCountAsync(user);
+
+        // Rotating the security stamp invalidates every outstanding 2FA
+        // challenge token (they carry the previous stamp), so the challenge
+        // used here cannot be replayed to mint another session.
+        await _userManager.UpdateSecurityStampAsync(user);
+
         var roles = await _userManager.GetRolesAsync(user);
         return await GenerateAuthResultAsync(user, roles);
     }
@@ -143,16 +175,29 @@ public class AuthService : IAuthService
         var user = await _userManager.FindByIdAsync(userId.ToString())
             ?? throw new UnauthorizedAccessException("User not found.");
 
+        if (await _userManager.IsLockedOutAsync(user))
+            throw new LockedOutException();
+
         // Sensitive operation: require the current password so a hijacked session
         // cannot enrol an attacker-controlled authenticator.
         if (!await _userManager.CheckPasswordAsync(user, request.Password))
             throw new UnauthorizedAccessException("Current password is incorrect.");
 
-        // Generate a fresh shared key without rotating the security stamp, so the
-        // current authenticated session is not invalidated while the user sets up 2FA.
+        // Replacing an active authenticator requires disabling 2FA first (which
+        // itself requires the password plus a current code or recovery code).
+        if (user.TwoFactorEnabled)
+            throw new InvalidOperationException(
+                "Two-factor authentication is already enabled. Disable it before setting up a new authenticator.");
+
+        // Stage the new shared key without touching the active authenticator, so
+        // an unconfirmed key can never be used to sign in. The key is encrypted
+        // at rest like every other stored secret.
         var sharedKey = _userManager.GenerateNewAuthenticatorKey();
-        await GetAuthenticatorKeyStore().SetAuthenticatorKeyAsync(user, sharedKey, ct);
-        await _userManager.UpdateAsync(user);
+        await _userManager.SetAuthenticationTokenAsync(
+            user, ServiceTokenProvider, PendingAuthenticatorKeyToken, _encryption.Encrypt(sharedKey));
+
+        // Restarting setup grants a fresh set of verification attempts.
+        await SetPendingSetupAttemptsAsync(user, 0);
 
         var account = user.Email ?? user.UserName ?? userId.ToString();
         return new TwoFactorSetupResponse(sharedKey, BuildAuthenticatorUri(account, sharedKey));
@@ -164,13 +209,42 @@ public class AuthService : IAuthService
         var user = await _userManager.FindByIdAsync(userId.ToString())
             ?? throw new UnauthorizedAccessException("User not found.");
 
-        var key = await _userManager.GetAuthenticatorKeyAsync(user);
-        if (string.IsNullOrWhiteSpace(key))
+        if (user.TwoFactorEnabled)
+            throw new InvalidOperationException("Two-factor authentication is already enabled.");
+
+        if (await _userManager.IsLockedOutAsync(user))
+            throw new LockedOutException();
+
+        var encryptedPendingKey = await _userManager.GetAuthenticationTokenAsync(
+            user, ServiceTokenProvider, PendingAuthenticatorKeyToken);
+        if (string.IsNullOrWhiteSpace(encryptedPendingKey))
             throw new InvalidOperationException("Two-factor setup has not been started. Please start the setup again.");
 
-        if (!await _userManager.VerifyTwoFactorTokenAsync(
-                user, TokenOptions.DefaultAuthenticatorProvider, request.Code.Trim()))
+        var pendingKey = _encryption.Decrypt(encryptedPendingKey);
+
+        if (!_totp.TryValidate(pendingKey, request.Code.Trim(), long.MinValue, out _))
+        {
+            // Setup failures use their own attempt counter and never count toward
+            // the account lockout, so a mistyped enrolment code cannot lock sign-in.
+            var attempts = await GetPendingSetupAttemptsAsync(user) + 1;
+            await SetPendingSetupAttemptsAsync(user, attempts);
+
+            if (attempts >= MaxTwoFactorSetupAttempts)
+            {
+                // Abort the enrolment: discard the staged key so it can never be used.
+                await _userManager.RemoveAuthenticationTokenAsync(user, ServiceTokenProvider, PendingAuthenticatorKeyToken);
+                await SetPendingSetupAttemptsAsync(user, 0);
+                throw new InvalidOperationException(
+                    "Too many incorrect verification codes. Two-factor setup was cancelled — please start the setup again.");
+            }
+
             throw new UnauthorizedAccessException("Invalid verification code.");
+        }
+
+        // Promote the verified staged key to the active authenticator.
+        await GetAuthenticatorKeyStore().SetAuthenticatorKeyAsync(user, _encryption.Encrypt(pendingKey), ct);
+        await _userManager.RemoveAuthenticationTokenAsync(user, ServiceTokenProvider, PendingAuthenticatorKeyToken);
+        await _userManager.RemoveAuthenticationTokenAsync(user, ServiceTokenProvider, PendingAuthenticatorAttemptsToken);
 
         var enableResult = await _userManager.SetTwoFactorEnabledAsync(user, true);
         if (!enableResult.Succeeded)
@@ -190,11 +264,21 @@ public class AuthService : IAuthService
         var user = await _userManager.FindByIdAsync(userId.ToString())
             ?? throw new UnauthorizedAccessException("User not found.");
 
+        if (await _userManager.IsLockedOutAsync(user))
+            throw new LockedOutException();
+
+        // A lost phone must still be able to turn 2FA off, so accept either a
+        // current authenticator code or a single-use recovery code. Failed
+        // attempts never feed the account lockout — rate limiting (and the
+        // lockout gate above) already protect this authenticated endpoint.
         if (!await _userManager.CheckPasswordAsync(user, request.Password))
             throw new UnauthorizedAccessException("Current password is incorrect.");
 
-        if (!await _userManager.VerifyTwoFactorTokenAsync(
-                user, TokenOptions.DefaultAuthenticatorProvider, request.Code.Trim()))
+        var factorValid = !string.IsNullOrWhiteSpace(request.RecoveryCode)
+            ? await RedeemRecoveryCodeAsync(user, request.RecoveryCode.Trim(), ct)
+            : await VerifyActiveTotpAsync(user, request.Code);
+
+        if (!factorValid)
             throw new UnauthorizedAccessException("Invalid verification code.");
 
         var disableResult = await _userManager.SetTwoFactorEnabledAsync(user, false);
@@ -202,6 +286,8 @@ public class AuthService : IAuthService
             throw new InvalidOperationException("Failed to disable two-factor authentication. Please try again.");
 
         await GetAuthenticatorKeyStore().SetAuthenticatorKeyAsync(user, string.Empty, ct);
+        await _userManager.RemoveAuthenticationTokenAsync(user, ServiceTokenProvider, PendingAuthenticatorKeyToken);
+        await _userManager.RemoveAuthenticationTokenAsync(user, ServiceTokenProvider, LastTimeStepToken);
 
         var codes = await _db.TwoFactorRecoveryCodes
             .Where(c => c.UserId == user.Id)
@@ -223,11 +309,13 @@ public class AuthService : IAuthService
         if (!user.TwoFactorEnabled)
             throw new InvalidOperationException("Two-factor authentication is not enabled.");
 
+        if (await _userManager.IsLockedOutAsync(user))
+            throw new LockedOutException();
+
         if (!await _userManager.CheckPasswordAsync(user, request.Password))
             throw new UnauthorizedAccessException("Current password is incorrect.");
 
-        if (!await _userManager.VerifyTwoFactorTokenAsync(
-                user, TokenOptions.DefaultAuthenticatorProvider, request.Code.Trim()))
+        if (!await VerifyActiveTotpAsync(user, request.Code))
             throw new UnauthorizedAccessException("Invalid verification code.");
 
         var codes = await GenerateRecoveryCodesAsync(user, ct);
@@ -328,7 +416,9 @@ public class AuthService : IAuthService
             user.FirstName,
             user.LastName,
             companyRoleName,
-            user.TwoFactorEnabled
+            user.TwoFactorEnabled,
+            user.DeletionScheduledAt is not null,
+            user.DeletionScheduledAt
         );
     }
 
@@ -336,6 +426,9 @@ public class AuthService : IAuthService
     {
         var user = await _userManager.FindByIdAsync(userId.ToString())
             ?? throw new UnauthorizedAccessException("User not found.");
+
+        if (user.DeletionScheduledAt is not null)
+            throw new InvalidOperationException("This account is already scheduled for deletion.");
 
         if (!await _userManager.CheckPasswordAsync(user, request.CurrentPassword))
             throw new UnauthorizedAccessException("Current password is incorrect.");
@@ -349,82 +442,77 @@ public class AuthService : IAuthService
             throw new InvalidOperationException(
                 "You must transfer company ownership before deleting your account.");
 
-        var dashboards = await _db.Dashboards
-            .Include(d => d.Widgets)
-            .Where(d => d.UserId == userId)
-            .ToListAsync(ct);
-
-        foreach (var dashboard in dashboards)
+        // A second factor is required when one is configured, so a hijacked
+        // session cannot schedule deletion of the account.
+        if (user.TwoFactorEnabled && !await VerifyAccountFactorAsync(user, request.Code, request.RecoveryCode, ct))
         {
-            _db.DashboardWidgets.RemoveRange(dashboard.Widgets);
-        }
-        _db.Dashboards.RemoveRange(dashboards);
-
-        var charts = await _db.SavedCharts
-            .Where(c => c.UserId == userId)
-            .ToListAsync(ct);
-        _db.SavedCharts.RemoveRange(charts);
-
-        var connections = await _db.ExternalConnections
-            .Where(c => c.UserId == userId)
-            .ToListAsync(ct);
-
-        foreach (var connection in connections.Where(c => c.CompanyId is null).ToList())
-        {
-            _db.ExternalConnections.Remove(connection);
+            await _userManager.AccessFailedAsync(user);
+            throw new UnauthorizedAccessException("Invalid verification code.");
         }
 
-        foreach (var group in connections
-            .Where(c => c.CompanyId is not null)
-            .GroupBy(c => c.CompanyId!.Value))
-        {
-            var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == group.Key, ct);
-            if (company is null)
-            {
-                _db.ExternalConnections.RemoveRange(group);
-                continue;
-            }
+        // Soft delete: deactivate the account and schedule a permanent purge.
+        // Signing in during the grace period lets the user reactivate.
+        var now = DateTime.UtcNow;
+        user.DeactivatedAt = now;
+        user.DeletionScheduledAt = now.AddDays(DeactivationGracePeriodDays);
 
-            foreach (var connection in group)
-            {
-                if (connection.Visibility == ConnectionVisibility.Private)
-                    _db.ExternalConnections.Remove(connection);
-                else
-                    connection.UserId = company.OwnerId;
-            }
-        }
-
-        var refreshTokens = await _db.RefreshTokens
-            .Where(t => t.UserId == userId)
-            .ToListAsync(ct);
-        _db.RefreshTokens.RemoveRange(refreshTokens);
-
-        var recoveryCodes = await _db.TwoFactorRecoveryCodes
-            .Where(c => c.UserId == userId)
-            .ToListAsync(ct);
-        _db.TwoFactorRecoveryCodes.RemoveRange(recoveryCodes);
-
+        // Stop auto-renewal but keep the plan until the end of the paid period.
         var userSubscription = await _db.UserSubscriptions
             .FirstOrDefaultAsync(s => s.UserId == userId, ct);
-        if (userSubscription is not null)
+        if (userSubscription is not null && !userSubscription.CancelAtPeriodEnd)
         {
+            userSubscription.CancelAtPeriodEnd = true;
             if (userSubscription.StripeSubscriptionId is not null)
-                await _paymentService.CancelSubscriptionImmediatelyAsync(
+                await _paymentService.CancelSubscriptionAtPeriodEndAsync(
                     userSubscription.StripeSubscriptionId, ct);
-            _db.UserSubscriptions.Remove(userSubscription);
         }
 
-        user.CompanyId = null;
-        user.CompanyRoleId = null;
-
-        // Invalidate all in-flight JWTs before removing the user.
+        // Invalidate every existing session.
         await _userManager.UpdateSecurityStampAsync(user);
+        await _refreshTokenService.RevokeAllRefreshTokensAsync(userId);
 
         await _db.SaveChangesAsync(ct);
+    }
 
-        var result = await _userManager.DeleteAsync(user);
-        if (!result.Succeeded)
-            throw new InvalidOperationException("Failed to delete account. Please try again.");
+    public async Task ReactivateAccountAsync(
+        Guid userId, ReactivateAccountRequest request, CancellationToken ct = default)
+    {
+        var user = await _userManager.FindByIdAsync(userId.ToString())
+            ?? throw new UnauthorizedAccessException("User not found.");
+
+        if (user.DeletionScheduledAt is null)
+            throw new InvalidOperationException("This account is not scheduled for deletion.");
+
+        if (await _userManager.IsLockedOutAsync(user))
+            throw new LockedOutException();
+
+        if (!await _userManager.CheckPasswordAsync(user, request.CurrentPassword))
+        {
+            await _userManager.AccessFailedAsync(user);
+            throw new UnauthorizedAccessException("Current password is incorrect.");
+        }
+
+        if (user.TwoFactorEnabled && !await VerifyAccountFactorAsync(user, request.Code, request.RecoveryCode, ct))
+        {
+            await _userManager.AccessFailedAsync(user);
+            throw new UnauthorizedAccessException("Invalid verification code.");
+        }
+
+        user.DeactivatedAt = null;
+        user.DeletionScheduledAt = null;
+
+        // Undo the scheduled period-end cancellation so the plan keeps renewing.
+        var userSubscription = await _db.UserSubscriptions
+            .FirstOrDefaultAsync(s => s.UserId == userId, ct);
+        if (userSubscription is not null && userSubscription.CancelAtPeriodEnd)
+        {
+            if (userSubscription.StripeSubscriptionId is not null)
+                await _paymentService.ReactivateSubscriptionAsync(userSubscription.StripeSubscriptionId, ct);
+            userSubscription.CancelAtPeriodEnd = false;
+        }
+
+        await _userManager.ResetAccessFailedCountAsync(user);
+        await _db.SaveChangesAsync(ct);
     }
 
     private async Task<AuthResult> GenerateAuthResultAsync(User user, IList<string> roles)
@@ -433,6 +521,59 @@ public class AuthService : IAuthService
         var refreshToken = await _refreshTokenService.CreateRefreshTokenAsync(user.Id, jwtId);
 
         return new AuthResult(accessToken, refreshToken, expiresIn);
+    }
+
+    private async Task<string?> GetDecryptedAuthenticatorKeyAsync(User user)
+    {
+        var stored = await _userManager.GetAuthenticatorKeyAsync(user);
+        if (string.IsNullOrWhiteSpace(stored))
+            return null;
+
+        // Values written before encryption was introduced are stored as plaintext.
+        return _encryption.IsEncrypted(stored) ? _encryption.Decrypt(stored) : stored;
+    }
+
+    private async Task<bool> VerifyActiveTotpAsync(User user, string? code)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+            return false;
+
+        var key = await GetDecryptedAuthenticatorKeyAsync(user);
+        return key is not null && _totp.TryValidate(key, code.Trim(), long.MinValue, out _);
+    }
+
+    private async Task<bool> VerifyAccountFactorAsync(
+        User user, string? code, string? recoveryCode, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(recoveryCode))
+            return await RedeemRecoveryCodeAsync(user, recoveryCode.Trim(), ct);
+
+        return await VerifyActiveTotpAsync(user, code);
+    }
+
+    private async Task<long> GetLastTimeStepAsync(User user)
+    {
+        var stored = await _userManager.GetAuthenticationTokenAsync(user, ServiceTokenProvider, LastTimeStepToken);
+        return long.TryParse(stored, out var value) ? value : long.MinValue;
+    }
+
+    private async Task SetLastTimeStepAsync(User user, long timeStep)
+    {
+        await _userManager.SetAuthenticationTokenAsync(
+            user, ServiceTokenProvider, LastTimeStepToken, timeStep.ToString());
+    }
+
+    private async Task<int> GetPendingSetupAttemptsAsync(User user)
+    {
+        var stored = await _userManager.GetAuthenticationTokenAsync(
+            user, ServiceTokenProvider, PendingAuthenticatorAttemptsToken);
+        return int.TryParse(stored, out var value) ? value : 0;
+    }
+
+    private async Task SetPendingSetupAttemptsAsync(User user, int attempts)
+    {
+        await _userManager.SetAuthenticationTokenAsync(
+            user, ServiceTokenProvider, PendingAuthenticatorAttemptsToken, attempts.ToString());
     }
 
     private async Task<bool> RedeemRecoveryCodeAsync(User user, string code, CancellationToken ct)
