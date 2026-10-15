@@ -9,7 +9,7 @@ import { ROUTES } from '../routes';
 const navItems = [
   { label: 'Product', to: '/#product' },
   { label: 'Features', to: '/#features' },
-  { label: 'Benefits', to: '/#benefits' },
+  { label: 'Testimonials', to: '/#testimonials' },
   { label: 'Pricing', to: ROUTES.PRICING },
 ];
 
