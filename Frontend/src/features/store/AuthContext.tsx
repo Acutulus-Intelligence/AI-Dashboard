@@ -10,14 +10,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [hasActiveSubscription, setHasActiveSubscription] = useState(false);
   const [isSubscriptionLoading, setIsSubscriptionLoading] = useState(false);
   const sessionChecksPaused = useRef(false);
+  const userRef = useRef<AuthUser | null>(null);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   const pauseSessionChecks = useCallback((active: boolean) => {
     sessionChecksPaused.current = active;
   }, []);
 
-  const refreshSubscriptionStatus = useCallback(async () => {
-    setIsSubscriptionLoading(true);
+  const refreshSubscriptionStatus = useCallback(async (silent = false) => {
+    // Background polls must not toggle the loading flag, otherwise guards like
+    // ProtectedRoute flash a full-screen spinner every time they run.
+    if (!silent) setIsSubscriptionLoading(true);
     try {
       const isActive = await authApi.hasActiveSubscription();
       setHasActiveSubscription(isActive);
@@ -26,7 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setHasActiveSubscription(false);
       return false;
     } finally {
-      setIsSubscriptionLoading(false);
+      if (!silent) setIsSubscriptionLoading(false);
     }
   }, []);
 
@@ -66,7 +73,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const interval = setInterval(() => {
       if (sessionChecksPaused.current) return;
-      void refreshSubscriptionStatus();
+      // Never poll authenticated endpoints while signed out: a 401 there would
+      // otherwise trigger the global session-expired redirect on public pages.
+      if (!userRef.current) return;
+      void refreshSubscriptionStatus(true);
     }, 60_000);
     return () => clearInterval(interval);
   }, [refreshSubscriptionStatus]);
@@ -124,6 +134,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     function handleSessionExpired() {
       if (sessionChecksPaused.current) return;
+      // Only react when we previously had a session. Anonymous 401s (e.g. the
+      // initial /api/auth/me probe on a public page) must not redirect to login.
+      if (!userRef.current) return;
       setUser(null);
       setHasActiveSubscription(false);
       navigate(ROUTES.LOGIN);

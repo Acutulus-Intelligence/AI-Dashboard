@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using System.Threading.RateLimiting;
 using Application.Common.Mapping;
@@ -21,6 +22,7 @@ using Infrastructure.Datasets;
 using Infrastructure.HostedServices;
 using Infrastructure.Payment;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -151,6 +153,32 @@ builder.Services.AddScoped<IDataQueryExecutor, InMemoryDataQueryExecutor>();
 builder.Services.AddScoped<ICollectionAccessService, CollectionAccessService>();
 builder.Services.AddScoped<ICollectionService, CollectionService>();
 
+// Behind a reverse proxy the client IP and scheme arrive via forwarded
+// headers. Without this, rate limiting keys every request to the proxy IP and
+// auth cookies miss the Secure flag. Opt in via config because trusting
+// forwarded headers from an untrusted client lets it spoof both.
+var forwardedHeadersSection = builder.Configuration.GetSection("ForwardedHeaders");
+var forwardedHeadersEnabled = forwardedHeadersSection.GetValue("Enabled", false);
+
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+
+    foreach (var proxy in forwardedHeadersSection.GetSection("KnownProxies").Get<string[]>() ?? [])
+    {
+        if (IPAddress.TryParse(proxy, out var ip))
+            options.KnownProxies.Add(ip);
+    }
+
+    // Trust any hop (dynamic PaaS proxies). Only safe when traffic cannot reach
+    // the app directly, bypassing the proxy.
+    if (forwardedHeadersSection.GetValue("TrustAllProxies", false))
+    {
+        options.KnownIPNetworks.Clear();
+        options.KnownProxies.Clear();
+    }
+});
+
 var corsOrigins = builder.Configuration
     .GetSection("Cors:AllowedOrigins")
     .Get<string[]>() ?? [];
@@ -177,18 +205,34 @@ if (rateLimitingEnabled)
         options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
         options.AddPolicy("login", httpContext =>
-            RateLimitPartition.GetFixedWindowLimiter(
-                partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        {
+            // Authenticated management calls (2FA setup/disable, account
+            // deletion, ...) are partitioned per user so one user cannot exhaust
+            // a shared proxy-IP budget for everyone. Anonymous logins still key
+            // on the (forwarded) client IP.
+            var userId = httpContext.User?.FindFirst("userId")?.Value;
+            var partitionKey = !string.IsNullOrEmpty(userId)
+                ? $"user:{userId}"
+                : $"ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+
+            return RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: partitionKey,
                 factory: _ => new FixedWindowRateLimiterOptions
                 {
                     PermitLimit = 10,
                     Window = TimeSpan.FromMinutes(1),
                     QueueLimit = 0,
-                }));
+                });
+        });
     });
 }
 
 var app = builder.Build();
+
+if (forwardedHeadersEnabled)
+{
+    app.UseForwardedHeaders();
+}
 
 app.UseMiddleware<GlobalExceptionMiddleware>();
 

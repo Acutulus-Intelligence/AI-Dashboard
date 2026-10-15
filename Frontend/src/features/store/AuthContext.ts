@@ -24,7 +24,7 @@ export interface AuthContextType {
   isLoading: boolean;
   hasActiveSubscription: boolean;
   isSubscriptionLoading: boolean;
-  refreshSubscriptionStatus: () => Promise<boolean>;
+  refreshSubscriptionStatus: (silent?: boolean) => Promise<boolean>;
   refreshUser: () => Promise<AuthUser | null>;
   login: (email: string, password: string) => Promise<LoginResult>;
   completeTwoFactorLogin: (

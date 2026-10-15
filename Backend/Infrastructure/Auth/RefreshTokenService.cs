@@ -59,46 +59,65 @@ public class RefreshTokenService : IRefreshTokenService
     public async Task<string> RotateRefreshTokenAsync(string oldRefreshToken, string newJwtId)
     {
         var hashed = HashToken(oldRefreshToken);
+        var now = DateTime.UtcNow;
 
-        var storedToken = await _db.Set<RefreshToken>()
-            .FirstOrDefaultAsync(rt => rt.Token == hashed);
+        // Atomically claim the token so two concurrent refreshes presenting the
+        // same token cannot both succeed. Only an unused, unrevoked, unexpired
+        // row is claimed; a 0-row result means invalid or already used.
+        var claimed = await _db.Set<RefreshToken>()
+            .Where(rt => rt.Token == hashed && !rt.IsUsed && !rt.IsRevoked && rt.ExpiresAt > now)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(rt => rt.IsUsed, true));
 
-        if (storedToken is null || storedToken.IsRevoked || storedToken.IsExpired)
-            throw new UnauthorizedAccessException("Invalid or expired refresh token.");
-
-        if (storedToken.IsUsed)
+        if (claimed == 0)
         {
-            // A previously used token is being replayed: treat the account as
-            // compromised and revoke every active token so all sessions must
-            // sign in again. (JwtId changes on every rotation, so it cannot be
-            // used to scope this to a single token chain.)
-            var now = DateTime.UtcNow;
-            await _db.Set<RefreshToken>()
-                .Where(rt => rt.UserId == storedToken.UserId && !rt.IsRevoked)
-                .ExecuteUpdateAsync(setters => setters
-                    .SetProperty(rt => rt.IsRevoked, true)
-                    .SetProperty(rt => rt.RevokedAt, now));
+            var existing = await _db.Set<RefreshToken>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(rt => rt.Token == hashed);
 
-            throw new UnauthorizedAccessException(
-                "Refresh token reuse detected. All sessions have been revoked.");
+            if (existing is not null && existing.IsUsed && !existing.IsRevoked)
+            {
+                // A previously used token is being replayed: treat the account
+                // as compromised and revoke every active token so all sessions
+                // must sign in again. (JwtId changes on every rotation, so it
+                // cannot scope this to a single token chain.)
+                await _db.Set<RefreshToken>()
+                    .Where(rt => rt.UserId == existing.UserId && !rt.IsRevoked)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(rt => rt.IsRevoked, true)
+                        .SetProperty(rt => rt.RevokedAt, now));
+
+                throw new UnauthorizedAccessException(
+                    "Refresh token reuse detected. All sessions have been revoked.");
+            }
+
+            throw new UnauthorizedAccessException("Invalid or expired refresh token.");
         }
 
-        storedToken.IsUsed = true;
+        var storedToken = await _db.Set<RefreshToken>()
+            .AsNoTracking()
+            .FirstAsync(rt => rt.Token == hashed);
 
         var newToken = GenerateToken();
+        var newTokenHash = HashToken(newToken);
+
+        // The replaced token points at its successor; the successor is only
+        // linked once it is itself rotated.
+        await _db.Set<RefreshToken>()
+            .Where(rt => rt.Token == hashed)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(rt => rt.ReplacedByToken, newTokenHash));
+
         var newRefreshToken = new RefreshToken
         {
             UserId = storedToken.UserId,
-            Token = HashToken(newToken),
+            Token = newTokenHash,
             JwtId = newJwtId,
-            ExpiresAt = DateTime.UtcNow.AddDays(_settings.RefreshTokenExpirationDays),
-            CreatedAt = DateTime.UtcNow,
+            ExpiresAt = now.AddDays(_settings.RefreshTokenExpirationDays),
+            CreatedAt = now,
             IsUsed = false,
             IsRevoked = false,
-            ReplacedByToken = HashToken(newToken),
         };
 
-        storedToken.ReplacedByToken = HashToken(newToken);
         _db.Set<RefreshToken>().Add(newRefreshToken);
         await _db.SaveChangesAsync();
 

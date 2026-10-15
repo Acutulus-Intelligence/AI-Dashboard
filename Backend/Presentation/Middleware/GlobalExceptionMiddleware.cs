@@ -53,13 +53,19 @@ public class GlobalExceptionMiddleware
     {
         var mapped = _mapper.Map(ex);
 
+        // Client errors (4xx) carry hand-written, user-facing messages that the
+        // frontend surfaces (e.g. "Invalid email or password."). Expose them in
+        // every environment; only server errors are masked to avoid leaking
+        // internals.
+        var exposeMessage = _env.IsDevelopment() || mapped.StatusCode < 500;
+
         var problem = new ProblemDetails
         {
             Type = "https://tools.ietf.org/html/rfc7807",
             Title = mapped.Title,
             Status = mapped.StatusCode,
             Instance = context.Request.Path,
-            Detail = _env.IsDevelopment()
+            Detail = exposeMessage
                 ? ex.Message
                 : "An unexpected error occurred."
         };

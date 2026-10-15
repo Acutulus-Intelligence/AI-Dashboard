@@ -2,7 +2,11 @@ using System.Net;
 using System.Net.Http.Json;
 using Application.DTos.Request;
 using Application.DTos.Response;
+using Domain.Models;
 using FluentAssertions;
+using Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Presentation.IntegrationTests;
 
@@ -181,6 +185,37 @@ public sealed class AuthRoutesTests
         var client = CreateClient();
         var me = await client.GetAsync("/api/auth/me");
         me.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Rotation_links_old_token_to_its_successor()
+    {
+        var client = CreateClient();
+        var email = $"rotlink_{Guid.NewGuid():N}@example.com";
+
+        var register = await client.RegisterAsync(email);
+        register.EnsureSuccessStatusCode();
+
+        var refresh = await client.PostAsync("/api/auth/refresh", null);
+        refresh.EnsureSuccessStatusCode();
+
+        var userId = await _factory.GetUserIdAsync(email);
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var rows = await db.Set<RefreshToken>().AsNoTracking()
+            .Where(rt => rt.UserId == userId)
+            .ToListAsync();
+
+        rows.Should().HaveCount(2);
+
+        var oldRow = rows.Single(rt => rt.IsUsed);
+        var newRow = rows.Single(rt => !rt.IsUsed);
+
+        // The replaced token points at its successor; the successor is only
+        // linked once it is itself rotated.
+        oldRow.ReplacedByToken.Should().Be(newRow.Token);
+        newRow.ReplacedByToken.Should().BeNull();
     }
 
     private static string ReadRefreshCookie(HttpResponseMessage response)
