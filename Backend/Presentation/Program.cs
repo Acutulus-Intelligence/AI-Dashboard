@@ -1,4 +1,6 @@
+using System.Net;
 using System.Text;
+using System.Threading.RateLimiting;
 using Application.Common.Mapping;
 using Application.Datasets;
 using Application.Interfaces;
@@ -17,9 +19,12 @@ using Infrastructure.ExternalDb;
 using Infrastructure.ExternalDb.Services;
 using Infrastructure.Collections;
 using Infrastructure.Datasets;
+using Infrastructure.HostedServices;
 using Infrastructure.Payment;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Presentation.Middleware;
@@ -43,9 +48,9 @@ builder.Services.AddIdentity<User, IdentityRole<Guid>>()
 
 builder.Services.Configure<IdentityOptions>(options =>
 {
-    options.Lockout.AllowedForNewUsers = true;
     options.Lockout.MaxFailedAccessAttempts = 5;
-    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(5);
+    options.Lockout.AllowedForNewUsers = true;
 });
 
 var jwtSettings = builder.Configuration.GetSection("Jwt");
@@ -125,11 +130,15 @@ builder.Services.AddScoped<IAdminService, AdminService>();
 builder.Services.AddScoped<IAdminUserService, AdminUserService>();
 builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
 builder.Services.AddScoped<IPaymentService, StripeService>();
+builder.Services.AddScoped<IAccountDeletionService, AccountDeletionService>();
 builder.Services.AddScoped<RequireActiveSubscriptionFilter>();
+
+builder.Services.AddHostedService<AccountPurgeBackgroundService>();
 
 builder.Services.AddScoped<ITokenService, JwtService>();
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 builder.Services.AddScoped<ICurrentPasswordVerifier, CurrentPasswordVerifier>();
+builder.Services.AddScoped<ITotpService, TotpService>();
 
 
 builder.Services.AddFluentValidationAutoValidation();
@@ -143,6 +152,32 @@ builder.Services.AddScoped<IDatasetQueryExecutor, SqliteDatasetExecutor>();
 builder.Services.AddScoped<IDataQueryExecutor, InMemoryDataQueryExecutor>();
 builder.Services.AddScoped<ICollectionAccessService, CollectionAccessService>();
 builder.Services.AddScoped<ICollectionService, CollectionService>();
+
+// Behind a reverse proxy the client IP and scheme arrive via forwarded
+// headers. Without this, rate limiting keys every request to the proxy IP and
+// auth cookies miss the Secure flag. Opt in via config because trusting
+// forwarded headers from an untrusted client lets it spoof both.
+var forwardedHeadersSection = builder.Configuration.GetSection("ForwardedHeaders");
+var forwardedHeadersEnabled = forwardedHeadersSection.GetValue("Enabled", false);
+
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+
+    foreach (var proxy in forwardedHeadersSection.GetSection("KnownProxies").Get<string[]>() ?? [])
+    {
+        if (IPAddress.TryParse(proxy, out var ip))
+            options.KnownProxies.Add(ip);
+    }
+
+    // Trust any hop (dynamic PaaS proxies). Only safe when traffic cannot reach
+    // the app directly, bypassing the proxy.
+    if (forwardedHeadersSection.GetValue("TrustAllProxies", false))
+    {
+        options.KnownIPNetworks.Clear();
+        options.KnownProxies.Clear();
+    }
+});
 
 var corsOrigins = builder.Configuration
     .GetSection("Cors:AllowedOrigins")
@@ -161,7 +196,43 @@ builder.Services.AddCors(options =>
     });
 });
 
+var rateLimitingEnabled = builder.Configuration.GetValue("RateLimiting:Enabled", true);
+
+if (rateLimitingEnabled)
+{
+    builder.Services.AddRateLimiter(options =>
+    {
+        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+        options.AddPolicy("login", httpContext =>
+        {
+            // Authenticated management calls (2FA setup/disable, account
+            // deletion, ...) are partitioned per user so one user cannot exhaust
+            // a shared proxy-IP budget for everyone. Anonymous logins still key
+            // on the (forwarded) client IP.
+            var userId = httpContext.User?.FindFirst("userId")?.Value;
+            var partitionKey = !string.IsNullOrEmpty(userId)
+                ? $"user:{userId}"
+                : $"ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+
+            return RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: partitionKey,
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 10,
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueLimit = 0,
+                });
+        });
+    });
+}
+
 var app = builder.Build();
+
+if (forwardedHeadersEnabled)
+{
+    app.UseForwardedHeaders();
+}
 
 app.UseMiddleware<GlobalExceptionMiddleware>();
 
@@ -196,6 +267,11 @@ app.UseCors("Frontend");
 app.UseAuthentication();
 app.UseMiddleware<UserExistsMiddleware>();
 app.UseAuthorization();
+
+if (rateLimitingEnabled)
+{
+    app.UseRateLimiter();
+}
 
 app.MapControllers();
 

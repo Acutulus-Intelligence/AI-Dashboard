@@ -47,6 +47,9 @@ public class AesEncryptionService : IEncryptionService
         return DecryptLegacyCbc(cipherText);
     }
 
+    public bool IsEncrypted(string value) =>
+        !string.IsNullOrEmpty(value) && value.StartsWith(GcmPrefix, StringComparison.Ordinal);
+
     private string DecryptGcm(string encodedPayload)
     {
         var payload = Convert.FromBase64String(encodedPayload);

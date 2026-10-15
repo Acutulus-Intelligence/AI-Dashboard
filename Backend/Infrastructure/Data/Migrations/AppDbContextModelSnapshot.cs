@@ -708,6 +708,32 @@ namespace Infrastructure.Data.Migrations
                     b.ToTable("SubscriptionPlans", (string)null);
                 });
 
+            modelBuilder.Entity("Domain.Models.TwoFactorRecoveryCode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("UsedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("TwoFactorRecoveryCodes", (string)null);
+                });
+
             modelBuilder.Entity("Domain.Models.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -726,6 +752,12 @@ namespace Infrastructure.Data.Migrations
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
                         .HasColumnType("text");
+
+                    b.Property<DateTime?>("DeactivatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DeletionScheduledAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Email")
                         .HasMaxLength(256)
@@ -784,6 +816,8 @@ namespace Infrastructure.Data.Migrations
                     b.HasIndex("CompanyId");
 
                     b.HasIndex("CompanyRoleId");
+
+                    b.HasIndex("DeletionScheduledAt");
 
                     b.HasIndex("NormalizedEmail")
                         .HasDatabaseName("EmailIndex");
@@ -1188,6 +1222,17 @@ namespace Infrastructure.Data.Migrations
                     b.Navigation("Collection");
                 });
 
+            modelBuilder.Entity("Domain.Models.TwoFactorRecoveryCode", b =>
+                {
+                    b.HasOne("Domain.Models.User", "User")
+                        .WithMany("TwoFactorRecoveryCodes")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("Domain.Models.User", b =>
                 {
                     b.HasOne("Domain.Models.Company", "Company")
@@ -1309,6 +1354,8 @@ namespace Infrastructure.Data.Migrations
             modelBuilder.Entity("Domain.Models.User", b =>
                 {
                     b.Navigation("RefreshTokens");
+
+                    b.Navigation("TwoFactorRecoveryCodes");
                 });
 #pragma warning restore 612, 618
         }

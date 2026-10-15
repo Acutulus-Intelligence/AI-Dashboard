@@ -42,6 +42,8 @@ export type PasswordFormValues = z.infer<typeof passwordSchema>;
 
 export const deleteAccountSchema = z.object({
   currentPassword: z.string().min(1, 'Enter your password to confirm.'),
+  code: z.string().optional(),
+  recoveryCode: z.string().optional(),
 });
 
 export type DeleteAccountFormValues = z.infer<typeof deleteAccountSchema>;

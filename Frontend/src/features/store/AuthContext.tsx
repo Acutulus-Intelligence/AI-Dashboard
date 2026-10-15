@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as authApi from '../../lib/api/auth';
-import { AuthContext, type AuthUser } from './AuthContext';
+import { AuthContext, type AuthUser, type LoginResult } from './AuthContext';
 import { ROUTES } from '../routes';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -9,10 +9,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [hasActiveSubscription, setHasActiveSubscription] = useState(false);
   const [isSubscriptionLoading, setIsSubscriptionLoading] = useState(false);
+  const sessionChecksPaused = useRef(false);
+  const userRef = useRef<AuthUser | null>(null);
   const navigate = useNavigate();
 
-  const refreshSubscriptionStatus = useCallback(async () => {
-    setIsSubscriptionLoading(true);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
+  const pauseSessionChecks = useCallback((active: boolean) => {
+    sessionChecksPaused.current = active;
+  }, []);
+
+  const refreshSubscriptionStatus = useCallback(async (silent = false) => {
+    // Background polls must not toggle the loading flag, otherwise guards like
+    // ProtectedRoute flash a full-screen spinner every time they run.
+    if (!silent) setIsSubscriptionLoading(true);
     try {
       const isActive = await authApi.hasActiveSubscription();
       setHasActiveSubscription(isActive);
@@ -21,7 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setHasActiveSubscription(false);
       return false;
     } finally {
-      setIsSubscriptionLoading(false);
+      if (!silent) setIsSubscriptionLoading(false);
     }
   }, []);
 
@@ -34,6 +46,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         firstName: userInfo.firstName ?? null,
         lastName: userInfo.lastName ?? null,
         companyRoleName: userInfo.companyRoleName ?? null,
+        twoFactorEnabled: userInfo.twoFactorEnabled ?? false,
+        isDeactivated: userInfo.isDeactivated ?? false,
+        deletionScheduledAt: userInfo.deletionScheduledAt ?? null,
       };
       setUser(authUser);
       return authUser;
@@ -57,13 +72,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      void refreshSubscriptionStatus();
+      if (sessionChecksPaused.current) return;
+      // Never poll authenticated endpoints while signed out: a 401 there would
+      // otherwise trigger the global session-expired redirect on public pages.
+      if (!userRef.current) return;
+      void refreshSubscriptionStatus(true);
     }, 60_000);
     return () => clearInterval(interval);
   }, [refreshSubscriptionStatus]);
 
-  const login = useCallback(async (email: string, password: string) => {
-    await authApi.login({ email, password });
+  const login = useCallback(async (email: string, password: string): Promise<LoginResult> => {
+    const response = await authApi.login({ email, password });
+
+    if (response.requiresTwoFactor) {
+      return { status: 'twoFactorRequired', challengeToken: response.challengeToken ?? '' };
+    }
+
+    const authUser = await fetchUser();
+    await refreshSubscriptionStatus();
+    return { status: 'success', user: authUser };
+  }, [fetchUser, refreshSubscriptionStatus]);
+
+  const completeTwoFactorLogin = useCallback(async (
+    challengeToken: string,
+    code: string,
+    useRecoveryCode: boolean,
+  ) => {
+    await authApi.confirmTwoFactorLogin({ challengeToken, code, useRecoveryCode });
     const authUser = await fetchUser();
     await refreshSubscriptionStatus();
     return authUser;
@@ -87,8 +122,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     navigate('/');
   }, [navigate]);
 
+  const reactivateAccount = useCallback(async (data: {
+    currentPassword: string;
+    code?: string;
+    recoveryCode?: string;
+  }) => {
+    await authApi.reactivateAccount(data);
+    return await fetchUser();
+  }, [fetchUser]);
+
   useEffect(() => {
     function handleSessionExpired() {
+      if (sessionChecksPaused.current) return;
+      // Only react when we previously had a session. Anonymous 401s (e.g. the
+      // initial /api/auth/me probe on a public page) must not redirect to login.
+      if (!userRef.current) return;
       setUser(null);
       setHasActiveSubscription(false);
       navigate(ROUTES.LOGIN);
@@ -109,8 +157,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         refreshSubscriptionStatus,
         refreshUser: fetchUser,
         login,
+        completeTwoFactorLogin,
         register,
         logout,
+        reactivateAccount,
+        pauseSessionChecks,
       }}
     >
       {children}

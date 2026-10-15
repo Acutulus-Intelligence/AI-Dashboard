@@ -2,6 +2,7 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '../store/useAuth';
 import type { ReactNode } from 'react';
 import { ROUTES } from '../routes';
+import SubscriptionRequired from './SubscriptionRequired';
 
 interface ProtectedRouteProps {
   children: ReactNode;
@@ -17,8 +18,20 @@ export default function ProtectedRoute({ children, requireSubscription = true }:
 
   if (!isLoading && !isSubscriptionLoading && requireSubscription && !hasActiveSubscription) {
     const isStaff = user?.roles.includes('Admin') || user?.roles.includes('Moderator');
-    const target = isStaff ? ROUTES.ADMIN_MAIN : user?.userType === 1 ? ROUTES.ADMIN : ROUTES.PRICING;
-    return <Navigate to={target} replace />;
+    if (isStaff) {
+      return <Navigate to={ROUTES.ADMIN_MAIN} replace />;
+    }
+    if (user?.userType === 1) {
+      return <Navigate to={ROUTES.ADMIN} replace />;
+    }
+    // A deactivated user must always be able to reach the reactivation banner,
+    // which lives on the profile page; product features stay gated.
+    if (user?.isDeactivated) {
+      return <Navigate to={ROUTES.PROFILE} replace />;
+    }
+    // Stay in the app and show an upsell instead of ejecting to the public
+    // pricing page, so profile/settings remain reachable.
+    return <SubscriptionRequired />;
   }
 
   return (
