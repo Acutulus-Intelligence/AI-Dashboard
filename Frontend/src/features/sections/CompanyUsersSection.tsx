@@ -25,8 +25,13 @@ export default function CompanyUsersSection() {
   const [showInvite, setShowInvite] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRoleId, setInviteRoleId] = useState('');
+  const [inviteDeliveryMethod, setInviteDeliveryMethod] = useState<companyApi.InviteDeliveryMethod>(
+    companyApi.InviteDeliveryMethod.Internal,
+  );
   const [inviting, setInviting] = useState(false);
   const [inviteError, setInviteError] = useState('');
+  const [manualInviteLink, setManualInviteLink] = useState('');
+  const [resendingInvite, setResendingInvite] = useState<string | null>(null);
 
   const [changingRole, setChangingRole] = useState<string | null>(null);
 
@@ -102,7 +107,7 @@ export default function CompanyUsersSection() {
       setInvites(inviteList);
 
     } catch (err: unknown) {
-      if (err instanceof ApiError) {
+      if (err instanceof ApiError && err.code === 'no_company') {
         setNoCompany(true);
         loadPendingInvites();
       } else {
@@ -142,16 +147,46 @@ export default function CompanyUsersSection() {
 
     setInviting(true);
     try {
-      await companyApi.inviteUser(company!.id, { email: inviteEmail, roleId: inviteRoleId });
+      const result = await companyApi.inviteUser(company!.id, {
+        email: inviteEmail,
+        roleId: inviteRoleId,
+        deliveryMethod: inviteDeliveryMethod,
+      });
       setInviteEmail('');
       setInviteRoleId('');
       setShowInvite(false);
+      setManualInviteLink(
+        inviteDeliveryMethod === companyApi.InviteDeliveryMethod.Internal && result.token
+          ? `${window.location.origin}/invite/${result.token}`
+          : '',
+      );
       const updatedInvites = await companyApi.getCompanyInvites(company!.id);
       setInvites(updatedInvites);
     } catch (err: unknown) {
       setInviteError(err instanceof Error ? err.message : 'Failed to send invite.');
+      if (company) {
+        try {
+          setInvites(await companyApi.getCompanyInvites(company.id));
+        } catch {
+          // Ignore refresh failure; the error banner already explains the failure.
+        }
+      }
     } finally {
       setInviting(false);
+    }
+  }
+
+  async function handleResendInvite(inviteId: string) {
+    setResendingInvite(inviteId);
+    setError('');
+    try {
+      await companyApi.resendInvite(company!.id, inviteId);
+      const updatedInvites = await companyApi.getCompanyInvites(company!.id);
+      setInvites(updatedInvites);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to resend invite.');
+    } finally {
+      setResendingInvite(null);
     }
   }
 
@@ -490,6 +525,40 @@ export default function CompanyUsersSection() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="w-full">
+              <span className="mb-1 block text-body-xs font-medium text-on-surface-variant">
+                Delivery method
+              </span>
+              <div className="inline-flex rounded-xl border border-outline-variant bg-surface-container-lowest p-1">
+                <button
+                  type="button"
+                  onClick={() => setInviteDeliveryMethod(companyApi.InviteDeliveryMethod.Internal)}
+                  className={`rounded-lg px-4 py-1.5 text-body-sm font-medium transition-colors ${
+                    inviteDeliveryMethod === companyApi.InviteDeliveryMethod.Internal
+                      ? 'bg-primary text-on-primary'
+                      : 'text-on-surface-variant hover:bg-surface-container'
+                  }`}
+                >
+                  Internal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInviteDeliveryMethod(companyApi.InviteDeliveryMethod.Email)}
+                  className={`rounded-lg px-4 py-1.5 text-body-sm font-medium transition-colors ${
+                    inviteDeliveryMethod === companyApi.InviteDeliveryMethod.Email
+                      ? 'bg-primary text-on-primary'
+                      : 'text-on-surface-variant hover:bg-surface-container'
+                  }`}
+                >
+                  Email
+                </button>
+              </div>
+              <p className="mt-1 text-body-xs text-on-surface-variant">
+                {inviteDeliveryMethod === companyApi.InviteDeliveryMethod.Email
+                  ? "We'll email a single-use link so they can set up their account."
+                  : "They'll see the invite in-app after signing in."}
+              </p>
+            </div>
             <Button type="submit" variant="primary" className="px-5 py-2.5" disabled={inviting}>
               {inviting ? 'Sending...' : 'Send Invite'}
             </Button>
@@ -500,6 +569,34 @@ export default function CompanyUsersSection() {
               {inviteError}
             </p>
           )}
+        </div>
+      )}
+
+      {/* Manual invite link for internal invites */}
+      {manualInviteLink && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-outline-variant bg-surface-container-lowest px-5 py-3">
+          <div className="min-w-0">
+            <p className="text-body-sm font-medium text-on-background">Invite link created</p>
+            <p className="truncate text-body-xs text-on-surface-variant">{manualInviteLink}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              className="px-3 py-1.5 text-body-xs"
+              onClick={() => {
+                void navigator.clipboard?.writeText(manualInviteLink);
+              }}
+            >
+              Copy link
+            </Button>
+            <button
+              type="button"
+              onClick={() => setManualInviteLink('')}
+              className="rounded-lg p-1.5 text-on-surface-variant hover:bg-surface-container"
+            >
+              <X size={14} />
+            </button>
+          </div>
         </div>
       )}
 
@@ -738,15 +835,30 @@ export default function CompanyUsersSection() {
                     <span className="ml-2 text-body-xs text-on-surface-variant">
                       Role: {inv.roleName ?? '—'}
                     </span>
+                    <span className="ml-2 rounded-full bg-surface-container px-2 py-0.5 text-body-xs text-on-surface-variant">
+                      {inv.deliveryMethod === companyApi.InviteDeliveryMethod.Email ? 'Email' : 'Internal'}
+                    </span>
                   </div>
                   {canManageUsers && (
-                    <button
-                      type="button"
-                      onClick={() => handleRevokeInvite(inv.id)}
-                      className="rounded-lg p-1.5 text-on-surface-variant transition-colors hover:bg-surface-container hover:text-red-600 disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <X size={16} />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      {inv.deliveryMethod === companyApi.InviteDeliveryMethod.Email && (
+                        <button
+                          type="button"
+                          onClick={() => void handleResendInvite(inv.id)}
+                          disabled={resendingInvite === inv.id}
+                          className="rounded-lg px-2 py-1 text-body-xs font-medium text-primary transition-colors hover:bg-surface-container disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          {resendingInvite === inv.id ? 'Sending...' : 'Resend'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleRevokeInvite(inv.id)}
+                        className="rounded-lg p-1.5 text-on-surface-variant transition-colors hover:bg-surface-container hover:text-red-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
                   )}
                 </div>
               ))}

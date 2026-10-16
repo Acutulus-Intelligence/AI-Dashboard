@@ -207,6 +207,10 @@ public sealed class TwoFactorAuthRoutesTests
         var replay = await client.PostAsJsonAsync("/api/auth/login/2fa",
             new TwoFactorLoginRequest(secondChallenge, code, false));
         replay.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        // The rejection explains that the code was already used.
+        var problem = await replay.ReadJsonAsync<Microsoft.AspNetCore.Mvc.ProblemDetails>();
+        problem.Detail.Should().Contain("already been used");
     }
 
     [Fact]
@@ -228,6 +232,9 @@ public sealed class TwoFactorAuthRoutesTests
         var regenerate = await client.PostAsJsonAsync("/api/auth/2fa/recovery-codes",
             new RegenerateRecoveryCodesRequest(code, Password));
         regenerate.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        var problem = await regenerate.ReadJsonAsync<Microsoft.AspNetCore.Mvc.ProblemDetails>();
+        problem.Detail.Should().Contain("already been used");
     }
 
     [Fact]
@@ -689,6 +696,24 @@ public sealed class TwoFactorAuthRoutesTests
         delete.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         var userId = await _factory.GetUserIdAsync(email);
+
+        // A private data collection created by the user is a required (Restrict)
+        // reference; the purge must remove it so the user can be deleted.
+        var collectionId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.DataCollections.Add(new DataCollection
+            {
+                Id = collectionId,
+                Name = "Purge me",
+                CreatedById = userId,
+                Visibility = CollectionVisibility.Private,
+                CreatedAt = DateTime.UtcNow,
+            });
+            await db.SaveChangesAsync();
+        }
+
         await _factory.SetUserDeletionScheduledAtAsync(email, DateTime.UtcNow.AddDays(-1));
 
         using (var scope = _factory.Services.CreateScope())
@@ -696,6 +721,187 @@ public sealed class TwoFactorAuthRoutesTests
             var deletionService = scope.ServiceProvider.GetRequiredService<IAccountDeletionService>();
             var purged = await deletionService.PurgeExpiredAccountsAsync();
             purged.Should().BeGreaterThanOrEqualTo(1);
+        }
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
+            (await users.FindByIdAsync(userId.ToString())).Should().BeNull();
+
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            (await db.DataCollections.FindAsync(collectionId)).Should().BeNull();
+        }
+    }
+
+    [Fact]
+    public async Task Purge_reassigns_company_collections_to_the_owner()
+    {
+        var ownerClient = CreateClient();
+        var ownerEmail = $"purgecoowner_{Guid.NewGuid():N}@example.com";
+        await ownerClient.RegisterAndLoginAsync(ownerEmail);
+
+        var companyResp = await ownerClient.PostAsJsonAsync(
+            "/api/companies", new CreateCompanyRequest($"PurgeCo-{Guid.NewGuid():N}"));
+        companyResp.EnsureSuccessStatusCode();
+        var company = await companyResp.ReadJsonAsync<CompanyResponse>();
+        await _factory.SeedCompanySubscriptionAsync(company.Id);
+
+        var roleResp = await ownerClient.PostAsJsonAsync(
+            $"/api/companies/{company.Id}/roles", new CreateRoleRequest("Member", false, false, false, false));
+        roleResp.EnsureSuccessStatusCode();
+        var role = await roleResp.ReadJsonAsync<CompanyRoleResponse>();
+
+        var memberEmail = $"purgecomember_{Guid.NewGuid():N}@example.com";
+        var inviteResp = await ownerClient.PostAsJsonAsync(
+            $"/api/companies/{company.Id}/invite", new InviteUserRequest(memberEmail, role.Id));
+        inviteResp.EnsureSuccessStatusCode();
+        var invites = await (await ownerClient.GetAsync($"/api/companies/{company.Id}/invites"))
+            .ReadJsonAsync<List<CompanyInviteResponse>>();
+        var pending = invites.First(i => i.Email == memberEmail && !i.IsAccepted);
+
+        var memberClient = CreateClient();
+        await memberClient.RegisterAndLoginAsync(memberEmail);
+        var accept = await memberClient.PostAsJsonAsync(
+            "/api/companies/accept-invite", new AcceptInviteRequest(pending.Id));
+        accept.EnsureSuccessStatusCode();
+
+        var ownerId = await _factory.GetUserIdAsync(ownerEmail);
+        var memberId = await _factory.GetUserIdAsync(memberEmail);
+
+        var collectionId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.DataCollections.Add(new DataCollection
+            {
+                Id = collectionId,
+                Name = "Team data",
+                CompanyId = company.Id,
+                CreatedById = memberId,
+                Visibility = CollectionVisibility.Company,
+                CreatedAt = DateTime.UtcNow,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await _factory.SetUserDeletionScheduledAtAsync(memberEmail, DateTime.UtcNow.AddDays(-1));
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var deletionService = scope.ServiceProvider.GetRequiredService<IAccountDeletionService>();
+            await deletionService.PurgeExpiredAccountsAsync();
+        }
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
+            (await users.FindByIdAsync(memberId.ToString())).Should().BeNull();
+
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var collection = await db.DataCollections.FindAsync(collectionId);
+            collection.Should().NotBeNull();
+            collection!.CreatedById.Should().Be(ownerId);
+        }
+    }
+
+    [Fact]
+    public async Task Purge_removes_chart_referenced_by_another_users_widget()
+    {
+        var client = CreateClient();
+        var email = $"purgechart_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        var userId = await _factory.GetUserIdAsync(email);
+
+        var otherClient = CreateClient();
+        var otherEmail = $"purgeother_{Guid.NewGuid():N}@example.com";
+        await otherClient.RegisterAndLoginAsync(otherEmail);
+        var otherId = await _factory.GetUserIdAsync(otherEmail);
+
+        var chartId = Guid.NewGuid();
+        var dashboardId = Guid.NewGuid();
+        var widgetId = Guid.NewGuid();
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.SavedCharts.Add(new SavedChart
+            {
+                Id = chartId,
+                UserId = userId,
+                Title = "Referenced chart",
+                ChartType = "bar",
+                XAxis = "category",
+                YAxis = ["amount"],
+                Aggregation = "sum",
+                SqlQuery = "SELECT 1",
+            });
+            db.Dashboards.Add(new Dashboard
+            {
+                Id = dashboardId,
+                Name = "Other board",
+                UserId = otherId,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+            });
+            db.DashboardWidgets.Add(new DashboardWidget
+            {
+                Id = widgetId,
+                DashboardId = dashboardId,
+                WidgetType = WidgetType.Chart,
+                SavedChartId = chartId,
+                Width = 6,
+                Height = 4,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await _factory.SetUserDeletionScheduledAtAsync(email, DateTime.UtcNow.AddDays(-1));
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var deletionService = scope.ServiceProvider.GetRequiredService<IAccountDeletionService>();
+            await deletionService.PurgeExpiredAccountsAsync();
+        }
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
+            (await users.FindByIdAsync(userId.ToString())).Should().BeNull();
+
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var widget = await db.DashboardWidgets.FindAsync(widgetId);
+            widget.Should().NotBeNull();
+            widget!.SavedChartId.Should().BeNull();
+            (await db.Dashboards.FindAsync(dashboardId)).Should().NotBeNull();
+        }
+    }
+
+    [Fact]
+    public async Task Purge_deletes_account_even_when_stripe_cancellation_fails()
+    {
+        var client = CreateClient();
+        var email = $"purgestripe_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        var userId = await _factory.GetUserIdAsync(email);
+        await _factory.SeedActiveSubscriptionAsync(email);
+
+        string? stripeSubscriptionId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            stripeSubscriptionId = (await db.UserSubscriptions
+                .FirstAsync(s => s.UserId == userId)).StripeSubscriptionId;
+        }
+
+        stripeSubscriptionId.Should().NotBeNull();
+        _factory.FakePayments.ImmediateCancelFailures.Add(stripeSubscriptionId!);
+
+        await _factory.SetUserDeletionScheduledAtAsync(email, DateTime.UtcNow.AddDays(-1));
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var deletionService = scope.ServiceProvider.GetRequiredService<IAccountDeletionService>();
+            await deletionService.PurgeExpiredAccountsAsync();
         }
 
         using (var scope = _factory.Services.CreateScope())

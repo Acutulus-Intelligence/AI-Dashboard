@@ -26,6 +26,8 @@ public class AuthService : IAuthService
     private const string LastTimeStepToken = "LastTwoFactorTimeStep";
     private const string TwoFactorFailedAttemptsToken = "TwoFactorFailedAttempts";
     private const string TwoFactorLockoutEndToken = "TwoFactorLockoutEnd";
+    private const string ReusedTwoFactorCodeMessage =
+        "This code has already been used. Wait for your authenticator app to show a new code, then try again.";
 
     private readonly UserManager<User> _userManager;
     private readonly IUserStore<User> _userStore;
@@ -102,6 +104,36 @@ public class AuthService : IAuthService
         return await GenerateAuthResultAsync(user, roles);
     }
 
+    public async Task<AuthResult> RegisterWithInvitationAsync(string token, AcceptEmailInvitationRequest request, CancellationToken ct = default)
+    {
+        var invitation = await _companyService.ValidateInvitationAsync(token, ct)
+            ?? throw new InvalidOperationException("This invitation is invalid or has expired.");
+
+        var existingUser = await _userManager.FindByEmailAsync(invitation.Email);
+        if (existingUser is not null)
+            throw new ConflictException("Email is already registered.", "email_conflict");
+
+        var user = new User
+        {
+            UserName = invitation.Email,
+            Email = invitation.Email,
+            FirstName = request.FirstName,
+            LastName = request.LastName,
+            UserType = UserType.Company
+        };
+
+        var createResult = await _userManager.CreateAsync(user, request.Password);
+        if (!createResult.Succeeded)
+            throw new InvalidOperationException("Registration failed. Please check your input and try again.");
+
+        await _userManager.AddToRoleAsync(user, "User");
+
+        await _companyService.AcceptInviteAsync(token, user.Id, ct);
+
+        var roles = await _userManager.GetRolesAsync(user);
+        return await GenerateAuthResultAsync(user, roles);
+    }
+
     public async Task<LoginOutcome> LoginAsync(LoginRequest request, CancellationToken ct = default)
     {
         var user = await _userManager.FindByEmailAsync(request.Email);
@@ -170,10 +202,16 @@ public class AuthService : IAuthService
             var key = await GetDecryptedAuthenticatorKeyAsync(user);
             var lastTimeStep = await GetLastTimeStepAsync(user);
 
-            if (key is null || !_totp.TryValidate(key, code, lastTimeStep, out var matchedTimeStep))
+            long matchedTimeStep = 0;
+            var result = key is null
+                ? TotpValidationResult.Invalid
+                : _totp.Validate(key, code, lastTimeStep, out matchedTimeStep);
+
+            if (result != TotpValidationResult.Valid)
             {
                 await RegisterTwoFactorFailureAsync(user);
-                throw new UnauthorizedAccessException("Invalid verification code.");
+                throw new UnauthorizedAccessException(
+                    result == TotpValidationResult.Replay ? ReusedTwoFactorCodeMessage : "Invalid verification code.");
             }
 
             // Remember the accepted step so the same code cannot be replayed
@@ -247,7 +285,7 @@ public class AuthService : IAuthService
 
         var pendingKey = _encryption.Decrypt(encryptedPendingKey);
 
-        if (!_totp.TryValidate(pendingKey, request.Code.Trim(), long.MinValue, out _))
+        if (_totp.Validate(pendingKey, request.Code.Trim(), long.MinValue, out _) != TotpValidationResult.Valid)
         {
             // Setup failures use their own attempt counter and never count toward
             // the account lockout, so a mistyped enrolment code cannot lock sign-in.
@@ -595,7 +633,17 @@ public class AuthService : IAuthService
         // Reject replaying a code that was already accepted within its validity
         // window (shared with the login flow's replay protection).
         var lastTimeStep = await GetLastTimeStepAsync(user);
-        if (!_totp.TryValidate(key, code.Trim(), lastTimeStep, out var matchedTimeStep))
+        var result = _totp.Validate(key, code.Trim(), lastTimeStep, out var matchedTimeStep);
+
+        if (result == TotpValidationResult.Replay)
+        {
+            // Still count the attempt toward lockout, like any other failed code,
+            // but tell the user why it was rejected.
+            await _userManager.AccessFailedAsync(user);
+            throw new UnauthorizedAccessException(ReusedTwoFactorCodeMessage);
+        }
+
+        if (result != TotpValidationResult.Valid)
             return false;
 
         await SetLastTimeStepAsync(user, matchedTimeStep);

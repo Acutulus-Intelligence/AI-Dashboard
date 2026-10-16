@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { LogIn, Eye, EyeOff, AlertCircle, ShieldCheck, ArrowLeft } from 'lucide-react';
 import Button from '../components/Button';
 import Header from '../layouts/Header';
@@ -56,6 +56,8 @@ function clearStoredChallenge() {
 export default function LoginPage() {
   const { login, completeTwoFactorLogin } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const redirectTo = searchParams.get('redirect');
 
   const [initialChallenge] = useState(readStoredChallenge);
   const [step, setStep] = useState<LoginStep>(initialChallenge ? 'twofactor' : 'credentials');
@@ -69,6 +71,11 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   async function navigateAfterLogin(user: { roles: string[]; isDeactivated?: boolean } | null) {
+    // Only allow same-origin relative paths to avoid open-redirect abuse.
+    if (redirectTo && redirectTo.startsWith('/') && !redirectTo.startsWith('//')) {
+      navigate(redirectTo);
+      return;
+    }
     if (user?.roles.includes('Admin') || user?.roles.includes('Moderator')) {
       navigate(ROUTES.ADMIN_MAIN);
       return;
