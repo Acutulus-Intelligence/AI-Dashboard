@@ -79,108 +79,110 @@ export default function ReactivateAccountBanner() {
   }
 
   return (
-    <Alert variant="destructive" className="m-4 mb-0">
-      <TriangleAlert />
-      <AlertTitle>Your account is scheduled for deletion</AlertTitle>
-      <AlertDescription>
-        It will be permanently deleted{scheduled ? ` on ${scheduled}` : ' in 14 days'}. Reactivate
-        to cancel the deletion.
-      </AlertDescription>
+    <div className="px-4 pt-4">
+      <Alert variant="destructive" className="max-sm:pr-2.5!">
+        <TriangleAlert />
+        <AlertTitle>Your account is scheduled for deletion</AlertTitle>
+        <AlertDescription>
+          It will be permanently deleted{scheduled ? ` on ${scheduled}` : ' in 14 days'}. Reactivate
+          to cancel the deletion.
+        </AlertDescription>
 
-      <AlertAction>
-        <AlertDialog
-          open={open}
-          onOpenChange={(next) => {
-            setOpen(next);
-            if (!next) reset();
-          }}
-        >
-          <AlertDialogTrigger asChild>
-            <Button size="sm" variant="destructive">
-              <RotateCcw />
-              Reactivate account
-            </Button>
-          </AlertDialogTrigger>
+        <AlertAction className="max-sm:static! max-sm:col-span-2 max-sm:mt-1 max-sm:w-full">
+          <AlertDialog
+            open={open}
+            onOpenChange={(next) => {
+              setOpen(next);
+              if (!next) reset();
+            }}
+          >
+            <AlertDialogTrigger asChild>
+              <Button size="sm" variant="destructive" className="max-sm:w-full">
+                <RotateCcw />
+                Reactivate account
+              </Button>
+            </AlertDialogTrigger>
 
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Reactivate your account</AlertDialogTitle>
-              <AlertDialogDescription>
-                Confirm with your password{twoFactorEnabled ? ' and two-factor code' : ''}.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Reactivate your account</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Confirm with your password{twoFactorEnabled ? ' and two-factor code' : ''}.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
 
-            <div className="grid gap-4">
-              <div className="grid gap-1.5">
-                <label htmlFor="reactivate-password" className="text-sm font-medium">
-                  Password
-                </label>
-                <Input
-                  id="reactivate-password"
-                  type="password"
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
+              <div className="grid gap-4">
+                <div className="grid gap-1.5">
+                  <label htmlFor="reactivate-password" className="text-sm font-medium">
+                    Password
+                  </label>
+                  <Input
+                    id="reactivate-password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                </div>
+
+                {twoFactorEnabled && !useRecoveryCode && (
+                  <div className="grid gap-1.5">
+                    <label htmlFor="reactivate-code" className="text-sm font-medium">
+                      Authenticator code
+                    </label>
+                    <Input
+                      id="reactivate-code"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      placeholder="123456"
+                      value={code}
+                      onChange={(e) => setCode(e.target.value)}
+                    />
+                  </div>
+                )}
+
+                {twoFactorEnabled && useRecoveryCode && (
+                  <div className="grid gap-1.5">
+                    <label htmlFor="reactivate-recovery" className="text-sm font-medium">
+                      Recovery code
+                    </label>
+                    <Input
+                      id="reactivate-recovery"
+                      placeholder="XXXXX-XXXXX"
+                      value={code}
+                      onChange={(e) => setCode(e.target.value)}
+                    />
+                  </div>
+                )}
+
+                {twoFactorEnabled && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUseRecoveryCode((v) => !v);
+                      setCode('');
+                      setError('');
+                    }}
+                    className="w-fit text-sm font-medium text-primary hover:underline"
+                  >
+                    {useRecoveryCode ? 'Use an authenticator code instead' : 'Use a recovery code'}
+                  </button>
+                )}
+
+                {error && <p className="text-sm text-destructive">{error}</p>}
               </div>
 
-              {twoFactorEnabled && !useRecoveryCode && (
-                <div className="grid gap-1.5">
-                  <label htmlFor="reactivate-code" className="text-sm font-medium">
-                    Authenticator code
-                  </label>
-                  <Input
-                    id="reactivate-code"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    placeholder="123456"
-                    value={code}
-                    onChange={(e) => setCode(e.target.value)}
-                  />
-                </div>
-              )}
-
-              {twoFactorEnabled && useRecoveryCode && (
-                <div className="grid gap-1.5">
-                  <label htmlFor="reactivate-recovery" className="text-sm font-medium">
-                    Recovery code
-                  </label>
-                  <Input
-                    id="reactivate-recovery"
-                    placeholder="XXXXX-XXXXX"
-                    value={code}
-                    onChange={(e) => setCode(e.target.value)}
-                  />
-                </div>
-              )}
-
-              {twoFactorEnabled && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUseRecoveryCode((v) => !v);
-                    setCode('');
-                    setError('');
-                  }}
-                  className="w-fit text-sm font-medium text-primary hover:underline"
-                >
-                  {useRecoveryCode ? 'Use an authenticator code instead' : 'Use a recovery code'}
-                </button>
-              )}
-
-              {error && <p className="text-sm text-destructive">{error}</p>}
-            </div>
-
-            <AlertDialogFooter>
-              <AlertDialogCancel type="button">Cancel</AlertDialogCancel>
-              <Button type="button" onClick={() => void submit()} disabled={busy}>
-                {busy && <Loader2 className="animate-spin" />}
-                Reactivate
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </AlertAction>
-    </Alert>
+              <AlertDialogFooter>
+                <AlertDialogCancel type="button">Cancel</AlertDialogCancel>
+                <Button type="button" onClick={() => void submit()} disabled={busy}>
+                  {busy && <Loader2 className="animate-spin" />}
+                  Reactivate
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </AlertAction>
+      </Alert>
+    </div>
   );
 }

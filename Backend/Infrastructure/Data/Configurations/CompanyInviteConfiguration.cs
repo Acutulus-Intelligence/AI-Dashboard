@@ -16,12 +16,18 @@ public class CompanyInviteConfiguration : IEntityTypeConfiguration<CompanyInvite
             .IsRequired()
             .HasMaxLength(256);
 
-        builder.Property(ci => ci.Token)
+        builder.Property(ci => ci.TokenHash)
             .IsRequired()
-            .HasMaxLength(128);
+            .HasMaxLength(64);
 
-        builder.HasIndex(ci => ci.Token)
+        builder.HasIndex(ci => ci.TokenHash)
             .IsUnique();
+
+        builder.HasIndex(ci => new { ci.CompanyId, ci.Email })
+            .IsUnique();
+
+        builder.Property(ci => ci.DeliveryMethod)
+            .HasConversion<int>();
 
         builder.Property(ci => ci.RowVersion)
             .IsRowVersion();

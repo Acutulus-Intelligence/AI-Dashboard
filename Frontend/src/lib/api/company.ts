@@ -43,7 +43,17 @@ export interface CompanyInviteResponse {
   isExpired: boolean;
   isAccepted: boolean;
   companyName: string;
+  deliveryMethod: InviteDeliveryMethod;
+  lastSentAt: string | null;
 }
+
+export const InviteDeliveryMethod = {
+  Internal: 0,
+  Email: 1,
+} as const;
+
+export type InviteDeliveryMethod =
+  (typeof InviteDeliveryMethod)[keyof typeof InviteDeliveryMethod];
 
 export interface CompanySubscriptionResponse {
   id: string;
@@ -68,6 +78,7 @@ export interface CreateCompanyRequest {
 export interface InviteUserRequest {
   email: string;
   roleId: string;
+  deliveryMethod?: InviteDeliveryMethod;
 }
 
 export interface AcceptInviteRequest {
@@ -156,10 +167,16 @@ export function transferOwnership(companyId: string, newOwnerId: string, current
   });
 }
 
-export function inviteUser(companyId: string, data: InviteUserRequest): Promise<{ token: string }> {
-  return apiFetch<{ token: string }>(`/api/companies/${companyId}/invite`, {
+export function inviteUser(companyId: string, data: InviteUserRequest): Promise<{ token: string | null }> {
+  return apiFetch<{ token: string | null }>(`/api/companies/${companyId}/invite`, {
     method: 'POST',
     body: JSON.stringify(data),
+  });
+}
+
+export function resendInvite(companyId: string, inviteId: string): Promise<void> {
+  return apiFetch<void>(`/api/companies/${companyId}/invites/${inviteId}/resend`, {
+    method: 'POST',
   });
 }
 

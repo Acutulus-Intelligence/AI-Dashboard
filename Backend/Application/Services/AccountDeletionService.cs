@@ -3,6 +3,7 @@ using Domain.Enums;
 using Domain.Models;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Application.Services;
 
@@ -11,15 +12,18 @@ public class AccountDeletionService : IAccountDeletionService
     private readonly UserManager<User> _userManager;
     private readonly IApplicationDbContext _db;
     private readonly IPaymentService _paymentService;
+    private readonly ILogger<AccountDeletionService> _logger;
 
     public AccountDeletionService(
         UserManager<User> userManager,
         IApplicationDbContext db,
-        IPaymentService paymentService)
+        IPaymentService paymentService,
+        ILogger<AccountDeletionService> logger)
     {
         _userManager = userManager;
         _db = db;
         _paymentService = paymentService;
+        _logger = logger;
     }
 
     public async Task<int> PurgeExpiredAccountsAsync(CancellationToken ct = default)
@@ -31,9 +35,21 @@ public class AccountDeletionService : IAccountDeletionService
             .Select(u => u.Id)
             .ToListAsync(ct);
 
+        if (userIds.Count > 0)
+            _logger.LogInformation("Account purge sweep found {Count} expired account(s).", userIds.Count);
+
         foreach (var userId in userIds)
         {
-            await PurgeAccountAsync(userId, ct);
+            try
+            {
+                await PurgeAccountAsync(userId, ct);
+            }
+            catch (Exception ex)
+            {
+                // One bad account must not block the rest of the sweep; it will
+                // be retried on the next pass.
+                _logger.LogError(ex, "Failed to purge account {UserId}.", userId);
+            }
         }
 
         return userIds.Count;
@@ -59,6 +75,22 @@ public class AccountDeletionService : IAccountDeletionService
         var charts = await _db.SavedCharts
             .Where(c => c.UserId == userId)
             .ToListAsync(ct);
+
+        // Widgets reference charts with a Restrict FK, so unfile any widget that
+        // points at one of this user's charts (for example a widget on a
+        // company/shared dashboard) before the charts are removed. Otherwise the
+        // user delete is blocked.
+        var chartIds = charts.Select(c => c.Id).ToList();
+        if (chartIds.Count > 0)
+        {
+            var referencingWidgets = await _db.DashboardWidgets
+                .Where(w => w.SavedChartId != null && chartIds.Contains(w.SavedChartId!.Value))
+                .ToListAsync(ct);
+
+            foreach (var widget in referencingWidgets)
+                widget.SavedChartId = null;
+        }
+
         _db.SavedCharts.RemoveRange(charts);
 
         var connections = await _db.ExternalConnections
@@ -100,13 +132,52 @@ public class AccountDeletionService : IAccountDeletionService
             .ToListAsync(ct);
         _db.TwoFactorRecoveryCodes.RemoveRange(recoveryCodes);
 
+        // Data collections are a required (Restrict) reference to their creator,
+        // so they must be removed or reassigned before the user can be deleted.
+        var collections = await _db.DataCollections
+            .Where(c => c.CreatedById == userId)
+            .ToListAsync(ct);
+
+        foreach (var group in collections
+            .Where(c => c.CompanyId is not null)
+            .GroupBy(c => c.CompanyId!.Value))
+        {
+            var company = await _db.Companies.FirstOrDefaultAsync(c => c.Id == group.Key, ct);
+            if (company is null)
+            {
+                _db.DataCollections.RemoveRange(group);
+                continue;
+            }
+
+            foreach (var collection in group)
+                collection.CreatedById = company.OwnerId;
+        }
+
+        foreach (var collection in collections.Where(c => c.CompanyId is null).ToList())
+        {
+            _db.DataCollections.Remove(collection);
+        }
+
         var userSubscription = await _db.UserSubscriptions
             .FirstOrDefaultAsync(s => s.UserId == userId, ct);
         if (userSubscription is not null)
         {
             if (userSubscription.StripeSubscriptionId is not null)
-                await _paymentService.CancelSubscriptionImmediatelyAsync(
-                    userSubscription.StripeSubscriptionId, ct);
+            {
+                try
+                {
+                    await _paymentService.CancelSubscriptionImmediatelyAsync(
+                        userSubscription.StripeSubscriptionId, ct);
+                }
+                catch (Exception ex)
+                {
+                    // Billing cleanup must never block the account deletion.
+                    _logger.LogWarning(ex,
+                        "Failed to cancel the Stripe subscription while purging account {UserId}; continuing.",
+                        userId);
+                }
+            }
+
             _db.UserSubscriptions.Remove(userSubscription);
         }
 

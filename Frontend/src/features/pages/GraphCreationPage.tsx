@@ -8,6 +8,9 @@ import {
   CheckCircle,
   ChevronRight,
   Database,
+  Download,
+  FileSpreadsheet,
+  FileText,
   Folder,
   Info,
   Loader2,
@@ -26,6 +29,12 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -61,6 +70,11 @@ import ChartRenderer from '../charts/ChartRenderer';
 import { DEFAULT_COMPANY_COLORS } from '../charts/companyColors';
 import { get, getAll } from '../charts/registry';
 import { transformResult } from '../charts/transform';
+import {
+  exportChartDataAsCsv,
+  exportChartDataAsExcel,
+  hasExportData as chartHasExportData,
+} from '../charts/exportChartData';
 import type { ChartStyleConfig } from '../charts/types';
 import ChartStylePanel from '../components/ChartStylePanel';
 import AddToDashboardDialog from '../components/AddToDashboardDialog';
@@ -227,6 +241,7 @@ export default function GraphCreationPage() {
   const [aiDebug, setAiDebug] = useState<AiGenerationDebug | null>(null);
   const [aiDebugOpen, setAiDebugOpen] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!isCompanyUser) {
@@ -404,6 +419,13 @@ export default function GraphCreationPage() {
   }, [connectionId, connectionName, collectionId, collectionName, sourceType]);
 
   const chartData = useMemo(() => (result ? transformResult(result) : null), [result]);
+  const hasExportData = useMemo(
+    () =>
+      chartData && result
+        ? chartHasExportData(chartData, result.chartType, styleConfig)
+        : false,
+    [chartData, result, styleConfig],
+  );
   const descriptor = result ? get(result.chartType) : undefined;
   const isStyleDirty =
     !!savedChartId &&
@@ -512,6 +534,24 @@ export default function GraphCreationPage() {
     setSavedFolderSnapshot(null);
     setError('');
     setStep('generate');
+  }
+
+  async function handleDownloadCsv() {
+    if (!result || !chartData) return;
+    try {
+      await exportChartDataAsCsv(chartData, result.chartType, editableTitle || result.title, styleConfig);
+    } catch {
+      toast.error('Could not save the chart data.');
+    }
+  }
+
+  async function handleDownloadExcel() {
+    if (!result || !chartData) return;
+    try {
+      await exportChartDataAsExcel(chartData, result.chartType, editableTitle || result.title, styleConfig);
+    } catch {
+      toast.error('Could not save the chart data.');
+    }
   }
 
   function handleBack() {
@@ -1225,6 +1265,30 @@ export default function GraphCreationPage() {
                         </TooltipContent>
                       </Tooltip>
                     )}
+                    {(result.chartType !== 'map' || hasExportData) && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            className="text-muted-foreground hover:text-foreground inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md"
+                            aria-label="Save chart"
+                            title="Save chart"
+                          >
+                            <Download className="size-4" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">                         
+                          <DropdownMenuItem disabled={!hasExportData} onSelect={() => void handleDownloadCsv()}>
+                            <FileText />
+                            Download CSV
+                          </DropdownMenuItem>
+                          <DropdownMenuItem disabled={!hasExportData} onSelect={() => void handleDownloadExcel()}>
+                            <FileSpreadsheet />
+                            Download Excel
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
                     <Badge variant="secondary" className="shrink-0 capitalize">
                       {result.chartType}
                     </Badge>
@@ -1234,7 +1298,7 @@ export default function GraphCreationPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="bg-muted/20 h-80 rounded-lg border p-2">
+                  <div ref={previewRef} className="bg-muted/20 h-80 rounded-lg border p-2">
                     <ChartRenderer
                       chartId={result.chartType}
                       data={chartData}

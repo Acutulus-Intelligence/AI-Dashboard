@@ -1,3 +1,5 @@
+using Domain.Enums;
+
 namespace Domain.Models;
 
 public class CompanyInvite
@@ -8,7 +10,9 @@ public class CompanyInvite
     public string Email { get; set; } = string.Empty;
     public Guid RoleId { get; set; }
     public CompanyRole Role { get; set; } = null!;
-    public string Token { get; set; } = string.Empty;
+    public string TokenHash { get; set; } = string.Empty;
+    public InviteDeliveryMethod DeliveryMethod { get; set; } = InviteDeliveryMethod.Internal;
+    public DateTime? LastSentAt { get; set; }
     public DateTime ExpiresAt { get; set; }
     public bool IsAccepted { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

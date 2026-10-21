@@ -1,3 +1,5 @@
+using Domain.Enums;
+
 namespace Application.DTos.Response;
 
 public sealed record CompanyInviteResponse(
@@ -9,4 +11,6 @@ public sealed record CompanyInviteResponse(
     DateTime ExpiresAt,
     bool IsExpired,
     bool IsAccepted,
-    string CompanyName);
+    string CompanyName,
+    InviteDeliveryMethod DeliveryMethod,
+    DateTime? LastSentAt);
