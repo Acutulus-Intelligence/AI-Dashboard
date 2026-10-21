@@ -70,7 +70,6 @@ import ChartRenderer from '../charts/ChartRenderer';
 import { DEFAULT_COMPANY_COLORS } from '../charts/companyColors';
 import { get, getAll } from '../charts/registry';
 import { transformResult } from '../charts/transform';
-import { exportChartAsPng } from '../charts/exportChartImage';
 import {
   exportChartDataAsCsv,
   exportChartDataAsExcel,
