@@ -8,6 +8,7 @@ export interface CompanyResponse {
   userCount: number;
   roles: CompanyRoleResponse[];
   currentSubscription: CompanySubscriptionResponse | null;
+  emailConfigured: boolean;
 }
 
 export interface CompanyUserResponse {

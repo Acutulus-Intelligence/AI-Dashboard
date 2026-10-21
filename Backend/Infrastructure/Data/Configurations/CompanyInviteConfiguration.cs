@@ -23,8 +23,11 @@ public class CompanyInviteConfiguration : IEntityTypeConfiguration<CompanyInvite
         builder.HasIndex(ci => ci.TokenHash)
             .IsUnique();
 
+        // Only one *pending* invite may exist per (company, email); accepted rows
+        // are kept for traceability and must not block a fresh invite.
         builder.HasIndex(ci => new { ci.CompanyId, ci.Email })
-            .IsUnique();
+            .IsUnique()
+            .HasFilter("\"IsAccepted\" = false");
 
         builder.Property(ci => ci.DeliveryMethod)
             .HasConversion<int>();

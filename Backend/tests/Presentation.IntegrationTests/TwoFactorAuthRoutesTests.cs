@@ -238,6 +238,36 @@ public sealed class TwoFactorAuthRoutesTests
     }
 
     [Fact]
+    public async Task Replayed_code_on_disable_does_not_lock_account()
+    {
+        var client = CreateClient();
+        var email = $"tfa_disable_replay_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+
+        var (sharedKey, _) = await EnableTwoFactorAsync(client);
+
+        // Sign in with a code once, which records its time step.
+        var code = CurrentCode(sharedKey);
+        var challenge = await GetChallengeAsync(client, email);
+        var login = await client.PostAsJsonAsync("/api/auth/login/2fa",
+            new TwoFactorLoginRequest(challenge, code, false));
+        login.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Replaying the same code on disable is rejected with the replay message,
+        // but managing 2FA must never feed the sign-in lockout.
+        var disable = await client.PostAsJsonAsync("/api/auth/2fa/disable",
+            new DisableTwoFactorRequest(Password, code));
+        disable.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        var problem = await disable.ReadJsonAsync<Microsoft.AspNetCore.Mvc.ProblemDetails>();
+        problem.Detail.Should().Contain("already been used");
+        (await _factory.GetAccessFailedCountAsync(email)).Should().Be(0);
+
+        var relogin = CreateClient();
+        (await relogin.LoginAsync(email)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task Challenge_token_cannot_be_reused_after_success()
     {
         var client = CreateClient();
@@ -870,14 +900,15 @@ public sealed class TwoFactorAuthRoutesTests
 
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var widget = await db.DashboardWidgets.FindAsync(widgetId);
-            widget.Should().NotBeNull();
-            widget!.SavedChartId.Should().BeNull();
+            // The chart is gone, so the widget must be removed rather than left
+            // pointing at nothing (which would render as "Unknown").
+            widget.Should().BeNull();
             (await db.Dashboards.FindAsync(dashboardId)).Should().NotBeNull();
         }
     }
 
     [Fact]
-    public async Task Purge_deletes_account_even_when_stripe_cancellation_fails()
+    public async Task Purge_keeps_account_when_stripe_cancellation_fails()
     {
         var client = CreateClient();
         var email = $"purgestripe_{Guid.NewGuid():N}@example.com";
@@ -904,10 +935,60 @@ public sealed class TwoFactorAuthRoutesTests
             await deletionService.PurgeExpiredAccountsAsync();
         }
 
+        // The account must survive so the next sweep can retry the billing
+        // cleanup. Deleting it would drop the only reference to a subscription
+        // the customer keeps being charged for.
         using (var scope = _factory.Services.CreateScope())
         {
             var users = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
-            (await users.FindByIdAsync(userId.ToString())).Should().BeNull();
+            (await users.FindByIdAsync(userId.ToString())).Should().NotBeNull();
+
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var subscription = await db.UserSubscriptions.FirstOrDefaultAsync(s => s.UserId == userId);
+            subscription.Should().NotBeNull();
+            subscription!.StripeSubscriptionId.Should().Be(stripeSubscriptionId);
+        }
+    }
+
+    [Fact]
+    public async Task Purge_isolates_failures_between_accounts()
+    {
+        // Account A fails its Stripe cleanup; account B must still be purged.
+        var failingEmail = $"purgeiso_a_{Guid.NewGuid():N}@example.com";
+        var failingClient = CreateClient();
+        await failingClient.RegisterAndLoginAsync(failingEmail);
+        var failingId = await _factory.GetUserIdAsync(failingEmail);
+        await _factory.SeedActiveSubscriptionAsync(failingEmail);
+
+        string failingSubId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            failingSubId = (await db.UserSubscriptions
+                .FirstAsync(s => s.UserId == failingId)).StripeSubscriptionId!;
+        }
+
+        _factory.FakePayments.ImmediateCancelFailures.Add(failingSubId);
+        await _factory.SetUserDeletionScheduledAtAsync(failingEmail, DateTime.UtcNow.AddDays(-1));
+
+        var okEmail = $"purgeiso_b_{Guid.NewGuid():N}@example.com";
+        var okClient = CreateClient();
+        await okClient.RegisterAndLoginAsync(okEmail);
+        var okId = await _factory.GetUserIdAsync(okEmail);
+        await _factory.SetUserDeletionScheduledAtAsync(okEmail, DateTime.UtcNow.AddDays(-1));
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var deletionService = scope.ServiceProvider.GetRequiredService<IAccountDeletionService>();
+            var purged = await deletionService.PurgeExpiredAccountsAsync();
+            purged.Should().BeGreaterThanOrEqualTo(1);
+        }
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
+            (await users.FindByIdAsync(failingId.ToString())).Should().NotBeNull();
+            (await users.FindByIdAsync(okId.ToString())).Should().BeNull();
         }
     }
 

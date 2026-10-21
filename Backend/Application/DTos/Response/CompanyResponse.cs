@@ -7,4 +7,5 @@ public sealed record CompanyResponse(
     string OwnerName,
     int UserCount,
     List<CompanyRoleResponse> Roles,
-    CompanySubscriptionResponse? CurrentSubscription);
+    CompanySubscriptionResponse? CurrentSubscription,
+    bool EmailConfigured);

@@ -101,6 +101,12 @@ namespace Application.Common.Mapping
                 Title = "Email Delivery Failed",
                 ErrorCode = "email_delivery_failed"
             }},
+
+            { typeof(SubscriptionRequiredException), new ExceptionMapResult {
+                StatusCode = (int)HttpStatusCode.Forbidden,
+                Title = "Subscription Required",
+                ErrorCode = "subscription_required"
+            }},
         };
         }
 

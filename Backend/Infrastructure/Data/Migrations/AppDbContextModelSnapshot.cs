@@ -143,6 +143,9 @@ namespace Infrastructure.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<DateTime?>("AcceptedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
 
@@ -188,7 +191,8 @@ namespace Infrastructure.Data.Migrations
                         .IsUnique();
 
                     b.HasIndex("CompanyId", "Email")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"IsAccepted\" = false");
 
                     b.ToTable("CompanyInvites", (string)null);
                 });

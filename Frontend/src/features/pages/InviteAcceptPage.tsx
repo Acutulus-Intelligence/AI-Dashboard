@@ -1,10 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { AlertCircle, Eye, EyeOff, Mail, ArrowLeft } from 'lucide-react';
 import Button from '../components/Button';
 import PasswordRequirements from '../components/PasswordRequirements';
 import { useAuth } from '../store/useAuth';
-import { ROUTES, inviteAcceptPath } from '../routes';
+import { ROUTES } from '../routes';
 import { ApiError } from '../../lib/api/client';
 import * as invitationsApi from '../../lib/api/invitations';
 import * as companyApi from '../../lib/api/company';
@@ -13,6 +13,45 @@ import {
   mapRegisterApiError,
   validateRegisterForm,
 } from '../validation/registerForm';
+
+const INVITE_TOKEN_STORAGE_KEY = 'invite.token';
+
+// The invite token arrives in the URL fragment (never the path, so it is not
+// logged or leaked via Referer). We persist it to sessionStorage and strip it
+// from the address bar so it also stays out of browser history (S3).
+function readInviteToken(): string {
+  const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '';
+  if (hash) {
+    try {
+      sessionStorage.setItem(INVITE_TOKEN_STORAGE_KEY, hash);
+    } catch {
+      /* ignore unavailable storage */
+    }
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    return hash;
+  }
+  try {
+    return sessionStorage.getItem(INVITE_TOKEN_STORAGE_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function clearStoredInviteToken() {
+  try {
+    sessionStorage.removeItem(INVITE_TOKEN_STORAGE_KEY);
+  } catch {
+    /* ignore unavailable storage */
+  }
+}
+
+function formatExpiry(iso: string) {
+  return new Date(iso).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+}
 
 function fieldClass(hasError: boolean) {
   return `w-full rounded-xl border bg-surface-container-lowest px-4 py-3 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:outline-hidden focus:ring-2 ${
@@ -23,7 +62,7 @@ function fieldClass(hasError: boolean) {
 }
 
 export default function InviteAcceptPage() {
-  const { token = '' } = useParams();
+  const [token] = useState(readInviteToken);
   const navigate = useNavigate();
   const { user, isLoading: authLoading, refreshUser } = useAuth();
 
@@ -45,8 +84,13 @@ export default function InviteAcceptPage() {
     async function load() {
       setLoading(true);
       setLoadError('');
+      if (!token) {
+        setLoadError('This invitation is invalid or has expired.');
+        setLoading(false);
+        return;
+      }
       try {
-        const details = await invitationsApi.getInvitation(token);
+        const details = await invitationsApi.lookupInvitation(token);
         if (active) setInvitation(details);
       } catch (err: unknown) {
         if (!active) return;
@@ -83,6 +127,7 @@ export default function InviteAcceptPage() {
     setSubmitting(true);
     try {
       await invitationsApi.acceptEmailInvitation(token, { firstName, lastName, password });
+      clearStoredInviteToken();
       await refreshUser();
       navigate(ROUTES.DASHBOARD, { replace: true });
     } catch (err: unknown) {
@@ -104,6 +149,7 @@ export default function InviteAcceptPage() {
     setSubmitting(true);
     try {
       await companyApi.acceptInvite({ inviteId: invitation.inviteId });
+      clearStoredInviteToken();
       await refreshUser();
       navigate(ROUTES.DASHBOARD, { replace: true });
     } catch (err: unknown) {
@@ -165,6 +211,9 @@ export default function InviteAcceptPage() {
             You&apos;ve been invited to join <strong>{invitation.companyName}</strong> as{' '}
             <strong>{invitation.roleName}</strong>.
           </p>
+          <p className="mt-1 text-body-xs text-on-surface-variant">
+            This invitation expires on {formatExpiry(invitation.expiresAt)}.
+          </p>
           {formError && (
             <div className="mt-6 flex items-center gap-2 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-body-sm text-red-700">
               <AlertCircle size={16} className="shrink-0" />
@@ -198,7 +247,7 @@ export default function InviteAcceptPage() {
             className="mt-6 w-full"
             onClick={() =>
               navigate(
-                `${ROUTES.LOGIN}?redirect=${encodeURIComponent(inviteAcceptPath(token))}`,
+                `${ROUTES.LOGIN}?redirect=${encodeURIComponent(ROUTES.INVITE_ACCEPT)}`,
               )
             }
           >
@@ -215,6 +264,9 @@ export default function InviteAcceptPage() {
           <p className="mt-2 text-body-md text-on-surface-variant">
             Join <strong>{invitation.companyName}</strong> as <strong>{invitation.roleName}</strong>.
             Set your name and password to complete your account.
+          </p>
+          <p className="mt-1 text-body-xs text-on-surface-variant">
+            This invitation expires on {formatExpiry(invitation.expiresAt)}.
           </p>
         </div>
 

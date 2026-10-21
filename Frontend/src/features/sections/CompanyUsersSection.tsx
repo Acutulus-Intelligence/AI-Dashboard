@@ -30,7 +30,6 @@ export default function CompanyUsersSection() {
   );
   const [inviting, setInviting] = useState(false);
   const [inviteError, setInviteError] = useState('');
-  const [manualInviteLink, setManualInviteLink] = useState('');
   const [resendingInvite, setResendingInvite] = useState<string | null>(null);
 
   const [changingRole, setChangingRole] = useState<string | null>(null);
@@ -147,7 +146,7 @@ export default function CompanyUsersSection() {
 
     setInviting(true);
     try {
-      const result = await companyApi.inviteUser(company!.id, {
+      await companyApi.inviteUser(company!.id, {
         email: inviteEmail,
         roleId: inviteRoleId,
         deliveryMethod: inviteDeliveryMethod,
@@ -155,11 +154,6 @@ export default function CompanyUsersSection() {
       setInviteEmail('');
       setInviteRoleId('');
       setShowInvite(false);
-      setManualInviteLink(
-        inviteDeliveryMethod === companyApi.InviteDeliveryMethod.Internal && result.token
-          ? `${window.location.origin}/invite/${result.token}`
-          : '',
-      );
       const updatedInvites = await companyApi.getCompanyInvites(company!.id);
       setInvites(updatedInvites);
     } catch (err: unknown) {
@@ -543,8 +537,9 @@ export default function CompanyUsersSection() {
                 </button>
                 <button
                   type="button"
+                  disabled={!company?.emailConfigured}
                   onClick={() => setInviteDeliveryMethod(companyApi.InviteDeliveryMethod.Email)}
-                  className={`rounded-lg px-4 py-1.5 text-body-sm font-medium transition-colors ${
+                  className={`rounded-lg px-4 py-1.5 text-body-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                     inviteDeliveryMethod === companyApi.InviteDeliveryMethod.Email
                       ? 'bg-primary text-on-primary'
                       : 'text-on-surface-variant hover:bg-surface-container'
@@ -554,9 +549,11 @@ export default function CompanyUsersSection() {
                 </button>
               </div>
               <p className="mt-1 text-body-xs text-on-surface-variant">
-                {inviteDeliveryMethod === companyApi.InviteDeliveryMethod.Email
-                  ? "We'll email a single-use link so they can set up their account."
-                  : "They'll see the invite in-app after signing in."}
+                {!company?.emailConfigured
+                  ? 'Email delivery is not configured on this server.'
+                  : inviteDeliveryMethod === companyApi.InviteDeliveryMethod.Email
+                    ? "We'll email a single-use link so they can set up their account."
+                    : "They'll accept the invite in-app after signing in."}
               </p>
             </div>
             <Button type="submit" variant="primary" className="px-5 py-2.5" disabled={inviting}>
@@ -569,34 +566,6 @@ export default function CompanyUsersSection() {
               {inviteError}
             </p>
           )}
-        </div>
-      )}
-
-      {/* Manual invite link for internal invites */}
-      {manualInviteLink && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-outline-variant bg-surface-container-lowest px-5 py-3">
-          <div className="min-w-0">
-            <p className="text-body-sm font-medium text-on-background">Invite link created</p>
-            <p className="truncate text-body-xs text-on-surface-variant">{manualInviteLink}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              className="px-3 py-1.5 text-body-xs"
-              onClick={() => {
-                void navigator.clipboard?.writeText(manualInviteLink);
-              }}
-            >
-              Copy link
-            </Button>
-            <button
-              type="button"
-              onClick={() => setManualInviteLink('')}
-              className="rounded-lg p-1.5 text-on-surface-variant hover:bg-surface-container"
-            >
-              <X size={14} />
-            </button>
-          </div>
         </div>
       )}
 
@@ -838,6 +807,11 @@ export default function CompanyUsersSection() {
                     <span className="ml-2 rounded-full bg-surface-container px-2 py-0.5 text-body-xs text-on-surface-variant">
                       {inv.deliveryMethod === companyApi.InviteDeliveryMethod.Email ? 'Email' : 'Internal'}
                     </span>
+                    {inv.deliveryMethod === companyApi.InviteDeliveryMethod.Email && inv.lastSentAt && (
+                      <span className="ml-2 text-body-xs text-on-surface-variant">
+                        Last sent {new Date(inv.lastSentAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                      </span>
+                    )}
                   </div>
                   {canManageUsers && (
                     <div className="flex items-center gap-1">

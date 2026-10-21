@@ -53,6 +53,20 @@ function clearStoredChallenge() {
   }
 }
 
+// Returns a same-origin relative target (path+query+hash) or null. Browsers
+// normalize backslashes to slashes, so a raw `\` is rejected outright to avoid
+// protocol-relative redirects like `/\evil.com` (S4).
+function safeRedirectTarget(raw: string | null): string | null {
+  if (!raw || raw.includes('\\')) return null;
+  try {
+    const url = new URL(raw, window.location.origin);
+    if (url.origin !== window.location.origin) return null;
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return null;
+  }
+}
+
 export default function LoginPage() {
   const { login, completeTwoFactorLogin } = useAuth();
   const navigate = useNavigate();
@@ -71,17 +85,19 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   async function navigateAfterLogin(user: { roles: string[]; isDeactivated?: boolean } | null) {
-    // Only allow same-origin relative paths to avoid open-redirect abuse.
-    if (redirectTo && redirectTo.startsWith('/') && !redirectTo.startsWith('//')) {
-      navigate(redirectTo);
-      return;
-    }
     if (user?.roles.includes('Admin') || user?.roles.includes('Moderator')) {
       navigate(ROUTES.ADMIN_MAIN);
       return;
     }
     if (user?.isDeactivated) {
       navigate(ROUTES.PROFILE);
+      return;
+    }
+    // Only allow same-origin relative paths to avoid open-redirect abuse. Applied
+    // after the admin/deactivation checks so gated users still land correctly.
+    const target = safeRedirectTarget(redirectTo);
+    if (target) {
+      navigate(target);
       return;
     }
     // Always land in-app. Users without a subscription see an in-app upsell
