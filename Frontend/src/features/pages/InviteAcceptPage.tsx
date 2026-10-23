@@ -64,7 +64,7 @@ function fieldClass(hasError: boolean) {
 export default function InviteAcceptPage() {
   const [token] = useState(readInviteToken);
   const navigate = useNavigate();
-  const { user, isLoading: authLoading, refreshUser } = useAuth();
+  const { user, isLoading: authLoading, refreshUser, refreshSubscriptionStatus } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -129,6 +129,7 @@ export default function InviteAcceptPage() {
       await invitationsApi.acceptEmailInvitation(token, { firstName, lastName, password });
       clearStoredInviteToken();
       await refreshUser();
+      await refreshSubscriptionStatus();
       navigate(ROUTES.DASHBOARD, { replace: true });
     } catch (err: unknown) {
       if (err instanceof ApiError) {
@@ -151,6 +152,7 @@ export default function InviteAcceptPage() {
       await companyApi.acceptInvite({ inviteId: invitation.inviteId });
       clearStoredInviteToken();
       await refreshUser();
+      await refreshSubscriptionStatus();
       navigate(ROUTES.DASHBOARD, { replace: true });
     } catch (err: unknown) {
       setFormError(err instanceof Error ? err.message : 'Failed to accept the invitation.');

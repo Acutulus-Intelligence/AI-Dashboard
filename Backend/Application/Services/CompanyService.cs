@@ -43,6 +43,13 @@ public class CompanyService : ICompanyService
         if (owner is null)
             throw new KeyNotFoundException("Owner user not found.");
 
+        // A deactivated account is pending deletion; letting it own a company
+        // would make the permanent purge fail on the Companies.OwnerId FK and
+        // strand the account forever.
+        if (owner.DeletionScheduledAt is not null)
+            throw new InvalidOperationException(
+                "An account scheduled for deletion cannot create a company.");
+
         if (owner.CompanyId is not null)
             throw new InvalidOperationException("You already belong to a company.");
 
@@ -167,6 +174,12 @@ public class CompanyService : ICompanyService
             .FirstOrDefaultAsync(u => u.Id == request.NewOwnerId && u.CompanyId == companyId, ct)
             ?? throw new KeyNotFoundException("New owner must be a member of this company.");
 
+        // Handing ownership to a deactivated account would block its permanent
+        // purge on the Companies.OwnerId FK.
+        if (newOwner.DeletionScheduledAt is not null)
+            throw new InvalidOperationException(
+                "Cannot transfer ownership to an account scheduled for deletion.");
+
         var oldOwner = await _db.Users.FindAsync([currentOwnerId], ct);
 
         company.OwnerId = request.NewOwnerId;
@@ -203,8 +216,16 @@ public class CompanyService : ICompanyService
 
         var existingUser = await _db.Users.FirstOrDefaultAsync(u =>
             u.Email != null && u.Email.ToLower() == normalizedEmail, ct);
-        if (existingUser?.CompanyId == companyId)
-            throw new ConflictException("User is already a member of this company.", "already_member");
+        if (existingUser is not null && existingUser.CompanyId is not null)
+        {
+            if (existingUser.CompanyId == companyId)
+                throw new ConflictException("User is already a member of this company.", "already_member");
+
+            // Accepting would always fail in JoinCompanyAsync, so reject up front
+            // instead of sending an invitation that can never be redeemed.
+            throw new ConflictException(
+                "User is already a member of another company.", "already_in_company");
+        }
 
         var hasPendingInvite = await _db.CompanyInvites.AnyAsync(i =>
             i.CompanyId == companyId && i.Email.ToLower() == normalizedEmail
@@ -282,6 +303,11 @@ public class CompanyService : ICompanyService
     public async Task ResendInviteAsync(Guid companyId, Guid inviteId, Guid actorId, CancellationToken ct = default)
     {
         var (company, _) = await EnsureCanManageUsersAsync(companyId, actorId, ct);
+
+        // Resending emails costs money and risks the sending domain's reputation,
+        // so it must observe the same subscription and per-day cap as a new email
+        // invite. Without this a lapsed company could keep resending indefinitely.
+        await EnsureEmailDeliveryAllowedAsync(companyId, ct);
 
         var invite = await _db.CompanyInvites
             .Include(i => i.Role)
@@ -816,6 +842,14 @@ public class CompanyService : ICompanyService
 
         foreach (var user in usersInRole)
             user.CompanyRoleId = null;
+
+        // CompanyInvite.Role is a Restrict FK, so every invite that referenced the
+        // role (pending or accepted for traceability) blocks deleting it. Remove
+        // them first so deleting the role cannot fail with a database error.
+        var invites = await _db.CompanyInvites
+            .Where(i => i.RoleId == roleId)
+            .ToListAsync(ct);
+        _db.CompanyInvites.RemoveRange(invites);
 
         _db.CompanyRoles.Remove(role);
         await _db.SaveChangesAsync(ct);

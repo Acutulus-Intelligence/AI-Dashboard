@@ -369,5 +369,97 @@ public sealed class InvitationRoutesTests
         (await LookupAsync(anon, token)).StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
+    [Fact]
+    public async Task Invite_to_user_in_another_company_is_rejected()
+    {
+        var (ownerClient, company, role, _) = await SetupCompanyAsync();
+
+        // Another company owner already belongs to a different company, so an
+        // invite from this company could never be accepted.
+        var otherClient = CreateClient();
+        var otherEmail = $"other_{Guid.NewGuid():N}@example.com";
+        await otherClient.RegisterAndLoginAsync(otherEmail);
+        var otherCompany = await (await otherClient.PostAsJsonAsync(
+            "/api/companies", new CreateCompanyRequest($"Other-{Guid.NewGuid():N}")))
+            .ReadJsonAsync<CompanyResponse>();
+        otherCompany.Should().NotBeNull();
+
+        var invite = await ownerClient.PostAsJsonAsync($"/api/companies/{company.Id}/invite",
+            new InviteUserRequest(otherEmail, role.Id, InviteDeliveryMethod.Email));
+
+        invite.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await ReadErrorCodeAsync(invite)).Should().Be("already_in_company");
+        _factory.FakeEmails.MessagesTo(otherEmail).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Resend_requires_active_company_subscription()
+    {
+        var (ownerClient, company, role, _) = await SetupCompanyAsync();
+        var inviteeEmail = $"invitee_{Guid.NewGuid():N}@example.com";
+
+        var inviteResp = await ownerClient.PostAsJsonAsync($"/api/companies/{company.Id}/invite",
+            new InviteUserRequest(inviteeEmail, role.Id, InviteDeliveryMethod.Email));
+        inviteResp.EnsureSuccessStatusCode();
+
+        var invite = (await (await ownerClient.GetAsync($"/api/companies/{company.Id}/invites"))
+            .ReadJsonAsync<List<CompanyInviteResponse>>())
+            .First(i => i.Email == inviteeEmail && !i.IsAccepted);
+
+        // Lapse the company's subscription, then try to resend.
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var subscriptions = await db.CompanySubscriptions
+                .Where(s => s.CompanyId == company.Id)
+                .ToListAsync();
+            db.CompanySubscriptions.RemoveRange(subscriptions);
+            await db.SaveChangesAsync();
+        }
+
+        var resend = await ownerClient.PostAsync(
+            $"/api/companies/{company.Id}/invites/{invite.Id}/resend", null);
+
+        resend.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await ReadErrorCodeAsync(resend)).Should().Be("subscription_required");
+        _factory.FakeEmails.MessagesTo(inviteeEmail).Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task Deleting_role_with_pending_invite_succeeds()
+    {
+        var (ownerClient, company, role, _) = await SetupCompanyAsync();
+        var inviteeEmail = $"invitee_{Guid.NewGuid():N}@example.com";
+
+        var invite = await ownerClient.PostAsJsonAsync($"/api/companies/{company.Id}/invite",
+            new InviteUserRequest(inviteeEmail, role.Id, InviteDeliveryMethod.Email));
+        invite.EnsureSuccessStatusCode();
+
+        // CompanyInvite.Role is a Restrict FK; deleting the role must clear the
+        // reference instead of failing with a database error.
+        var delete = await ownerClient.DeleteAsync($"/api/companies/{company.Id}/roles/{role.Id}");
+        delete.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var invites = await (await ownerClient.GetAsync($"/api/companies/{company.Id}/invites"))
+            .ReadJsonAsync<List<CompanyInviteResponse>>();
+        invites.Should().NotContain(i => i.RoleId == role.Id);
+    }
+
+    [Fact]
+    public async Task Deactivated_account_cannot_create_company()
+    {
+        var client = CreateClient();
+        var email = $"deactivated_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+
+        // Simulate an account inside its deletion grace period (still signed in).
+        await _factory.SetUserDeletionScheduledAtAsync(email, DateTime.UtcNow.AddDays(5));
+
+        var create = await client.PostAsJsonAsync("/api/companies",
+            new CreateCompanyRequest($"Ghost-{Guid.NewGuid():N}"));
+
+        create.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
     private sealed record InviteTokenResponse(string? Token);
 }
