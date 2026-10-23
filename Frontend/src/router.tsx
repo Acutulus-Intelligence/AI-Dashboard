@@ -23,6 +23,7 @@ const AdminMainPage = lazy(() => import('./features/pages/AdminMainPage'));
 const AdminAccountsPage = lazy(() => import('./features/pages/AdminAccountsPage'));
 const LoginPage = lazy(() => import('./features/pages/LoginPage'));
 const RegisterPage = lazy(() => import('./features/pages/RegisterPage'));
+const InviteAcceptPage = lazy(() => import('./features/pages/InviteAcceptPage'));
 const PricingPage = lazy(() => import('./features/pages/PricingPage'));
 const ContactPage = lazy(() => import('./features/pages/ContactPage'));
 const PrivacyPage = lazy(() => import('./features/pages/PrivacyPage'));
@@ -59,6 +60,7 @@ export default function Router() {
               <Route path={ROUTES.HOME} element={<LazyPage><LandingPage /></LazyPage>} />
               <Route path={ROUTES.LOGIN} element={<LazyPage><LoginPage /></LazyPage>} />
               <Route path={ROUTES.REGISTER} element={<LazyPage><RegisterPage /></LazyPage>} />
+              <Route path={ROUTES.INVITE_ACCEPT} element={<LazyPage><InviteAcceptPage /></LazyPage>} />
               <Route path={ROUTES.PRICING} element={<LazyPage><PricingPage /></LazyPage>} />
               <Route path={ROUTES.CONTACT} element={<LazyPage><ContactPage /></LazyPage>} />
               <Route path={ROUTES.PRIVACY} element={<LazyPage><PrivacyPage /></LazyPage>} />

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { LogIn, Eye, EyeOff, AlertCircle, ShieldCheck, ArrowLeft } from 'lucide-react';
 import Button from '../components/Button';
 import Header from '../layouts/Header';
@@ -53,9 +53,25 @@ function clearStoredChallenge() {
   }
 }
 
+// Returns a same-origin relative target (path+query+hash) or null. Browsers
+// normalize backslashes to slashes, so a raw `\` is rejected outright to avoid
+// protocol-relative redirects like `/\evil.com` (S4).
+function safeRedirectTarget(raw: string | null): string | null {
+  if (!raw || raw.includes('\\')) return null;
+  try {
+    const url = new URL(raw, window.location.origin);
+    if (url.origin !== window.location.origin) return null;
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return null;
+  }
+}
+
 export default function LoginPage() {
   const { login, completeTwoFactorLogin } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const redirectTo = searchParams.get('redirect');
 
   const [initialChallenge] = useState(readStoredChallenge);
   const [step, setStep] = useState<LoginStep>(initialChallenge ? 'twofactor' : 'credentials');
@@ -75,6 +91,13 @@ export default function LoginPage() {
     }
     if (user?.isDeactivated) {
       navigate(ROUTES.PROFILE);
+      return;
+    }
+    // Only allow same-origin relative paths to avoid open-redirect abuse. Applied
+    // after the admin/deactivation checks so gated users still land correctly.
+    const target = safeRedirectTarget(redirectTo);
+    if (target) {
+      navigate(target);
       return;
     }
     // Always land in-app. Users without a subscription see an in-app upsell

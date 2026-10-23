@@ -1,12 +1,17 @@
+using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using Application.Common.Exceptions;
 using Application.DTos.Request;
 using Application.DTos.Response;
 using Application.Interfaces;
+using Application.Settings;
 using Domain.Charts;
 using Domain.Enums;
 using Domain.Models;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Application.Services;
 
@@ -15,12 +20,21 @@ public class CompanyService : ICompanyService
     private readonly IApplicationDbContext _db;
     private readonly UserManager<User> _userManager;
     private readonly IPaymentService _paymentService;
+    private readonly IEmailSender _emailSender;
+    private readonly EmailSettings _emailSettings;
 
-    public CompanyService(IApplicationDbContext db, UserManager<User> userManager, IPaymentService paymentService)
+    public CompanyService(
+        IApplicationDbContext db,
+        UserManager<User> userManager,
+        IPaymentService paymentService,
+        IEmailSender emailSender,
+        IOptions<EmailSettings> emailSettings)
     {
         _db = db;
         _userManager = userManager;
         _paymentService = paymentService;
+        _emailSender = emailSender;
+        _emailSettings = emailSettings.Value;
     }
 
     public async Task<CompanyResponse> CreateAsync(Guid ownerId, string name, CancellationToken ct = default)
@@ -28,6 +42,13 @@ public class CompanyService : ICompanyService
         var owner = await _db.Users.FindAsync([ownerId], ct);
         if (owner is null)
             throw new KeyNotFoundException("Owner user not found.");
+
+        // A deactivated account is pending deletion; letting it own a company
+        // would make the permanent purge fail on the Companies.OwnerId FK and
+        // strand the account forever.
+        if (owner.DeletionScheduledAt is not null)
+            throw new InvalidOperationException(
+                "An account scheduled for deletion cannot create a company.");
 
         if (owner.CompanyId is not null)
             throw new InvalidOperationException("You already belong to a company.");
@@ -153,6 +174,12 @@ public class CompanyService : ICompanyService
             .FirstOrDefaultAsync(u => u.Id == request.NewOwnerId && u.CompanyId == companyId, ct)
             ?? throw new KeyNotFoundException("New owner must be a member of this company.");
 
+        // Handing ownership to a deactivated account would block its permanent
+        // purge on the Companies.OwnerId FK.
+        if (newOwner.DeletionScheduledAt is not null)
+            throw new InvalidOperationException(
+                "Cannot transfer ownership to an account scheduled for deletion.");
+
         var oldOwner = await _db.Users.FindAsync([currentOwnerId], ct);
 
         company.OwnerId = request.NewOwnerId;
@@ -169,9 +196,14 @@ public class CompanyService : ICompanyService
         await _db.SaveChangesAsync(ct);
     }
 
-    public async Task<string> InviteUserAsync(Guid companyId, string email, Guid roleId, Guid actorId, CancellationToken ct = default)
+    public async Task<string?> InviteUserAsync(Guid companyId, string email, Guid roleId, InviteDeliveryMethod deliveryMethod, Guid actorId, CancellationToken ct = default)
     {
         var (company, _) = await EnsureCanManageUsersAsync(companyId, actorId, ct);
+
+        await EnsureUserCapacityAsync(companyId, ct);
+
+        if (deliveryMethod == InviteDeliveryMethod.Email)
+            await EnsureEmailDeliveryAllowedAsync(companyId, ct);
 
         var role = await _db.CompanyRoles
             .FirstOrDefaultAsync(r => r.Id == roleId && r.CompanyId == companyId, ct)
@@ -180,50 +212,190 @@ public class CompanyService : ICompanyService
         if (role.IsSystemRole && role.Name == "Owner")
             throw new InvalidOperationException("Cannot invite users as Owner.");
 
-        var existingUser = await _db.Users.FirstOrDefaultAsync(u =>
-            u.Email != null && u.Email.ToLower() == email.ToLower(), ct);
-        if (existingUser?.CompanyId == companyId)
-            throw new ConflictException("User is already a member of this company.", "already_member");
+        var normalizedEmail = email.Trim().ToLowerInvariant();
 
-        var token = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
+        var existingUser = await _db.Users.FirstOrDefaultAsync(u =>
+            u.Email != null && u.Email.ToLower() == normalizedEmail, ct);
+        if (existingUser is not null && existingUser.CompanyId is not null)
+        {
+            if (existingUser.CompanyId == companyId)
+                throw new ConflictException("User is already a member of this company.", "already_member");
+
+            // Accepting would always fail in JoinCompanyAsync, so reject up front
+            // instead of sending an invitation that can never be redeemed.
+            throw new ConflictException(
+                "User is already a member of another company.", "already_in_company");
+        }
+
+        var hasPendingInvite = await _db.CompanyInvites.AnyAsync(i =>
+            i.CompanyId == companyId && i.Email.ToLower() == normalizedEmail
+            && !i.IsAccepted && i.ExpiresAt > DateTime.UtcNow, ct);
+        if (hasPendingInvite)
+            throw new ConflictException("An invite for this email is already pending. Resend it instead.", "already_invited");
+
+        // Expired invites no longer block a new one; clear them so the unique
+        // (CompanyId, Email) index cannot collide with a freshly created invite.
+        var staleInvites = await _db.CompanyInvites
+            .Where(i => i.CompanyId == companyId && i.Email.ToLower() == normalizedEmail && !i.IsAccepted)
+            .ToListAsync(ct);
+        if (staleInvites.Count > 0)
+        {
+            _db.CompanyInvites.RemoveRange(staleInvites);
+            await _db.SaveChangesAsync(ct);
+        }
+
+        var token = GenerateInviteToken();
 
         var invite = new CompanyInvite
         {
             Id = Guid.NewGuid(),
             CompanyId = companyId,
-            Email = email,
+            Email = normalizedEmail,
             RoleId = roleId,
-            Token = token,
-            ExpiresAt = DateTime.UtcNow.AddDays(7),
+            TokenHash = HashInviteToken(token),
+            DeliveryMethod = deliveryMethod,
+            ExpiresAt = DateTime.UtcNow.AddHours(deliveryMethod == InviteDeliveryMethod.Email
+                ? _emailSettings.InvitationTokenExpiryHours
+                : _emailSettings.InternalInvitationTokenExpiryHours),
             IsAccepted = false
         };
 
         _db.CompanyInvites.Add(invite);
+
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException)
+        {
+            // A concurrent invite for the same address hit the unique
+            // (CompanyId, Email) index; surface it as a conflict, not a 500.
+            throw new ConflictException(
+                "An invite for this email is already pending. Resend it instead.", "already_invited");
+        }
+
+        if (deliveryMethod == InviteDeliveryMethod.Email)
+        {
+            try
+            {
+                await SendInvitationEmailAsync(invite, company.Name, role.Name, token, ct);
+            }
+            catch
+            {
+                // Roll the invite back so a failed send never leaves a pending
+                // invite that the UI would present as if it succeeded. Use
+                // CancellationToken.None so a client-side cancellation cannot
+                // abort the rollback and strand the invite.
+                _db.CompanyInvites.Remove(invite);
+                await _db.SaveChangesAsync(CancellationToken.None);
+                throw;
+            }
+
+            invite.LastSentAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync(ct);
+        }
+
+        // Internal invites are not shareable: the raw token is never handed back
+        // (S2). Invitees accept them in-app through the pending-invites flow.
+        return null;
+    }
+
+    public async Task ResendInviteAsync(Guid companyId, Guid inviteId, Guid actorId, CancellationToken ct = default)
+    {
+        var (company, _) = await EnsureCanManageUsersAsync(companyId, actorId, ct);
+
+        // Resending emails costs money and risks the sending domain's reputation,
+        // so it must observe the same subscription and per-day cap as a new email
+        // invite. Without this a lapsed company could keep resending indefinitely.
+        await EnsureEmailDeliveryAllowedAsync(companyId, ct);
+
+        var invite = await _db.CompanyInvites
+            .Include(i => i.Role)
+            .FirstOrDefaultAsync(i => i.Id == inviteId && i.CompanyId == companyId && !i.IsAccepted, ct)
+            ?? throw new KeyNotFoundException("Pending invite not found.");
+
+        if (invite.DeliveryMethod != InviteDeliveryMethod.Email)
+            throw new InvalidOperationException("Only email invites can be resent.");
+
+        if (invite.ExpiresAt <= DateTime.UtcNow)
+            throw new InvalidOperationException("This invite has expired. Revoke it and send a new one.");
+
+        var previousTokenHash = invite.TokenHash;
+        var previousExpiresAt = invite.ExpiresAt;
+
+        var token = GenerateInviteToken();
+        invite.TokenHash = HashInviteToken(token);
+        invite.ExpiresAt = DateTime.UtcNow.AddHours(_emailSettings.InvitationTokenExpiryHours);
         await _db.SaveChangesAsync(ct);
 
-        return token;
+        try
+        {
+            await SendInvitationEmailAsync(invite, company.Name, invite.Role.Name, token, ct);
+        }
+        catch
+        {
+            // Keep the previous link valid if the resend never went out. Use
+            // CancellationToken.None so a client-side cancellation cannot abort
+            // the rollback and rotate away a still-valid link.
+            invite.TokenHash = previousTokenHash;
+            invite.ExpiresAt = previousExpiresAt;
+            await _db.SaveChangesAsync(CancellationToken.None);
+            throw;
+        }
+
+        invite.LastSentAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task<InvitationDetailsResponse?> ValidateInvitationAsync(string token, CancellationToken ct = default)
+    {
+        var hash = HashInviteToken(token);
+
+        var invite = await _db.CompanyInvites
+            .AsNoTracking()
+            .Include(i => i.Role)
+            .Include(i => i.Company)
+            .FirstOrDefaultAsync(i => i.TokenHash == hash
+                && i.DeliveryMethod == InviteDeliveryMethod.Email
+                && !i.IsAccepted && i.ExpiresAt > DateTime.UtcNow, ct);
+
+        if (invite is null)
+            return null;
+
+        var hasAccount = await _db.Users.AnyAsync(u =>
+            u.Email != null && u.Email.ToLower() == invite.Email.ToLower(), ct);
+
+        return new InvitationDetailsResponse(
+            invite.Id,
+            invite.Email,
+            invite.Company.Name,
+            invite.Role.Name,
+            invite.ExpiresAt,
+            hasAccount);
     }
 
     public async Task AcceptInviteAsync(string token, Guid userId, CancellationToken ct = default)
     {
+        var hash = HashInviteToken(token);
+
         var invite = await _db.CompanyInvites
-            .FirstOrDefaultAsync(i => i.Token == token && !i.IsAccepted && i.ExpiresAt > DateTime.UtcNow, ct)
+            .FirstOrDefaultAsync(i => i.TokenHash == hash && !i.IsAccepted && i.ExpiresAt > DateTime.UtcNow, ct)
             ?? throw new InvalidOperationException("Invalid or expired invite token.");
+
+        // Only email invites are redeemable through the public token flow; internal
+        // invites must be accepted in-app while signed in (S2).
+        if (invite.DeliveryMethod != InviteDeliveryMethod.Email)
+            throw new InvalidOperationException("Invalid or expired invite token.");
 
         var user = await _db.Users.FindAsync([userId], ct)
             ?? throw new KeyNotFoundException("User not found.");
 
-        if (user.CompanyId is not null && user.CompanyId != invite.CompanyId)
-            throw new ConflictException("User is already a member of a different company.", "already_in_company");
+        await JoinCompanyAsync(user, invite, ct);
 
-        if (user.CompanyId == invite.CompanyId)
-            throw new ConflictException("User is already a member of this company.", "already_member");
-
-        user.CompanyId = invite.CompanyId;
-        user.CompanyRoleId = invite.RoleId;
-        user.UserType = UserType.Company;
-
+        // Keep the row for traceability but mark it consumed so the token can no
+        // longer be redeemed and a fresh invite can be issued for the email.
         invite.IsAccepted = true;
+        invite.AcceptedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync(ct);
     }
@@ -237,20 +409,10 @@ public class CompanyService : ICompanyService
             .FirstOrDefaultAsync(i => i.Id == inviteId && !i.IsAccepted && i.ExpiresAt > DateTime.UtcNow, ct)
             ?? throw new InvalidOperationException("Invalid or expired invite.");
 
-        if (!string.Equals(invite.Email, user.Email, StringComparison.OrdinalIgnoreCase))
-            throw new UnauthorizedAccessException("This invite is not for you.");
-
-        if (user.CompanyId is not null && user.CompanyId != invite.CompanyId)
-            throw new ConflictException("User is already a member of a different company.", "already_in_company");
-
-        if (user.CompanyId == invite.CompanyId)
-            throw new ConflictException("User is already a member of this company.", "already_member");
-
-        user.CompanyId = invite.CompanyId;
-        user.CompanyRoleId = invite.RoleId;
-        user.UserType = UserType.Company;
+        await JoinCompanyAsync(user, invite, ct);
 
         invite.IsAccepted = true;
+        invite.AcceptedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync(ct);
     }
@@ -274,7 +436,9 @@ public class CompanyService : ICompanyService
                 i.ExpiresAt,
                 i.ExpiresAt <= DateTime.UtcNow,
                 i.IsAccepted,
-                i.Company.Name
+                i.Company.Name,
+                i.DeliveryMethod,
+                i.LastSentAt
             ))
             .ToListAsync(ct);
 
@@ -296,9 +460,11 @@ public class CompanyService : ICompanyService
                 i.RoleId,
                 i.CreatedAt,
                 i.ExpiresAt,
-                false,
-                false,
-                i.Company.Name
+                i.ExpiresAt <= DateTime.UtcNow,
+                i.IsAccepted,
+                i.Company.Name,
+                i.DeliveryMethod,
+                i.LastSentAt
             ))
             .ToListAsync(ct);
 
@@ -313,7 +479,7 @@ public class CompanyService : ICompanyService
             ?? throw new KeyNotFoundException("User not found.");
 
         if (user.CompanyId is null)
-            throw new InvalidOperationException("You are not a member of any company.");
+            throw new NoCompanyException();
 
         return await GetByIdAsync(user.CompanyId.Value, userId, ct);
     }
@@ -333,7 +499,7 @@ public class CompanyService : ICompanyService
             ?? throw new KeyNotFoundException("User not found.");
 
         if (user.CompanyId is null)
-            throw new InvalidOperationException("You are not a member of any company.");
+            throw new NoCompanyException();
 
         var company = await _db.Companies
             .FirstOrDefaultAsync(c => c.Id == user.CompanyId.Value, ct)
@@ -428,7 +594,7 @@ public class CompanyService : ICompanyService
             ?? throw new KeyNotFoundException("User not found.");
 
         if (user.CompanyId is null)
-            throw new InvalidOperationException("You are not a member of any company.");
+            throw new NoCompanyException();
 
         return await _db.Companies
             .AsNoTracking()
@@ -677,6 +843,14 @@ public class CompanyService : ICompanyService
         foreach (var user in usersInRole)
             user.CompanyRoleId = null;
 
+        // CompanyInvite.Role is a Restrict FK, so every invite that referenced the
+        // role (pending or accepted for traceability) blocks deleting it. Remove
+        // them first so deleting the role cannot fail with a database error.
+        var invites = await _db.CompanyInvites
+            .Where(i => i.RoleId == roleId)
+            .ToListAsync(ct);
+        _db.CompanyInvites.RemoveRange(invites);
+
         _db.CompanyRoles.Remove(role);
         await _db.SaveChangesAsync(ct);
     }
@@ -731,9 +905,119 @@ public class CompanyService : ICompanyService
                     subscription.CancelAtPeriodEnd,
                     subscription.TrialEndDate
                 )
-                : null
+                : null,
+            _emailSettings.IsConfigured
         );
     }
+
+    private async Task JoinCompanyAsync(User user, CompanyInvite invite, CancellationToken ct)
+    {
+        if (user.CompanyId is not null && user.CompanyId != invite.CompanyId)
+            throw new ConflictException("User is already a member of a different company.", "already_in_company");
+
+        if (user.CompanyId == invite.CompanyId)
+            throw new ConflictException("User is already a member of this company.", "already_member");
+
+        if (!string.Equals(invite.Email, user.Email, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("This invite is not for you.");
+
+        await EnsureUserCapacityAsync(invite.CompanyId, ct);
+
+        user.CompanyId = invite.CompanyId;
+        user.CompanyRoleId = invite.RoleId;
+        user.UserType = UserType.Company;
+    }
+
+    /// <summary>
+    /// Enforces the company subscription's user limit. Members include the owner,
+    /// matching how the seat count is presented elsewhere (S5).
+    /// </summary>
+    private async Task EnsureUserCapacityAsync(Guid companyId, CancellationToken ct)
+    {
+        var maxUsers = await _db.CompanySubscriptions
+            .Where(s => s.CompanyId == companyId)
+            .Select(s => s.MaxUsers)
+            .FirstOrDefaultAsync(ct);
+
+        if (maxUsers is not int limit)
+            return;
+
+        var memberCount = await _db.Users.CountAsync(u => u.CompanyId == companyId, ct);
+        if (memberCount >= limit)
+            throw new ConflictException(
+                "This company has reached its user limit. Upgrade the plan to add more members.",
+                "max_users_reached");
+    }
+
+    /// <summary>
+    /// Email invites cost money and risk the sending domain's reputation, so they
+    /// require an active company subscription and are capped per company per day.
+    /// </summary>
+    private async Task EnsureEmailDeliveryAllowedAsync(Guid companyId, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var hasActiveSubscription = await _db.CompanySubscriptions.AnyAsync(s =>
+            s.CompanyId == companyId &&
+            ((s.Status == SubscriptionStatus.Trial && (s.EndDate == null || s.EndDate > now)) ||
+             (s.Status == SubscriptionStatus.Active && (s.EndDate == null || s.EndDate > now))), ct);
+        if (!hasActiveSubscription)
+            throw new SubscriptionRequiredException(
+                "An active company subscription is required to send invitation emails.");
+
+        var since = now.AddHours(-24);
+        var recentEmailInvites = await _db.CompanyInvites.CountAsync(i =>
+            i.CompanyId == companyId &&
+            i.DeliveryMethod == InviteDeliveryMethod.Email &&
+            i.CreatedAt >= since, ct);
+        if (recentEmailInvites >= _emailSettings.MaxEmailInvitesPerCompanyPerDay)
+            throw new ConflictException(
+                "Too many invitation emails have been sent recently. Please try again later.",
+                "email_invite_rate_limited");
+    }
+
+    private async Task SendInvitationEmailAsync(CompanyInvite invite, string companyName, string roleName, string rawToken, CancellationToken ct)
+    {
+        var link = $"{_emailSettings.FrontendBaseUrl.TrimEnd('/')}/invite#{rawToken}";
+        var expiryHours = _emailSettings.InvitationTokenExpiryHours;
+
+        // Company and role names are user-controlled, so they must be encoded
+        // before being interpolated into the HTML body (S1: HTML injection).
+        var safeCompany = WebUtility.HtmlEncode(companyName);
+        var safeRole = WebUtility.HtmlEncode(roleName);
+        var safeLink = WebUtility.HtmlEncode(link);
+
+        var subject = SanitizeHeaderValue($"You're invited to join {companyName}");
+
+        var html = $$"""
+            <div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#1f2937;">
+              <h1 style="font-size:20px;">You've been invited to join {{safeCompany}}</h1>
+              <p>You've been invited to join <strong>{{safeCompany}}</strong> as <strong>{{safeRole}}</strong>.</p>
+              <p>Click the button below to set up your account. This link can only be used once and expires in {{expiryHours}} hours.</p>
+              <p style="margin:28px 0;">
+                <a href="{{safeLink}}" style="background:#4f46e5;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;display:inline-block;">Accept invitation</a>
+              </p>
+              <p style="font-size:13px;color:#6b7280;">If the button doesn't work, copy and paste this link into your browser:<br />{{safeLink}}</p>
+              <p style="font-size:13px;color:#6b7280;">If you weren't expecting this invitation, you can safely ignore this email.</p>
+            </div>
+            """;
+
+        var text = $"You've been invited to join {companyName} as {roleName}. " +
+                   $"Accept your invitation (valid for {expiryHours} hours, single use): {link}";
+
+        await _emailSender.SendAsync(new EmailMessage(invite.Email, subject, html, text), ct);
+    }
+
+    private static string SanitizeHeaderValue(string value)
+        => value.Replace("\r", " ").Replace("\n", " ").Trim();
+
+    private static string GenerateInviteToken()
+    {
+        var bytes = RandomNumberGenerator.GetBytes(32);
+        return Convert.ToBase64String(bytes).Replace('+', '-').Replace('/', '_').TrimEnd('=');
+    }
+
+    private static string HashInviteToken(string token)
+        => Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
 
     private async Task EnsureCanViewCompanyAsync(Guid companyId, Guid userId, CancellationToken ct)
     {

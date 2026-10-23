@@ -15,6 +15,7 @@ using Infrastructure.Data;
 using Infrastructure.Ai;
 using Infrastructure.Ai.Services;
 using Infrastructure.Encryption;
+using Infrastructure.Email;
 using Infrastructure.ExternalDb;
 using Infrastructure.ExternalDb.Services;
 using Infrastructure.Collections;
@@ -29,6 +30,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Presentation.Middleware;
 using Presentation.Services;
+using Resend;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -116,6 +118,14 @@ builder.Services.AddScoped<IConnectionAccessService, ConnectionAccessService>();
 // AI service
 builder.Services.Configure<AiSettings>(builder.Configuration.GetSection("Ai"));
 builder.Services.AddHttpClient<IAiService, OpenRouterService>();
+
+// Email delivery (Resend)
+builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection(EmailSettings.SectionName));
+builder.Services.AddResend(options =>
+{
+    options.ApiToken = builder.Configuration["Email:ResendApiKey"] ?? string.Empty;
+});
+builder.Services.AddScoped<IEmailSender, ResendEmailSender>();
 
 // Graph generation
 builder.Services.AddScoped<IGraphGenerationService, GraphGenerationService>();
@@ -224,10 +234,50 @@ if (rateLimitingEnabled)
                     QueueLimit = 0,
                 });
         });
+
+        // Guards invitation creation/resend so a compromised or careless admin
+        // account cannot spam the Resend quota or flood inboxes.
+        options.AddPolicy("invite", httpContext =>
+        {
+            var userId = httpContext.User?.FindFirst("userId")?.Value;
+            var partitionKey = !string.IsNullOrEmpty(userId)
+                ? $"user:{userId}"
+                : $"ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+
+            return RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: partitionKey,
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 20,
+                    Window = TimeSpan.FromHours(1),
+                    QueueLimit = 0,
+                });
+        });
+
+        // Guards the public invitation validate/accept endpoints (token guessing).
+        options.AddPolicy("invite-accept", httpContext =>
+        {
+            var partitionKey = $"ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+
+            return RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: partitionKey,
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 15,
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueLimit = 0,
+                });
+        });
     });
 }
 
 var app = builder.Build();
+
+if (string.IsNullOrWhiteSpace(builder.Configuration.GetValue<string>("Email:ResendApiKey")))
+{
+    app.Logger.LogWarning(
+        "Email:ResendApiKey is not configured; email invitations will fail until it is set.");
+}
 
 if (forwardedHeadersEnabled)
 {
@@ -235,6 +285,13 @@ if (forwardedHeadersEnabled)
 }
 
 app.UseMiddleware<GlobalExceptionMiddleware>();
+
+app.Use(async (context, next) =>
+{
+    // Keep invite/recovery tokens and other URLs out of the Referer header (S3).
+    context.Response.Headers["Referrer-Policy"] = "no-referrer";
+    await next();
+});
 
 if (app.Environment.IsDevelopment())
 {

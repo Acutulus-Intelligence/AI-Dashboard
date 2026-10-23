@@ -2,6 +2,12 @@
 
 Guidance for coding agents working in this repository.
 
+## ⚠️ MANDATORY: Graphify Knowledge Graph Rule
+- BEFORE searching files with `grep`, `glob`, or `read_file`, you MUST always check `graphify-out/graph.json` or `graphify-out/GRAPH_REPORT.md` first if it exists in the workspace.
+- Always use the graph's dependency map to identify the exact files involved in a task before inspecting file contents.
+- Do NOT scan raw files or fetch PR/Git history without querying the graph first.
+- Minimize token usage by loading ONLY the target files pinpointed by the graph structure.
+
 ## Purpose
 
 AI-Dashboard lets users connect an external database (PostgreSQL or MySQL),

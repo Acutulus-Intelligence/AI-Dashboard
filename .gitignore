@@ -401,3 +401,4 @@ dist.pem
 stripe.exe
 /.opencode/agents/chat.md
 /opencode.json
+/graphify-out
