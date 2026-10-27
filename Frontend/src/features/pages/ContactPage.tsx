@@ -1,10 +1,17 @@
 import { Mail, Phone, Clock } from 'lucide-react';
+import PageMeta from '../components/PageMeta';
 import Header from '../layouts/Header';
 import Footer from '../layouts/Footer';
+import { ROUTES } from '../routes';
 
 export default function ContactPage() {
   return (
     <div className="min-h-screen bg-background text-on-background">
+      <PageMeta
+        title="Contact — AI Dashboard"
+        description="Contact Acutulus Intelligence about AI Dashboard enterprise plans, billing, and support."
+        path={ROUTES.CONTACT}
+      />
       <Header />
 
       <main className="pt-24">

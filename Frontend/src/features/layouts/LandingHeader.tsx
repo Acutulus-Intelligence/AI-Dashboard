@@ -1,21 +1,15 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useLayoutEffect, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
-import HashLink from '../components/HashLink';
+import SectionLink from '../components/SectionLink';
 import { useAuth } from '../store/useAuth';
+import { isPublicNavCurrent, PUBLIC_NAV } from '../navigation/publicNav';
 import { ROUTES } from '../routes';
 import { cn } from '@/lib/utils';
 import logoSrc from '../../assets/images/IconTransNoText.png';
 
-const navItems = [
-  { label: 'Home', to: '/#product' },
-  { label: 'Features', to: '/#features' },
-  { label: 'Demo', to: '/#demo' },
-  { label: 'Testimonials', to: '/#testimonials' },
-  { label: 'Pricing', to: '/#pricing' },
-];
-
 export default function LandingHeader() {
+  const { pathname } = useLocation();
   const { isAuthenticated, isLoading } = useAuth();
   const [hasScrolled, setHasScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -28,7 +22,7 @@ export default function LandingHeader() {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!menuOpen) return;
 
     const onKey = (event: KeyboardEvent) => {
@@ -59,18 +53,25 @@ export default function LandingHeader() {
         </Link>
 
         <nav className="hidden items-center gap-7 lg:flex" aria-label="Primary">
-          {navItems.map((item) => (
-            <HashLink
-              key={item.label}
-              to={item.to}
-              className={cn(
-                'text-sm font-medium transition-opacity hover:opacity-100',
-                solid ? 'text-slate-600 hover:text-slate-900' : 'text-white/80 hover:text-white',
-              )}
-            >
-              {item.label}
-            </HashLink>
-          ))}
+          {PUBLIC_NAV.map((item) => {
+            const current = isPublicNavCurrent(pathname, item);
+            return (
+              <SectionLink
+                key={item.label}
+                to={item.to}
+                sectionId={item.sectionId}
+                aria-current={current ? 'page' : undefined}
+                className={cn(
+                  'text-sm font-medium transition-opacity hover:opacity-100',
+                  solid ? 'text-slate-600 hover:text-slate-900' : 'text-white/80 hover:text-white',
+                  current && (solid ? 'text-slate-900' : 'text-white'),
+                )}
+                onClick={() => setMenuOpen(false)}
+              >
+                {item.label}
+              </SectionLink>
+            );
+          })}
         </nav>
 
         <div className="hidden items-center gap-2 sm:flex">
@@ -134,16 +135,24 @@ export default function LandingHeader() {
       {menuOpen && (
         <div id="landing-menu" className="border-t border-slate-200 bg-white lg:hidden">
           <nav className="mx-auto flex max-w-6xl flex-col gap-1 px-5 py-4 sm:px-6" aria-label="Mobile">
-            {navItems.map((item) => (
-              <HashLink
-                key={item.label}
-                to={item.to}
-                className="rounded-xl px-3 py-3 text-base font-medium text-slate-800 hover:bg-slate-50"
-                onClick={() => setMenuOpen(false)}
-              >
-                {item.label}
-              </HashLink>
-            ))}
+            {PUBLIC_NAV.map((item) => {
+              const current = isPublicNavCurrent(pathname, item);
+              return (
+                <SectionLink
+                  key={item.label}
+                  to={item.to}
+                  sectionId={item.sectionId}
+                  aria-current={current ? 'page' : undefined}
+                  className={cn(
+                    'rounded-xl px-3 py-3 text-base font-medium text-slate-800 hover:bg-slate-50',
+                    current && 'bg-slate-50 text-slate-950',
+                  )}
+                  onClick={() => setMenuOpen(false)}
+                >
+                  {item.label}
+                </SectionLink>
+              );
+            })}
             <div className="mt-3 flex flex-col gap-2 border-t border-slate-100 pt-4 sm:hidden">
               {isAuthenticated ? (
                 <Link

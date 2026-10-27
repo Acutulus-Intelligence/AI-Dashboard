@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { ArrowUpRight } from 'lucide-react';
-import HashLink from '../components/HashLink';
+import SectionLink from '../components/SectionLink';
 import { ROUTES } from '../routes';
 
 export default function HeroSection() {
@@ -36,13 +36,14 @@ export default function HeroSection() {
           >
             Start your free trial
           </Link>
-          <HashLink
-            to="/#demo"
-            aria-label="View the product"
+          <SectionLink
+            to={ROUTES.HOME}
+            sectionId="demo"
+            aria-label="View the product demo"
             className="inline-flex size-12 items-center justify-center rounded-full border border-white/25 bg-white/10 text-white transition-transform hover:bg-white/20 motion-safe:hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
           >
             <ArrowUpRight className="size-5" aria-hidden="true" />
-          </HashLink>
+          </SectionLink>
         </div>
       </div>
     </section>
