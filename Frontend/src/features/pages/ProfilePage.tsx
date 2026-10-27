@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
+import { useNavigate } from 'react-router-dom';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
 import { Loader2, TriangleAlert } from 'lucide-react';
@@ -36,6 +37,8 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import AppShell from '../layouts/AppShell';
 import PasswordRequirements from '../components/PasswordRequirements';
+import TwoFactorSettings from '../components/TwoFactorSettings';
+import { ROUTES } from '../routes';
 import { useAuth } from '../store/useAuth';
 import * as authApi from '../../lib/api/auth';
 import {
@@ -52,7 +55,8 @@ function errorMessage(err: unknown, fallback: string) {
 }
 
 function AccountTab() {
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, logout } = useAuth();
+  const navigate = useNavigate();
 
   const form = useForm<AccountFormValues>({
     resolver: zodResolver(accountSchema),
@@ -64,12 +68,23 @@ function AccountTab() {
   });
 
   async function onSubmit(values: AccountFormValues) {
+    const emailChanged = values.email !== user?.email;
+
     try {
       await authApi.updateProfile({
         firstName: values.firstName,
         lastName: values.lastName,
-        email: values.email !== user?.email ? values.email : undefined,
+        email: emailChanged ? values.email : undefined,
       });
+
+      // Changing the sign-in email invalidates all sessions on the server.
+      if (emailChanged) {
+        toast.success('Profile updated. Please sign in again.');
+        await logout();
+        navigate(ROUTES.LOGIN, { replace: true });
+        return;
+      }
+
       await refreshUser();
       form.reset(values);
       toast.success('Profile updated.');
@@ -153,6 +168,8 @@ function AccountTab() {
 }
 
 function SecurityTab() {
+  const { logout } = useAuth();
+  const navigate = useNavigate();
   const form = useForm<PasswordFormValues>({
     resolver: zodResolver(passwordSchema),
     defaultValues: { currentPassword: '', newPassword: '', confirmNewPassword: '' },
@@ -164,18 +181,21 @@ function SecurityTab() {
     try {
       await authApi.changePassword(values);
       form.reset();
-      toast.success('Password changed.');
+      toast.success('Password changed. Please sign in again.');
+      await logout();
+      navigate(ROUTES.LOGIN, { replace: true });
     } catch (err) {
       toast.error(errorMessage(err, 'Failed to change password.'));
     }
   }
 
   return (
-    <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)}>
-        <Card>
-          <CardHeader>
-            <CardTitle>Password</CardTitle>
+    <div className="grid gap-6">
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)}>
+          <Card>
+            <CardHeader>
+              <CardTitle>Password</CardTitle>
             <CardDescription>
               Choose a strong password you do not use anywhere else.
             </CardDescription>
@@ -233,21 +253,46 @@ function SecurityTab() {
         </Card>
       </form>
     </Form>
+      <TwoFactorSettings />
+    </div>
   );
 }
 
 function DangerZoneTab() {
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
   const [open, setOpen] = useState(false);
+  const [useRecoveryCode, setUseRecoveryCode] = useState(false);
+  const twoFactorEnabled = user?.twoFactorEnabled ?? false;
 
   const form = useForm<DeleteAccountFormValues>({
     resolver: zodResolver(deleteAccountSchema),
-    defaultValues: { currentPassword: '' },
+    defaultValues: { currentPassword: '', code: '', recoveryCode: '' },
   });
 
   async function onSubmit(values: DeleteAccountFormValues) {
+    const code = values.code?.trim() ?? '';
+    const recoveryCode = values.recoveryCode?.trim() ?? '';
+
+    if (twoFactorEnabled) {
+      if (useRecoveryCode) {
+        if (!recoveryCode) {
+          form.setError('recoveryCode', { message: 'Enter one of your recovery codes.' });
+          return;
+        }
+      } else if (!/^\d{6}$/.test(code)) {
+        form.setError('code', {
+          message: 'Enter the 6-digit code from your authenticator app.',
+        });
+        return;
+      }
+    }
+
     try {
-      await authApi.deleteAccount(values.currentPassword);
+      await authApi.deleteAccount({
+        currentPassword: values.currentPassword,
+        code: twoFactorEnabled && !useRecoveryCode ? code : undefined,
+        recoveryCode: twoFactorEnabled && useRecoveryCode ? recoveryCode : undefined,
+      });
       setOpen(false);
       await logout();
     } catch (err) {
@@ -262,17 +307,18 @@ function DangerZoneTab() {
       <CardHeader>
         <CardTitle className="text-destructive">Delete account</CardTitle>
         <CardDescription>
-          Permanently removes your account along with every dashboard, chart and database
-          connection you own.
+          Deactivates your account and schedules every dashboard, chart and database connection
+          you own for permanent deletion after a 14-day grace period.
         </CardDescription>
       </CardHeader>
 
       <CardContent>
         <Alert variant="destructive">
           <TriangleAlert />
-          <AlertTitle>This cannot be undone</AlertTitle>
+          <AlertTitle>Scheduled for deletion in 14 days</AlertTitle>
           <AlertDescription>
-            Once deleted, your data cannot be recovered by you or by support.
+            Your account is deactivated right away and permanently deleted after 14 days. Sign in
+            and reactivate before then to keep it.
           </AlertDescription>
         </Alert>
       </CardContent>
@@ -282,7 +328,10 @@ function DangerZoneTab() {
           open={open}
           onOpenChange={(next) => {
             setOpen(next);
-            if (!next) form.reset();
+            if (!next) {
+              form.reset();
+              setUseRecoveryCode(false);
+            }
           }}
         >
           <AlertDialogTrigger asChild>
@@ -295,8 +344,8 @@ function DangerZoneTab() {
                 <AlertDialogHeader>
                   <AlertDialogTitle>Delete your account?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Confirm with your password. This permanently deletes your account and all
-                    associated data.
+                    Confirm with your password. Your account is deactivated now and permanently
+                    deleted after 14 days.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
 
@@ -314,13 +363,63 @@ function DangerZoneTab() {
                   )}
                 />
 
+                {twoFactorEnabled && !useRecoveryCode && (
+                  <FormField
+                    control={form.control}
+                    name="code"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Authenticator code</FormLabel>
+                        <FormControl>
+                          <Input
+                            inputMode="numeric"
+                            autoComplete="one-time-code"
+                            placeholder="123456"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+
+                {twoFactorEnabled && useRecoveryCode && (
+                  <FormField
+                    control={form.control}
+                    name="recoveryCode"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Recovery code</FormLabel>
+                        <FormControl>
+                          <Input placeholder="XXXXX-XXXXX" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+
+                {twoFactorEnabled && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUseRecoveryCode((v) => !v);
+                      form.clearErrors(['code', 'recoveryCode']);
+                    }}
+                    className="w-fit text-sm font-medium text-primary hover:underline"
+                  >
+                    {useRecoveryCode ? 'Use an authenticator code instead' : 'Use a recovery code'}
+                  </button>
+                )}
+
                 <AlertDialogFooter>
                   <AlertDialogCancel type="button">Cancel</AlertDialogCancel>
                   {/* A plain submit button, not AlertDialogAction, so a failed
                       delete keeps the dialog open to show the error. */}
                   <Button type="submit" variant="destructive" disabled={form.formState.isSubmitting}>
                     {form.formState.isSubmitting && <Loader2 className="animate-spin" />}
-                    Delete permanently
+                    Delete account
                   </Button>
                 </AlertDialogFooter>
               </form>

@@ -9,5 +9,8 @@ public sealed record UserMeResponse(
     UserType UserType,
     string? FirstName,
     string? LastName,
-    string? CompanyRoleName
+    string? CompanyRoleName,
+    bool TwoFactorEnabled,
+    bool IsDeactivated = false,
+    DateTime? DeletionScheduledAt = null
 );

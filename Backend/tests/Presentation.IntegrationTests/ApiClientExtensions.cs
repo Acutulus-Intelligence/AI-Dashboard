@@ -242,6 +242,44 @@ public static class ApiClientExtensions
         return await users.GetAccessFailedCountAsync(user);
     }
 
+    public static async Task<int> GetTwoFactorFailedAttemptsAsync(this ApiFactory factory, string email)
+    {
+        using var scope = factory.Services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
+        var user = await users.FindByEmailAsync(email)
+            ?? throw new InvalidOperationException($"User {email} not found.");
+        var stored = await users.GetAuthenticationTokenAsync(user, "AI-Dashboard", "TwoFactorFailedAttempts");
+        return int.TryParse(stored, out var value) ? value : 0;
+    }
+
+    public static async Task SetUserLockoutAsync(this ApiFactory factory, string email, DateTimeOffset lockoutEnd)
+    {
+        using var scope = factory.Services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
+        var user = await users.FindByEmailAsync(email)
+            ?? throw new InvalidOperationException($"User {email} not found.");
+        await users.SetLockoutEndDateAsync(user, lockoutEnd);
+    }
+
+    public static async Task<(bool IsDeactivated, DateTime? DeletionScheduledAt)> GetUserDeletionStateAsync(
+        this ApiFactory factory, string email)
+    {
+        using var scope = factory.Services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
+        var user = await users.FindByEmailAsync(email)
+            ?? throw new InvalidOperationException($"User {email} not found.");
+        return (user.DeletionScheduledAt is not null, user.DeletionScheduledAt);
+    }
+
+    public static async Task SetUserDeletionScheduledAtAsync(this ApiFactory factory, string email, DateTime scheduledAt)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var user = await db.Users.FirstAsync(u => u.Email == email);
+        user.DeletionScheduledAt = scheduledAt;
+        await db.SaveChangesAsync();
+    }
+
     public static async Task<Guid?> GetDashboardOwnerAsync(this ApiFactory factory, Guid dashboardId)
     {
         using var scope = factory.Services.CreateScope();

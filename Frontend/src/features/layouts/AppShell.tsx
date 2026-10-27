@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import AppHeader, { type Crumb } from './AppHeader';
 import AppSidebar from './AppSidebar';
+import ReactivateAccountBanner from '../components/ReactivateAccountBanner';
 
 interface AppShellProps {
   breadcrumbs: Crumb[];
@@ -40,6 +41,7 @@ export default function AppShell({
             actions={headerActions}
           />
         )}
+        <ReactivateAccountBanner />
         <main className={cn('flex min-w-0 flex-1 flex-col', !bare && 'gap-6 p-4 md:p-6', className)}>
           {children}
         </main>

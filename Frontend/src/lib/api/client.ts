@@ -19,16 +19,38 @@ class ApiError extends Error {
   }
 }
 
-async function tryRefresh(): Promise<boolean> {
-  try {
-    const res = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
-      method: 'POST',
-      credentials: 'include',
+let refreshInFlight: Promise<boolean> | null = null;
+
+function performRefresh(): Promise<boolean> {
+  return fetch(`${API_BASE_URL}/api/auth/refresh`, {
+    method: 'POST',
+    credentials: 'include',
+  })
+    .then((res) => res.ok)
+    .catch(() => false);
+}
+
+/**
+ * Refreshes the access token. Concurrent callers share a single in-flight
+ * request and, where supported, a cross-tab Web Lock, so parallel 401s never
+ * rotate the refresh token at the same time. Without this the server sees the
+ * same token reused and revokes every session.
+ */
+function tryRefresh(): Promise<boolean> {
+  if (refreshInFlight) return refreshInFlight;
+
+  const locks = (navigator as Navigator & { locks?: LockManager }).locks;
+  const run = locks
+    ? () => locks.request('ai-dashboard-auth-refresh', performRefresh) as Promise<boolean>
+    : performRefresh;
+
+  refreshInFlight = run()
+    .catch(() => false)
+    .finally(() => {
+      refreshInFlight = null;
     });
-    return res.ok;
-  } catch {
-    return false;
-  }
+
+  return refreshInFlight;
 }
 
 function parseErrorBody(body: Record<string, unknown>): {

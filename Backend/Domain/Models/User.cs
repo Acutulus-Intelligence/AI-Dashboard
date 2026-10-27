@@ -14,7 +14,11 @@ namespace Domain.Models
         public UserType UserType { get; set; } = UserType.Individual;
         public string? StripeCustomerId { get; set; }
 
+        public DateTime? DeactivatedAt { get; set; }
+        public DateTime? DeletionScheduledAt { get; set; }
+
         public ICollection<Dashboard> Dashboards { get; set; } = [];
         public ICollection<RefreshToken> RefreshTokens { get; set; } = [];
+        public ICollection<TwoFactorRecoveryCode> TwoFactorRecoveryCodes { get; set; } = [];
     }
 }
