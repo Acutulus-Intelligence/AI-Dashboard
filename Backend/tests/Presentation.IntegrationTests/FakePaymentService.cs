@@ -142,8 +142,18 @@ public sealed class FakePaymentService : IPaymentService
     public Task CancelSubscriptionAtPeriodEndAsync(string stripeSubscriptionId, CancellationToken ct = default)
         => Task.CompletedTask;
 
+    public List<string> ImmediateCancelFailures { get; } = [];
+
+    public List<string> ImmediateCancels { get; } = [];
+
     public Task CancelSubscriptionImmediatelyAsync(string stripeSubscriptionId, CancellationToken ct = default)
-        => Task.CompletedTask;
+    {
+        if (ImmediateCancelFailures.Contains(stripeSubscriptionId))
+            throw new InvalidOperationException("Stripe is unavailable.");
+
+        ImmediateCancels.Add(stripeSubscriptionId);
+        return Task.CompletedTask;
+    }
 
     public Task CancelSubscriptionWithProrationAsync(string stripeSubscriptionId, CancellationToken ct = default)
     {

@@ -1,4 +1,5 @@
-﻿using Application.Common.Exceptions;
+﻿using Application.Common.Data;
+using Application.Common.Exceptions;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
@@ -89,6 +90,24 @@ namespace Application.Common.Mapping
                 Title = "Invalid Operation",
                 ErrorCode = "invalid_operation"
             }},
+
+            { typeof(NoCompanyException), new ExceptionMapResult {
+                StatusCode = (int)HttpStatusCode.NotFound,
+                Title = "No Company",
+                ErrorCode = "no_company"
+            }},
+
+            { typeof(EmailDeliveryException), new ExceptionMapResult {
+                StatusCode = (int)HttpStatusCode.ServiceUnavailable,
+                Title = "Email Delivery Failed",
+                ErrorCode = "email_delivery_failed"
+            }},
+
+            { typeof(SubscriptionRequiredException), new ExceptionMapResult {
+                StatusCode = (int)HttpStatusCode.Forbidden,
+                Title = "Subscription Required",
+                ErrorCode = "subscription_required"
+            }},
         };
         }
 
@@ -96,14 +115,47 @@ namespace Application.Common.Mapping
         {
             var type = ex.GetType();
 
-            if (_map.TryGetValue(type, out var result))
+            // Only a unique violation is a client conflict. Any other failed
+            // database update is a server error, not a 409.
+            if (type == typeof(DbUpdateException) &&
+                ex is DbUpdateException dbUpdate &&
+                !dbUpdate.IsUniqueViolation())
+            {
+                return new ExceptionMapResult
+                {
+                    StatusCode = (int)HttpStatusCode.InternalServerError,
+                    Title = "Internal Server Error",
+                    ErrorCode = "server_error"
+                };
+            }
+
+            if (!_map.TryGetValue(type, out var result))
+                return new ExceptionMapResult
+                {
+                    StatusCode = (int)HttpStatusCode.InternalServerError,
+                    Title = "Internal Server Error",
+                    ErrorCode = "server_error"
+                };
+
+            // Exceptions that carry their own code (e.g. ConflictException
+            // subcodes, EmailDeliveryException configuration errors) expose a
+            // more specific code than the type default. Clone so the shared
+            // dictionary entry is never mutated.
+            var specificCode = ex switch
+            {
+                ConflictException conflict => conflict.Code,
+                EmailDeliveryException email => email.Code,
+                _ => null
+            };
+
+            if (specificCode is null)
                 return result;
 
             return new ExceptionMapResult
             {
-                StatusCode = (int)HttpStatusCode.InternalServerError,
-                Title = "Internal Server Error",
-                ErrorCode = "server_error"
+                StatusCode = result.StatusCode,
+                Title = result.Title,
+                ErrorCode = specificCode
             };
         }
     }
