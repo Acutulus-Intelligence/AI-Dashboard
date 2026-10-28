@@ -10,6 +10,7 @@ public interface IApplicationDbContext
 
     DbSet<Company> Companies { get; }
     DbSet<CompanyInvite> CompanyInvites { get; }
+    DbSet<CompanyInviteEmailSend> CompanyInviteEmailSends { get; }
     DbSet<CompanyRole> CompanyRoles { get; }
     DbSet<CompanySubscription> CompanySubscriptions { get; }
     DbSet<Dashboard> Dashboards { get; }

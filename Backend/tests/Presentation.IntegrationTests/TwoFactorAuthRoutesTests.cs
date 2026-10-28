@@ -603,7 +603,7 @@ public sealed class TwoFactorAuthRoutesTests
 
         var invite = await ownerClient.PostAsJsonAsync($"/api/companies/{company.Id}/invite",
             new InviteUserRequest(memberEmail, role.Id));
-        invite.StatusCode.Should().Be(HttpStatusCode.OK);
+        invite.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         var invites = await ownerClient.GetAsync($"/api/companies/{company.Id}/invites");
         var inviteList = await invites.ReadJsonAsync<List<CompanyInviteResponse>>();
@@ -948,6 +948,48 @@ public sealed class TwoFactorAuthRoutesTests
             subscription.Should().NotBeNull();
             subscription!.StripeSubscriptionId.Should().Be(stripeSubscriptionId);
         }
+    }
+
+    [Fact]
+    public async Task Purge_deletes_account_when_subscription_already_canceled()
+    {
+        var client = CreateClient();
+        var email = $"purgecanceled_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        var userId = await _factory.GetUserIdAsync(email);
+        await _factory.SeedActiveSubscriptionAsync(email);
+
+        string? stripeSubscriptionId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var subscription = await db.UserSubscriptions.FirstAsync(s => s.UserId == userId);
+            stripeSubscriptionId = subscription.StripeSubscriptionId;
+            subscription.Status = SubscriptionStatus.Canceled;
+            subscription.CancelAtPeriodEnd = false;
+            subscription.EndDate = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        }
+
+        stripeSubscriptionId.Should().NotBeNull();
+        await _factory.SetUserDeletionScheduledAtAsync(email, DateTime.UtcNow.AddDays(-1));
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var deletionService = scope.ServiceProvider.GetRequiredService<IAccountDeletionService>();
+            await deletionService.PurgeExpiredAccountsAsync();
+        }
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<User>>();
+            (await users.FindByIdAsync(userId.ToString())).Should().BeNull();
+
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            (await db.UserSubscriptions.FirstOrDefaultAsync(s => s.UserId == userId)).Should().BeNull();
+        }
+
+        _factory.FakePayments.ImmediateCancels.Should().NotContain(stripeSubscriptionId!);
     }
 
     [Fact]

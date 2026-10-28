@@ -1,3 +1,4 @@
+using Application.Common.Data;
 using Application.Common.Exceptions;
 using Application.DTos.Request;
 using Application.DTos.Response;
@@ -433,7 +434,7 @@ public class DashboardService : IDashboardService
         {
             await _db.SaveChangesAsync(ct);
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
         {
             // A concurrent create/rename hit the unique (UserId, Name) index.
             throw new ConflictException("You already have a dashboard with that name.", "dashboard_name_conflict");

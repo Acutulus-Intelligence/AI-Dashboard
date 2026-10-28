@@ -85,7 +85,7 @@ public sealed class InvitationRoutesTests
 
         var invite = await ownerClient.PostAsJsonAsync($"/api/companies/{company.Id}/invite",
             new InviteUserRequest(inviteeEmail, role.Id, InviteDeliveryMethod.Email));
-        invite.StatusCode.Should().Be(HttpStatusCode.OK);
+        invite.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         var token = ExtractToken(LatestInviteEmail(inviteeEmail));
 
@@ -137,7 +137,7 @@ public sealed class InvitationRoutesTests
 
         var first = await ownerClient.PostAsJsonAsync($"/api/companies/{company.Id}/invite",
             new InviteUserRequest(inviteeEmail, role.Id, InviteDeliveryMethod.Email));
-        first.StatusCode.Should().Be(HttpStatusCode.OK);
+        first.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         var second = await ownerClient.PostAsJsonAsync($"/api/companies/{company.Id}/invite",
             new InviteUserRequest(inviteeEmail, role.Id, InviteDeliveryMethod.Email));
@@ -171,16 +171,14 @@ public sealed class InvitationRoutesTests
     }
 
     [Fact]
-    public async Task Internal_invite_returns_no_token_and_sends_no_email()
+    public async Task Internal_invite_sends_no_email()
     {
         var (ownerClient, company, role, _) = await SetupCompanyAsync();
         var inviteeEmail = $"invitee_{Guid.NewGuid():N}@example.com";
 
         var invite = await ownerClient.PostAsJsonAsync($"/api/companies/{company.Id}/invite",
             new InviteUserRequest(inviteeEmail, role.Id, InviteDeliveryMethod.Internal));
-        invite.StatusCode.Should().Be(HttpStatusCode.OK);
-        var body = await invite.Content.ReadFromJsonAsync<InviteTokenResponse>(ApiClientExtensions.JsonOptions);
-        body!.Token.Should().BeNullOrEmpty();
+        invite.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         _factory.FakeEmails.MessagesTo(inviteeEmail).Should().BeEmpty();
     }
@@ -262,7 +260,7 @@ public sealed class InvitationRoutesTests
         // Retrying succeeds because the orphaned invite was rolled back.
         var retry = await ownerClient.PostAsJsonAsync($"/api/companies/{company.Id}/invite",
             new InviteUserRequest(inviteeEmail, role.Id, InviteDeliveryMethod.Email));
-        retry.StatusCode.Should().Be(HttpStatusCode.OK);
+        retry.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         var afterRetry = await ownerClient.GetAsync($"/api/companies/{company.Id}/invites");
         var invitesAfterRetry = await afterRetry.ReadJsonAsync<List<CompanyInviteResponse>>();
@@ -461,5 +459,102 @@ public sealed class InvitationRoutesTests
         create.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
-    private sealed record InviteTokenResponse(string? Token);
+    [Fact]
+    public async Task Deleting_role_preserves_accepted_invite_history()
+    {
+        var (ownerClient, company, role, _) = await SetupCompanyAsync();
+        var inviteeEmail = $"invitee_{Guid.NewGuid():N}@example.com";
+
+        var invite = await ownerClient.PostAsJsonAsync($"/api/companies/{company.Id}/invite",
+            new InviteUserRequest(inviteeEmail, role.Id, InviteDeliveryMethod.Internal));
+        invite.EnsureSuccessStatusCode();
+
+        var invites = await (await ownerClient.GetAsync($"/api/companies/{company.Id}/invites"))
+            .ReadJsonAsync<List<CompanyInviteResponse>>();
+        var pending = invites.First(i => i.Email == inviteeEmail && !i.IsAccepted);
+
+        var inviteeClient = CreateClient();
+        await inviteeClient.RegisterAndLoginAsync(inviteeEmail);
+        (await inviteeClient.PostAsJsonAsync("/api/companies/accept-invite",
+            new AcceptInviteRequest(pending.Id))).EnsureSuccessStatusCode();
+
+        var delete = await ownerClient.DeleteAsync($"/api/companies/{company.Id}/roles/{role.Id}");
+        delete.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var after = await (await ownerClient.GetAsync($"/api/companies/{company.Id}/invites"))
+            .ReadJsonAsync<List<CompanyInviteResponse>>();
+        var accepted = after.Single(i => i.Email == inviteeEmail);
+
+        accepted.IsAccepted.Should().BeTrue();
+        accepted.RoleId.Should().BeNull();
+        accepted.RoleName.Should().Be("Analyst");
+    }
+
+    [Fact]
+    public async Task Resend_counts_toward_daily_email_cap()
+    {
+        var (ownerClient, company, role, _) = await SetupCompanyAsync();
+        var inviteeEmail = $"invitee_{Guid.NewGuid():N}@example.com";
+
+        var inviteResp = await ownerClient.PostAsJsonAsync($"/api/companies/{company.Id}/invite",
+            new InviteUserRequest(inviteeEmail, role.Id, InviteDeliveryMethod.Email));
+        inviteResp.EnsureSuccessStatusCode();
+
+        var invite = (await (await ownerClient.GetAsync($"/api/companies/{company.Id}/invites"))
+            .ReadJsonAsync<List<CompanyInviteResponse>>())
+            .First(i => i.Email == inviteeEmail && !i.IsAccepted);
+
+        await SeedEmailSendsAsync(company.Id, 49);
+
+        var resend = await ownerClient.PostAsync(
+            $"/api/companies/{company.Id}/invites/{invite.Id}/resend", null);
+
+        resend.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await ReadErrorCodeAsync(resend)).Should().Be("email_invite_rate_limited");
+        _factory.FakeEmails.MessagesTo(inviteeEmail).Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task Revoked_invite_still_counts_toward_daily_email_cap()
+    {
+        var (ownerClient, company, role, _) = await SetupCompanyAsync();
+        var inviteeEmail = $"invitee_{Guid.NewGuid():N}@example.com";
+
+        var inviteResp = await ownerClient.PostAsJsonAsync($"/api/companies/{company.Id}/invite",
+            new InviteUserRequest(inviteeEmail, role.Id, InviteDeliveryMethod.Email));
+        inviteResp.EnsureSuccessStatusCode();
+
+        var invite = (await (await ownerClient.GetAsync($"/api/companies/{company.Id}/invites"))
+            .ReadJsonAsync<List<CompanyInviteResponse>>())
+            .First(i => i.Email == inviteeEmail && !i.IsAccepted);
+
+        (await ownerClient.DeleteAsync($"/api/companies/{company.Id}/invites/{invite.Id}"))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        await SeedEmailSendsAsync(company.Id, 49);
+
+        var secondEmail = $"second_{Guid.NewGuid():N}@example.com";
+        var second = await ownerClient.PostAsJsonAsync($"/api/companies/{company.Id}/invite",
+            new InviteUserRequest(secondEmail, role.Id, InviteDeliveryMethod.Email));
+
+        second.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await ReadErrorCodeAsync(second)).Should().Be("email_invite_rate_limited");
+        _factory.FakeEmails.MessagesTo(secondEmail).Should().BeEmpty();
+    }
+
+    private async Task SeedEmailSendsAsync(Guid companyId, int count)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        db.CompanyInviteEmailSends.AddRange(Enumerable.Range(0, count).Select(i => new CompanyInviteEmailSend
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = companyId,
+            RecipientEmail = $"seed_{i}@example.com",
+            SentAt = DateTime.UtcNow
+        }));
+
+        await db.SaveChangesAsync();
+    }
 }

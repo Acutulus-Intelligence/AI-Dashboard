@@ -181,7 +181,12 @@ public class AccountDeletionService : IAccountDeletionService
             .FirstOrDefaultAsync(s => s.UserId == userId, ct);
         if (userSubscription is not null)
         {
-            if (userSubscription.StripeSubscriptionId is not null)
+            // A canceled subscription has already ended in Stripe, so there is
+            // nothing left to cancel. Calling Stripe anyway fails with "No such
+            // subscription" (resource_missing) and would strand the account
+            // forever once the grace period has expired.
+            if (userSubscription.Status != SubscriptionStatus.Canceled &&
+                userSubscription.StripeSubscriptionId is not null)
             {
                 // If Stripe cannot cancel the subscription we must not delete the
                 // account: dropping UserSubscription would lose the only reference

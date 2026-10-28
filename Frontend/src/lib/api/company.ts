@@ -38,7 +38,7 @@ export interface CompanyInviteResponse {
   id: string;
   email: string;
   roleName: string | null;
-  roleId: string;
+  roleId: string | null;
   createdAt: string;
   expiresAt: string;
   isExpired: boolean;
@@ -168,8 +168,8 @@ export function transferOwnership(companyId: string, newOwnerId: string, current
   });
 }
 
-export function inviteUser(companyId: string, data: InviteUserRequest): Promise<{ token: string | null }> {
-  return apiFetch<{ token: string | null }>(`/api/companies/${companyId}/invite`, {
+export function inviteUser(companyId: string, data: InviteUserRequest): Promise<void> {
+  return apiFetch<void>(`/api/companies/${companyId}/invite`, {
     method: 'POST',
     body: JSON.stringify(data),
   });

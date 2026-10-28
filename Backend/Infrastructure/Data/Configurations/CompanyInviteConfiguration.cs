@@ -40,9 +40,15 @@ public class CompanyInviteConfiguration : IEntityTypeConfiguration<CompanyInvite
             .HasForeignKey(ci => ci.CompanyId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        builder.Property(ci => ci.RoleName)
+            .IsRequired()
+            .HasMaxLength(100);
+
+        // Accepted invites are kept for history, so deleting their role must
+        // not delete the invite; the FK is cleared instead.
         builder.HasOne(ci => ci.Role)
             .WithMany()
             .HasForeignKey(ci => ci.RoleId)
-            .OnDelete(DeleteBehavior.Restrict);
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }

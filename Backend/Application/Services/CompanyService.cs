@@ -1,6 +1,7 @@
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using Application.Common.Data;
 using Application.Common.Exceptions;
 using Application.DTos.Request;
 using Application.DTos.Response;
@@ -196,7 +197,7 @@ public class CompanyService : ICompanyService
         await _db.SaveChangesAsync(ct);
     }
 
-    public async Task<string?> InviteUserAsync(Guid companyId, string email, Guid roleId, InviteDeliveryMethod deliveryMethod, Guid actorId, CancellationToken ct = default)
+    public async Task InviteUserAsync(Guid companyId, string email, Guid roleId, InviteDeliveryMethod deliveryMethod, Guid actorId, CancellationToken ct = default)
     {
         var (company, _) = await EnsureCanManageUsersAsync(companyId, actorId, ct);
 
@@ -252,6 +253,7 @@ public class CompanyService : ICompanyService
             CompanyId = companyId,
             Email = normalizedEmail,
             RoleId = roleId,
+            RoleName = role.Name,
             TokenHash = HashInviteToken(token),
             DeliveryMethod = deliveryMethod,
             ExpiresAt = DateTime.UtcNow.AddHours(deliveryMethod == InviteDeliveryMethod.Email
@@ -266,7 +268,7 @@ public class CompanyService : ICompanyService
         {
             await _db.SaveChangesAsync(ct);
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
         {
             // A concurrent invite for the same address hit the unique
             // (CompanyId, Email) index; surface it as a conflict, not a 500.
@@ -291,13 +293,11 @@ public class CompanyService : ICompanyService
                 throw;
             }
 
-            invite.LastSentAt = DateTime.UtcNow;
-            await _db.SaveChangesAsync(ct);
+            await RecordEmailSendAsync(invite, ct);
         }
 
         // Internal invites are not shareable: the raw token is never handed back
         // (S2). Invitees accept them in-app through the pending-invites flow.
-        return null;
     }
 
     public async Task ResendInviteAsync(Guid companyId, Guid inviteId, Guid actorId, CancellationToken ct = default)
@@ -326,11 +326,12 @@ public class CompanyService : ICompanyService
         var token = GenerateInviteToken();
         invite.TokenHash = HashInviteToken(token);
         invite.ExpiresAt = DateTime.UtcNow.AddHours(_emailSettings.InvitationTokenExpiryHours);
+        invite.RoleName = invite.Role?.Name ?? invite.RoleName;
         await _db.SaveChangesAsync(ct);
 
         try
         {
-            await SendInvitationEmailAsync(invite, company.Name, invite.Role.Name, token, ct);
+            await SendInvitationEmailAsync(invite, company.Name, invite.RoleName, token, ct);
         }
         catch
         {
@@ -343,8 +344,7 @@ public class CompanyService : ICompanyService
             throw;
         }
 
-        invite.LastSentAt = DateTime.UtcNow;
-        await _db.SaveChangesAsync(ct);
+        await RecordEmailSendAsync(invite, ct);
     }
 
     public async Task<InvitationDetailsResponse?> ValidateInvitationAsync(string token, CancellationToken ct = default)
@@ -369,7 +369,7 @@ public class CompanyService : ICompanyService
             invite.Id,
             invite.Email,
             invite.Company.Name,
-            invite.Role.Name,
+            invite.Role?.Name ?? invite.RoleName,
             invite.ExpiresAt,
             hasAccount);
     }
@@ -430,7 +430,7 @@ public class CompanyService : ICompanyService
             .Select(i => new CompanyInviteResponse(
                 i.Id,
                 i.Email,
-                i.Role.Name,
+                i.Role != null ? i.Role.Name : i.RoleName,
                 i.RoleId,
                 i.CreatedAt,
                 i.ExpiresAt,
@@ -456,7 +456,7 @@ public class CompanyService : ICompanyService
             .Select(i => new CompanyInviteResponse(
                 i.Id,
                 i.Email,
-                i.Role.Name,
+                i.Role != null ? i.Role.Name : i.RoleName,
                 i.RoleId,
                 i.CreatedAt,
                 i.ExpiresAt,
@@ -843,13 +843,13 @@ public class CompanyService : ICompanyService
         foreach (var user in usersInRole)
             user.CompanyRoleId = null;
 
-        // CompanyInvite.Role is a Restrict FK, so every invite that referenced the
-        // role (pending or accepted for traceability) blocks deleting it. Remove
-        // them first so deleting the role cannot fail with a database error.
-        var invites = await _db.CompanyInvites
-            .Where(i => i.RoleId == roleId)
+        // Pending invites can never be redeemed without their role, so remove
+        // them. Accepted invites are history and must survive; the FK is
+        // configured with ON DELETE SET NULL to break their role reference.
+        var pendingInvites = await _db.CompanyInvites
+            .Where(i => i.RoleId == roleId && !i.IsAccepted)
             .ToListAsync(ct);
-        _db.CompanyInvites.RemoveRange(invites);
+        _db.CompanyInvites.RemoveRange(pendingInvites);
 
         _db.CompanyRoles.Remove(role);
         await _db.SaveChangesAsync(ct);
@@ -965,14 +965,28 @@ public class CompanyService : ICompanyService
                 "An active company subscription is required to send invitation emails.");
 
         var since = now.AddHours(-24);
-        var recentEmailInvites = await _db.CompanyInvites.CountAsync(i =>
-            i.CompanyId == companyId &&
-            i.DeliveryMethod == InviteDeliveryMethod.Email &&
-            i.CreatedAt >= since, ct);
-        if (recentEmailInvites >= _emailSettings.MaxEmailInvitesPerCompanyPerDay)
+        var recentEmailSends = await _db.CompanyInviteEmailSends.CountAsync(s =>
+            s.CompanyId == companyId && s.SentAt >= since, ct);
+        if (recentEmailSends >= _emailSettings.MaxEmailInvitesPerCompanyPerDay)
             throw new ConflictException(
                 "Too many invitation emails have been sent recently. Please try again later.",
                 "email_invite_rate_limited");
+    }
+
+    private async Task RecordEmailSendAsync(CompanyInvite invite, CancellationToken ct)
+    {
+        var sentAt = DateTime.UtcNow;
+        invite.LastSentAt = sentAt;
+
+        _db.CompanyInviteEmailSends.Add(new CompanyInviteEmailSend
+        {
+            Id = Guid.NewGuid(),
+            CompanyId = invite.CompanyId,
+            RecipientEmail = invite.Email,
+            SentAt = sentAt
+        });
+
+        await _db.SaveChangesAsync(ct);
     }
 
     private async Task SendInvitationEmailAsync(CompanyInvite invite, string companyName, string roleName, string rawToken, CancellationToken ct)
