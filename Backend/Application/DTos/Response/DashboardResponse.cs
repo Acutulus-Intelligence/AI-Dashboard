@@ -16,12 +16,14 @@ public sealed record DashboardWidgetItem(
     int PositionX,
     int PositionY,
     int Width,
-    int Height
+    int Height,
+    [property: JsonPropertyName("autoRefreshEnabled")] bool? AutoRefreshEnabled = null
 );
 
 public sealed record DashboardResponse(
     Guid Id,
     string Name,
     Guid OwnerId,
-    List<DashboardWidgetItem> Widgets
+    List<DashboardWidgetItem> Widgets,
+    bool AutoRefreshEnabled = false
 );

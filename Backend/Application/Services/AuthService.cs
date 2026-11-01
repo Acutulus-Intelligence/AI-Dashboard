@@ -487,6 +487,9 @@ public class AuthService : IAuthService
             companyRoleName = role?.Name;
         }
 
+        var isCompanyOwner = user.CompanyId is not null &&
+            await _db.Companies.AnyAsync(c => c.Id == user.CompanyId.Value && c.OwnerId == userId, ct);
+
         return new UserMeResponse(
             user.Id,
             user.Email ?? string.Empty,
@@ -497,7 +500,8 @@ public class AuthService : IAuthService
             companyRoleName,
             user.TwoFactorEnabled,
             user.DeletionScheduledAt is not null,
-            user.DeletionScheduledAt
+            user.DeletionScheduledAt,
+            isCompanyOwner
         );
     }
 

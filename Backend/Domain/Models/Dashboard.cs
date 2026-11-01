@@ -11,6 +11,7 @@ public class Dashboard
     public List<string> AllowedRoles { get; set; } = [];
     public ICollection<User> Users { get; set; } = [];
     public ICollection<DashboardWidget> Widgets { get; set; } = [];
+    public bool AutoRefreshEnabled { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

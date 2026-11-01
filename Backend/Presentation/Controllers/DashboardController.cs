@@ -67,6 +67,26 @@ public class DashboardController : ControllerBase
         return Ok(dashboard);
     }
 
+    [HttpPut("{id:guid}/settings")]
+    public async Task<IActionResult> UpdateSettings(Guid id, [FromBody] UpdateDashboardSettingsRequest request, CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var dashboard = await _dashboardService.UpdateSettingsAsync(userId, id, request, ct);
+        return Ok(dashboard);
+    }
+
+    [HttpPut("{id:guid}/widgets/{widgetId:guid}/refresh-setting")]
+    public async Task<IActionResult> UpdateWidgetRefreshSetting(
+        Guid id,
+        Guid widgetId,
+        [FromBody] UpdateWidgetRefreshSettingRequest request,
+        CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var dashboard = await _dashboardService.UpdateWidgetRefreshSettingAsync(userId, id, widgetId, request, ct);
+        return Ok(dashboard);
+    }
+
     [HttpPost("{id:guid}/transfer-ownership")]
     public async Task<IActionResult> TransferOwnership(Guid id, [FromBody] TransferDashboardRequest request, CancellationToken ct)
     {

@@ -158,6 +158,39 @@ public class DashboardService : IDashboardService
         return MapToResponse(updated);
     }
 
+    public async Task<DashboardResponse> UpdateSettingsAsync(Guid userId, Guid dashboardId, UpdateDashboardSettingsRequest request, CancellationToken ct = default)
+    {
+        var dashboard = await LoadDashboardAsync(dashboardId, ct);
+        await EnsureCanManagePollingSettingsAsync(userId, dashboard, ct);
+
+        dashboard.AutoRefreshEnabled = request.AutoRefreshEnabled;
+        await _db.SaveChangesAsync(ct);
+
+        return MapToResponse(dashboard);
+    }
+
+    public async Task<DashboardResponse> UpdateWidgetRefreshSettingAsync(
+        Guid userId,
+        Guid dashboardId,
+        Guid widgetId,
+        UpdateWidgetRefreshSettingRequest request,
+        CancellationToken ct = default)
+    {
+        var dashboard = await LoadDashboardAsync(dashboardId, ct);
+        await EnsureCanManagePollingSettingsAsync(userId, dashboard, ct);
+
+        var widget = dashboard.Widgets.FirstOrDefault(w => w.Id == widgetId)
+            ?? throw new KeyNotFoundException("Widget not found.");
+
+        if (widget.WidgetType != WidgetType.Chart)
+            throw new InvalidOperationException("Auto-refresh is only available for chart widgets.");
+
+        widget.AutoRefreshEnabled = request.AutoRefreshEnabled;
+        await _db.SaveChangesAsync(ct);
+
+        return MapToResponse(dashboard);
+    }
+
     public async Task<TransferDashboardResponse> TransferOwnershipAsync(Guid userId, Guid dashboardId, TransferDashboardRequest request, CancellationToken ct = default)
     {
         var dashboard = await _db.Dashboards
@@ -397,6 +430,54 @@ public class DashboardService : IDashboardService
         return toShare;
     }
 
+    private async Task<Dashboard> LoadDashboardAsync(Guid dashboardId, CancellationToken ct)
+    {
+        return await _db.Dashboards
+            .Include(d => d.Widgets)
+                .ThenInclude(w => w.SavedChart)
+            .FirstOrDefaultAsync(d => d.Id == dashboardId, ct)
+            ?? throw new KeyNotFoundException("Dashboard not found.");
+    }
+
+    private async Task EnsureCanManagePollingSettingsAsync(Guid userId, Dashboard dashboard, CancellationToken ct)
+    {
+        var user = await _db.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == userId, ct)
+            ?? throw new UnauthorizedAccessException("User not found.");
+
+        // Individual accounts manage their own dashboards.
+        if (user.UserType != UserType.Company)
+        {
+            if (dashboard.UserId != userId)
+                throw new ForbiddenException("You do not have permission to change refresh settings for this dashboard.");
+            return;
+        }
+
+        // Company dashboards are controlled by the company owner only.
+        if (user.CompanyId is null)
+            throw new ForbiddenException("Only the company owner can change refresh settings.");
+
+        var company = await _db.Companies
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Id == user.CompanyId.Value, ct);
+
+        if (company is null || company.OwnerId != userId)
+            throw new ForbiddenException("Only the company owner can change refresh settings.");
+
+        if (dashboard.UserId == userId)
+            return;
+
+        var dashboardOwnerCompanyId = await _db.Users
+            .AsNoTracking()
+            .Where(u => u.Id == dashboard.UserId)
+            .Select(u => u.CompanyId)
+            .FirstOrDefaultAsync(ct);
+
+        if (dashboardOwnerCompanyId != user.CompanyId)
+            throw new ForbiddenException("You do not have permission to change refresh settings for this dashboard.");
+    }
+
     private async Task<Dashboard> EnsureOwnedAsync(Guid userId, Guid dashboardId, CancellationToken ct)
     {
         return await _db.Dashboards
@@ -519,8 +600,10 @@ public class DashboardService : IDashboardService
                 w.PositionX,
                 w.PositionY,
                 w.Width,
-                w.Height
-            )).ToList()
+                w.Height,
+                w.WidgetType == WidgetType.Chart ? w.AutoRefreshEnabled : null
+            )).ToList(),
+            dashboard.AutoRefreshEnabled
         );
     }
 }

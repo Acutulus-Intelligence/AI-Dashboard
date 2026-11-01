@@ -18,4 +18,5 @@ public class DashboardWidget
     public int PositionY { get; set; }
     public int Width { get; set; }
     public int Height { get; set; }
+    public bool? AutoRefreshEnabled { get; set; }
 }

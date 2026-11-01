@@ -81,6 +81,7 @@ export interface DashboardWidgetItem {
   positionY: number;
   width: number;
   height: number;
+  autoRefreshEnabled?: boolean | null;
 }
 
 export interface DashboardResponse {
@@ -88,6 +89,7 @@ export interface DashboardResponse {
   name: string;
   ownerId: string;
   widgets: DashboardWidgetItem[];
+  autoRefreshEnabled: boolean;
 }
 
 export interface DashboardSummary {
@@ -99,11 +101,11 @@ export interface DashboardSummary {
 }
 
 export function getDashboards(): Promise<DashboardSummary[]> {
-  return apiFetch<DashboardSummary[]>('/api/dashboards');
+  return apiFetch<DashboardSummary[]>('/api/dashboards', { cache: 'no-store' });
 }
 
 export function getDashboard(id: string): Promise<DashboardResponse> {
-  return apiFetch<DashboardResponse>(`/api/dashboards/${id}`);
+  return apiFetch<DashboardResponse>(`/api/dashboards/${id}`, { cache: 'no-store' });
 }
 
 export function createDashboard(name: string): Promise<DashboardResponse> {
@@ -130,6 +132,24 @@ export function saveWidgets(id: string, widgets: WidgetItem[]): Promise<Dashboar
   return apiFetch<DashboardResponse>(`/api/dashboards/${id}/widgets`, {
     method: 'PUT',
     body: JSON.stringify({ widgets }),
+  });
+}
+
+export function updateDashboardSettings(id: string, autoRefreshEnabled: boolean): Promise<DashboardResponse> {
+  return apiFetch<DashboardResponse>(`/api/dashboards/${id}/settings`, {
+    method: 'PUT',
+    body: JSON.stringify({ autoRefreshEnabled }),
+  });
+}
+
+export function updateWidgetRefreshSetting(
+  id: string,
+  widgetId: string,
+  autoRefreshEnabled: boolean | null,
+): Promise<DashboardResponse> {
+  return apiFetch<DashboardResponse>(`/api/dashboards/${id}/widgets/${widgetId}/refresh-setting`, {
+    method: 'PUT',
+    body: JSON.stringify({ autoRefreshEnabled }),
   });
 }
 

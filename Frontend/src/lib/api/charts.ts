@@ -162,6 +162,10 @@ export function deleteChart(id: string): Promise<void> {
   return apiFetch(`/api/charts/${id}`, { method: 'DELETE' });
 }
 
-export function executeChart(id: string): Promise<ChartConfigResponse> {
-  return apiFetch<ChartConfigResponse>(`/api/charts/${id}/execute`, { method: 'POST' });
+export function executeChart(id: string, signal?: AbortSignal): Promise<ChartConfigResponse> {
+  return apiFetch<ChartConfigResponse>(`/api/charts/${id}/execute`, {
+    method: 'POST',
+    signal,
+    cache: 'no-store',
+  });
 }

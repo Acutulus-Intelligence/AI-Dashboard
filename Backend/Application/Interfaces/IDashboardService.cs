@@ -11,5 +11,7 @@ public interface IDashboardService
     Task<DashboardResponse> RenameDashboardAsync(Guid userId, Guid dashboardId, RenameDashboardRequest request, CancellationToken ct = default);
     Task DeleteDashboardAsync(Guid userId, Guid dashboardId, CancellationToken ct = default);
     Task<DashboardResponse> SaveWidgetsAsync(Guid userId, Guid dashboardId, SaveWidgetsRequest request, CancellationToken ct = default);
+    Task<DashboardResponse> UpdateSettingsAsync(Guid userId, Guid dashboardId, UpdateDashboardSettingsRequest request, CancellationToken ct = default);
+    Task<DashboardResponse> UpdateWidgetRefreshSettingAsync(Guid userId, Guid dashboardId, Guid widgetId, UpdateWidgetRefreshSettingRequest request, CancellationToken ct = default);
     Task<TransferDashboardResponse> TransferOwnershipAsync(Guid userId, Guid dashboardId, TransferDashboardRequest request, CancellationToken ct = default);
 }

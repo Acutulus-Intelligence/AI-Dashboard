@@ -22,6 +22,12 @@ namespace Application.Common.Mapping
                 ErrorCode = "unauthorized"
             }},
 
+            { typeof(ForbiddenException), new ExceptionMapResult {
+                StatusCode = (int)HttpStatusCode.Forbidden,
+                Title = "Forbidden",
+                ErrorCode = "forbidden"
+            }},
+
             { typeof(KeyNotFoundException), new ExceptionMapResult {
                 StatusCode = (int)HttpStatusCode.NotFound,
                 Title = "Not Found",
