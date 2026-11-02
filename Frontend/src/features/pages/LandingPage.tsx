@@ -1,8 +1,7 @@
 import { useLayoutEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import PageMeta from '../components/PageMeta';
-import LandingHeader from '../layouts/LandingHeader';
-import Footer from '../layouts/Footer';
+import PublicLayout from '../layouts/PublicLayout';
 import HeroSection from '../sections/HeroSection';
 import DashboardPreview from '../sections/DashboardPreview';
 import FeaturesSection from '../sections/FeaturesSection';
@@ -24,12 +23,6 @@ function hashId(hash: string) {
   } catch {
     return raw.trim().toLowerCase();
   }
-}
-
-function skipToMainContent() {
-  const main = document.getElementById('main-content');
-  if (!(main instanceof HTMLElement)) return;
-  main.focus();
 }
 
 export default function LandingPage() {
@@ -69,32 +62,21 @@ export default function LandingPage() {
   }, [location.hash, location.pathname, location.search, location.state, navigate]);
 
   return (
-    <div className="landing-page min-h-screen bg-white text-slate-900 selection:bg-blue-200 selection:text-slate-900">
+    <PublicLayout overlay>
       <PageMeta
         title="AI Dashboard — From database to insights"
         description="Connect PostgreSQL, MySQL, or SQL Server and describe the chart you want. AI Dashboard writes a read-only query and places it on a dashboard you can arrange."
         path={ROUTES.HOME}
       />
-      <button
-        type="button"
-        onClick={skipToMainContent}
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[60] focus:rounded-full focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-slate-900"
-      >
-        Skip to content
-      </button>
-      <LandingHeader />
-      <main id="main-content" tabIndex={-1} className="outline-none">
-        <HeroSection />
-        <div id="demo" className="relative z-10 -mt-28 scroll-mt-24 sm:-mt-36 md:-mt-44">
-          <DashboardPreview />
-        </div>
-        <FeaturesSection />
-        <BentoSection />
-        <TestimonialsSection />
-        <PricingSection />
-        <CtaSection />
-      </main>
-      <Footer />
-    </div>
+      <HeroSection />
+      <div id="demo" className="relative z-10 -mt-28 scroll-mt-24 sm:-mt-36 md:-mt-44">
+        <DashboardPreview />
+      </div>
+      <FeaturesSection />
+      <BentoSection />
+      <TestimonialsSection />
+      <PricingSection />
+      <CtaSection />
+    </PublicLayout>
   );
 }

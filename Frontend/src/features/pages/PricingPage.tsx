@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { AlertCircle, ArrowRight } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
-import Header from '../layouts/Header';
-import Footer from '../layouts/Footer';
-import Button from '../components/Button';
+import PublicLayout from '../layouts/PublicLayout';
+import PublicPageIntro from '../layouts/PublicPageIntro';
+import { publicButtonClass, publicContainerClass, publicLinkClass, publicPageClass } from '../layouts/publicChrome';
 import PageMeta from '../components/PageMeta';
+import PublicError from '../components/PublicError';
 import BillingToggle from '../components/BillingToggle';
 import PlanCards from '../components/PlanCards';
 import { ROUTES } from '../routes';
@@ -34,6 +35,24 @@ function trialDaysForPlan(plan: SubscriptionPlan): number | null {
   return plan.trialDays;
 }
 
+async function loadScreenshotPlans(): Promise<SubscriptionPlan[] | null> {
+  // Vite replaces this flag and drops the import from production builds.
+  if (import.meta.env.DEV) {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const enabled = params.get('screenshot') === '1' || sessionStorage.getItem('screenshot-plans') === '1';
+      if (!enabled) return null;
+    } catch {
+      return null;
+    }
+
+    const { screenshotPlans } = await import('../dev/screenshotPlans');
+    return screenshotPlans;
+  }
+
+  return null;
+}
+
 export default function PricingPage() {
   const navigate = useNavigate();
   const { isAuthenticated, hasActiveSubscription, user } = useAuth();
@@ -46,6 +65,13 @@ export default function PricingPage() {
   useEffect(() => {
     async function loadPlans() {
       setError('');
+      const placeholders = await loadScreenshotPlans();
+      if (placeholders) {
+        setPlans(placeholders);
+        setLoading(false);
+        return;
+      }
+
       try {
         const response = await getPlans();
         let active = response.filter((plan) => plan.isActive);
@@ -66,6 +92,8 @@ export default function PricingPage() {
     }
 
     void loadPlans();
+    // Loaded once on mount, matching the previous pricing page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function handleChoosePlan(plan: SubscriptionPlan) {
@@ -126,47 +154,41 @@ export default function PricingPage() {
     }
   }
 
+  const trialDays = plans.reduce((max, plan) => Math.max(max, trialDaysForPlan(plan) ?? 0), 0);
+
   return (
-    <div className="min-h-screen bg-background text-on-background">
+    <PublicLayout>
       <PageMeta
         title="Pricing — AI Dashboard"
         description="Compare AI Dashboard plans for individuals and companies. Start a free trial and choose monthly or yearly billing."
         path={ROUTES.PRICING}
       />
-      <Header />
 
-      <main className="pt-16">
-        <section className="bg-surface px-gutter pb-16 pt-16">
-          <div className="mx-auto max-w-container-max">
-            <div className="mx-auto mb-10 max-w-3xl text-center">
-              <span className="mb-2 block font-mono text-label-caps uppercase text-outline">
-                Payment plans
-              </span>
-              <h1 className="text-headline-lg font-semibold text-on-background md:text-display-lg">
-                Choose the right plan for your dashboards.
-              </h1>
-              {plans.some((p) => (trialDaysForPlan(p) ?? 0) > 0) && (
-                <p className="mt-4 text-body-lg text-on-surface-variant">
-                  Start with a {Math.max(...plans.map((p) => trialDaysForPlan(p) ?? 0))}-day free trial, then keep the plan that fits
-                  your workflow as your team or AI usage grows.
-                </p>
-              )}
-            </div>
+      <div className={publicPageClass}>
+        <section className="py-16 md:py-24">
+          <div className={publicContainerClass}>
+            <PublicPageIntro eyebrow="Payment plans" title="Choose the right plan for your dashboards.">
+              {trialDays > 0 ? (
+                <>
+                  Start with a {trialDays}-day free trial, then keep the plan that fits your workflow as
+                  your team or AI usage grows.
+                </>
+              ) : null}
+            </PublicPageIntro>
 
-            <div className="mb-8 flex justify-center">
+            <div className="mb-8 mt-10 flex justify-center">
               <BillingToggle billing={billing} onChange={setBilling} />
             </div>
 
             {error && (
-              <div className="mx-auto mb-8 flex max-w-2xl items-center gap-2 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-body-sm text-red-700">
-                <AlertCircle size={16} className="shrink-0" aria-hidden="true" />
-                <span>{error}</span>
+              <div className="mx-auto mb-8 max-w-2xl">
+                <PublicError>{error}</PublicError>
               </div>
             )}
 
             {loading ? (
               <div className="flex min-h-52 items-center justify-center">
-                <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+                <div className="size-8 animate-spin rounded-full border-4 border-blue-700 border-t-transparent" />
               </div>
             ) : (
               <PlanCards
@@ -181,25 +203,27 @@ export default function PricingPage() {
             )}
 
             <div className="mt-10 flex justify-center">
-              <Button variant="outline" onClick={() => navigate(ROUTES.CONTACT)}>
+              <button
+                type="button"
+                className={publicButtonClass('secondary')}
+                onClick={() => navigate(ROUTES.CONTACT)}
+              >
                 Talk to us
-                <ArrowRight size={16} aria-hidden="true" />
-              </Button>
+                <ArrowRight className="size-4" aria-hidden="true" />
+              </button>
             </div>
           </div>
         </section>
 
-        <section className="bg-background px-gutter pb-24">
-          <p className="text-center text-body-sm text-on-surface-variant">
+        <section className="pb-20">
+          <p className="text-center text-sm text-slate-600">
             Already have an account?{' '}
-            <Link to={ROUTES.LOGIN} className="font-semibold text-primary hover:underline">
+            <Link to={ROUTES.LOGIN} className={publicLinkClass}>
               Sign in
             </Link>
           </p>
         </section>
-      </main>
-
-      <Footer />
-    </div>
+      </div>
+    </PublicLayout>
   );
 }

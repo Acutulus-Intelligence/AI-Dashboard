@@ -1,82 +1,68 @@
-import { Mail, Phone, Clock } from 'lucide-react';
+import { Clock, Mail, Phone, type LucideIcon } from 'lucide-react';
+import type { ReactNode } from 'react';
 import PageMeta from '../components/PageMeta';
-import Header from '../layouts/Header';
-import Footer from '../layouts/Footer';
+import PublicLayout from '../layouts/PublicLayout';
+import PublicPageIntro from '../layouts/PublicPageIntro';
+import { publicCardClass, publicContainerClass, publicLinkClass, publicPageClass } from '../layouts/publicChrome';
 import { ROUTES } from '../routes';
+
+function ContactCard({
+  icon: Icon,
+  title,
+  children,
+}: {
+  icon: LucideIcon;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <article className={`landing-card flex h-full flex-col p-6 sm:p-8 ${publicCardClass}`}>
+      <div className="mb-5 flex size-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
+        <Icon className="size-6" aria-hidden="true" />
+      </div>
+      <h2 className="text-lg font-semibold tracking-tight text-slate-900">{title}</h2>
+      <div className="mt-2 text-sm leading-relaxed text-slate-600">{children}</div>
+    </article>
+  );
+}
 
 export default function ContactPage() {
   return (
-    <div className="min-h-screen bg-background text-on-background">
+    <PublicLayout>
       <PageMeta
         title="Contact — AI Dashboard"
         description="Contact Acutulus Intelligence about AI Dashboard enterprise plans, billing, and support."
         path={ROUTES.CONTACT}
       />
-      <Header />
 
-      <main className="pt-24">
-        <div className="mx-auto max-w-2xl px-gutter pb-24 pt-12">
-          <h1 className="text-display-md font-bold text-on-background">Contact us</h1>
-          <p className="mt-3 text-body-lg text-on-surface-variant">
+      <div className={`${publicPageClass} py-16 md:py-24`}>
+        <div className={publicContainerClass}>
+          <PublicPageIntro eyebrow="Contact" title="Contact us">
             Get in touch with our team for enterprise inquiries and support.
-          </p>
+          </PublicPageIntro>
 
-          <div className="mt-12 space-y-6">
-            <div className="flex items-start gap-4 rounded-2xl border border-outline-variant bg-surface p-6 shadow-xs">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <Mail size={24} />
-              </div>
-              <div>
-                <h2 className="text-headline-sm font-semibold text-on-background">Email</h2>
-                <p className="mt-1 text-body-md text-on-surface-variant">
-                  Send us an email and we&apos;ll get back to you within 24 hours.
-                </p>
-                <a
-                  href="mailto:sales@actulusintelligence.com"
-                  className="mt-2 inline-block text-body-md font-medium text-primary hover:underline"
-                >
-                  sales@actulusintelligence.com
-                </a>
-              </div>
-            </div>
+          <div className="mt-12 grid gap-5 md:grid-cols-3">
+            <ContactCard icon={Mail} title="Email">
+              <p>Send us an email and we&apos;ll get back to you within 24 hours.</p>
+              <a href="mailto:sales@actulusintelligence.com" className={`mt-3 inline-block ${publicLinkClass}`}>
+                sales@actulusintelligence.com
+              </a>
+            </ContactCard>
 
-            <div className="flex items-start gap-4 rounded-2xl border border-outline-variant bg-surface p-6 shadow-xs">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <Phone size={24} />
-              </div>
-              <div>
-                <h2 className="text-headline-sm font-semibold text-on-background">Phone</h2>
-                <p className="mt-1 text-body-md text-on-surface-variant">
-                  Call us during business hours for immediate assistance.
-                </p>
-                <a
-                  href="tel:+46123456789"
-                  className="mt-2 inline-block text-body-md font-medium text-primary hover:underline"
-                >
-                  +46 12 345 67 89
-                </a>
-              </div>
-            </div>
+            <ContactCard icon={Phone} title="Phone">
+              <p>Call us during business hours for immediate assistance.</p>
+              <a href="tel:+46123456789" className={`mt-3 inline-block ${publicLinkClass}`}>
+                +46 12 345 67 89
+              </a>
+            </ContactCard>
 
-            <div className="flex items-start gap-4 rounded-2xl border border-outline-variant bg-surface p-6 shadow-xs">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <Clock size={24} />
-              </div>
-              <div>
-                <h2 className="text-headline-sm font-semibold text-on-background">Business hours</h2>
-                <p className="mt-1 text-body-md text-on-surface-variant">
-                  Monday – Friday: 09:00 – 17:00 CET
-                </p>
-                <p className="text-body-md text-on-surface-variant">
-                  Saturday – Sunday: Closed
-                </p>
-              </div>
-            </div>
+            <ContactCard icon={Clock} title="Business hours">
+              <p>Monday – Friday: 09:00 – 17:00 CET</p>
+              <p>Saturday – Sunday: Closed</p>
+            </ContactCard>
           </div>
         </div>
-      </main>
-
-      <Footer />
-    </div>
+      </div>
+    </PublicLayout>
   );
 }

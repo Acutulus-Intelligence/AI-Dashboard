@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import LegalDocument, { LegalSection } from '../layouts/LegalDocument';
+import { publicLinkClass } from '../layouts/publicChrome';
 import { ROUTES } from '../routes';
 
 export default function TermsPage() {
@@ -122,15 +123,15 @@ export default function TermsPage() {
       <LegalSection title="Contact">
         <p>
           Questions about these terms:{' '}
-          <a href="mailto:sales@actulusintelligence.com" className="font-medium text-primary hover:underline">
+          <a href="mailto:sales@actulusintelligence.com" className={publicLinkClass}>
             sales@actulusintelligence.com
           </a>
           , or the{' '}
-          <Link to={ROUTES.CONTACT} className="font-medium text-primary hover:underline">
+          <Link to={ROUTES.CONTACT} className={publicLinkClass}>
             contact page
           </Link>
           . See also our{' '}
-          <Link to={ROUTES.PRIVACY} className="font-medium text-primary hover:underline">
+          <Link to={ROUTES.PRIVACY} className={publicLinkClass}>
             Privacy Policy
           </Link>
           .
