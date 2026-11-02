@@ -13,7 +13,15 @@ export default function LandingHeader() {
   const { isAuthenticated, isLoading } = useAuth();
   const [hasScrolled, setHasScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const solid = hasScrolled || menuOpen;
+  const [menuPath, setMenuPath] = useState(pathname);
+  if (menuPath !== pathname) {
+    setMenuPath(pathname);
+    setMenuOpen(false);
+  }
+  // The landing hero is dark, so the bar stays clear until scroll. Every other
+  // public page is a light surface and uses the same solid bar the landing
+  // page shows after you scroll.
+  const solid = pathname !== ROUTES.HOME || hasScrolled || menuOpen;
 
   useEffect(() => {
     const onScroll = () => setHasScrolled(window.scrollY > 12);

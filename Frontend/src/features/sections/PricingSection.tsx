@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import Reveal from '../components/Reveal';
+import { publicButtonClass } from '../layouts/publicChrome';
 import { ROUTES } from '../routes';
 
 export default function PricingSection() {
@@ -19,7 +20,7 @@ export default function PricingSection() {
           </p>
           <Link
             to={ROUTES.PRICING}
-            className="mt-8 inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-blue-700 px-6 text-sm font-semibold text-white transition-colors hover:bg-blue-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+            className={publicButtonClass('primary', 'mt-8')}
           >
             View pricing
             <ArrowRight className="size-4" aria-hidden="true" />

@@ -1,6 +1,7 @@
 import { Check } from 'lucide-react';
-import Button from './Button';
 import type { BillingPeriod, SubscriptionPlan } from '../../lib/api/subscription';
+import { cn } from '@/lib/utils';
+import { publicButtonClass, publicCardClass } from '../layouts/publicChrome';
 
 interface PlanCardsProps {
   billing: BillingPeriod;
@@ -42,59 +43,60 @@ export default function PlanCards({
   onSelect,
 }: PlanCardsProps) {
   return (
-    <div className="grid gap-5 lg:grid-cols-3">
+    <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
       {plans.map((plan, index) => {
         const highlighted = selectedPlanId ? selectedPlanId === plan.id : index === 1;
 
         return (
           <article
             key={plan.id}
-            className={`flex h-full flex-col rounded-xl border bg-surface-container-lowest p-6 transition-all hover:border-cyan-action ${
+            className={cn(
+              'landing-card flex h-full flex-col p-6 sm:p-8',
+              publicCardClass,
               highlighted
-                ? 'border-brand/20 border-l-2 border-cyan-action shadow-[inset_0_0_15px_rgba(6,182,212,0.1)]'
-                : 'border-outline-variant'
-            }`}
+                ? 'border-blue-200 bg-gradient-to-b from-blue-50/90 to-white shadow-[0_22px_50px_-28px_rgba(29,78,216,0.55)]'
+                : '',
+            )}
           >
             <div className="mb-5">
-              <p className="font-mono text-label-caps uppercase text-outline">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-800">
                 {plan.userType === 1 || plan.userType === 'Company' ? 'Company' : 'Individual'}
               </p>
-              <h3 className="mt-2 text-headline-md font-semibold text-on-background">{plan.name}</h3>
-              <p className="mt-2 min-h-12 text-body-sm text-on-surface-variant">{plan.description}</p>
+              <h3 className="mt-2 text-xl font-semibold tracking-tight text-slate-900">{plan.name}</h3>
+              <p className="mt-2 min-h-12 text-sm leading-relaxed text-slate-600">{plan.description}</p>
             </div>
 
             <div className="mb-5 flex items-baseline gap-2">
-              <span className="text-headline-lg font-semibold text-on-background">
+              <span className="text-4xl font-semibold tracking-tight text-slate-900">
                 {formatPrice(plan, billing)}
               </span>
-              <span className="text-body-sm text-on-surface-variant">
+              <span className="text-sm text-slate-600">
                 /{billing === 0 ? 'month' : 'year'}
               </span>
             </div>
 
-            <ul className="mb-6 flex-1 space-y-3 text-body-sm text-on-background">
+            <ul className="mb-6 flex-1 space-y-3 text-sm text-slate-800">
               <li className="flex items-start gap-2">
-                <Check size={17} className="mt-0.5 shrink-0 text-brand" aria-hidden="true" />
+                <Check size={17} className="mt-0.5 shrink-0 text-blue-700" aria-hidden="true" />
                 <span>{formatLimit(plan.maxAiQueriesPerMonth, 'Unlimited')} AI queries per month</span>
               </li>
               <li className="flex items-start gap-2">
-                <Check size={17} className="mt-0.5 shrink-0 text-brand" aria-hidden="true" />
+                <Check size={17} className="mt-0.5 shrink-0 text-blue-700" aria-hidden="true" />
                 <span>{formatLimit(plan.maxDashboards, 'Unlimited')} dashboards</span>
               </li>
               <li className="flex items-start gap-2">
-                <Check size={17} className="mt-0.5 shrink-0 text-brand" aria-hidden="true" />
+                <Check size={17} className="mt-0.5 shrink-0 text-blue-700" aria-hidden="true" />
                 <span>{formatLimit(plan.maxUsers, 'Single workspace')} users</span>
               </li>
               <li className="flex items-start gap-2">
-                <Check size={17} className="mt-0.5 shrink-0 text-brand" aria-hidden="true" />
+                <Check size={17} className="mt-0.5 shrink-0 text-blue-700" aria-hidden="true" />
                 <span>{trialLabel(plan)}</span>
               </li>
             </ul>
 
-            <Button
+            <button
               type="button"
-              variant={highlighted ? 'primary' : 'outline'}
-              className="w-full"
+              className={publicButtonClass(highlighted ? 'primary' : 'secondary', 'w-full')}
               disabled={loadingPlanId === plan.id}
               onClick={() => onSelect(plan)}
             >
@@ -103,7 +105,7 @@ export default function PlanCards({
                 : getActionLabel
                   ? getActionLabel(plan)
                   : actionLabel}
-            </Button>
+            </button>
           </article>
         );
       })}
