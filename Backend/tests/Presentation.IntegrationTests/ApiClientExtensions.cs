@@ -89,7 +89,7 @@ public static class ApiClientExtensions
         await db.SaveChangesAsync();
     }
 
-    public static async Task SeedCompanySubscriptionAsync(this ApiFactory factory, Guid companyId)
+    public static async Task SeedCompanySubscriptionAsync(this ApiFactory factory, Guid companyId, int? maxUsers = null)
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -102,7 +102,7 @@ public static class ApiClientExtensions
             PlanId = plan.Id,
             Price = plan.MonthlyPrice,
             BillingPeriod = BillingPeriod.Monthly,
-            MaxUsers = plan.MaxUsers,
+            MaxUsers = maxUsers ?? plan.MaxUsers,
             StartDate = DateTime.UtcNow,
             EndDate = DateTime.UtcNow.AddDays(7),
             Status = SubscriptionStatus.Trial,
@@ -110,6 +110,15 @@ public static class ApiClientExtensions
             TrialEndDate = DateTime.UtcNow.AddDays(7),
         });
 
+        await db.SaveChangesAsync();
+    }
+
+    public static async Task SetCompanyNameAsync(this ApiFactory factory, Guid companyId, string name)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var company = await db.Companies.FirstAsync(c => c.Id == companyId);
+        company.Name = name;
         await db.SaveChangesAsync();
     }
 

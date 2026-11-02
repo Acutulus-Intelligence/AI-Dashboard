@@ -13,5 +13,8 @@ public class InviteUserRequestValidator : AbstractValidator<InviteUserRequest>
 
         RuleFor(x => x.RoleId)
             .NotEmpty();
+
+        RuleFor(x => x.DeliveryMethod)
+            .IsInEnum();
     }
 }

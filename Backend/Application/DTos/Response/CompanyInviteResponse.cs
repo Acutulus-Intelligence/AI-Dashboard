@@ -1,12 +1,16 @@
+using Domain.Enums;
+
 namespace Application.DTos.Response;
 
 public sealed record CompanyInviteResponse(
     Guid Id,
     string Email,
     string? RoleName,
-    Guid RoleId,
+    Guid? RoleId,
     DateTime CreatedAt,
     DateTime ExpiresAt,
     bool IsExpired,
     bool IsAccepted,
-    string CompanyName);
+    string CompanyName,
+    InviteDeliveryMethod DeliveryMethod,
+    DateTime? LastSentAt);

@@ -7,6 +7,7 @@ namespace Application.Interfaces;
 public interface IAuthService
 {
     Task<AuthResult> RegisterAsync(RegisterRequest request, CancellationToken ct = default);
+    Task<AuthResult> RegisterWithInvitationAsync(string token, AcceptEmailInvitationRequest request, CancellationToken ct = default);
     Task<LoginOutcome> LoginAsync(LoginRequest request, CancellationToken ct = default);
     Task<AuthResult> LoginTwoFactorAsync(TwoFactorLoginRequest request, CancellationToken ct = default);
     Task<AuthResult> RefreshTokenAsync(string refreshToken, CancellationToken ct = default);

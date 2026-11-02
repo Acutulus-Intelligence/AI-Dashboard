@@ -4,6 +4,7 @@ export const ROUTES = {
   DASHBOARD_VIEW: '/dashboard/:dashboardId',
   LOGIN: '/login',
   REGISTER: '/register',
+  INVITE_ACCEPT: '/invite',
   PRICING: '/pricing',
   ADMIN: '/admin',
   ADMIN_MAIN: '/admin/main',

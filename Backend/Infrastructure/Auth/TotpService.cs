@@ -14,37 +14,46 @@ public class TotpService : ITotpService
     private const int Window = 1;
     private const string Base32Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
-    public bool TryValidate(string base32Secret, string code, long minTimeStep, out long matchedTimeStep)
+    public TotpValidationResult Validate(string base32Secret, string code, long minTimeStep, out long matchedTimeStep)
     {
         matchedTimeStep = 0;
 
         if (string.IsNullOrWhiteSpace(base32Secret) || !IsSixDigitCode(code))
-            return false;
+            return TotpValidationResult.Invalid;
 
         var key = Base32Decode(base32Secret);
         if (key.Length == 0)
-            return false;
+            return TotpValidationResult.Invalid;
 
         var currentStep = DateTimeOffset.UtcNow.ToUnixTimeSeconds() / StepSeconds;
         var normalizedCode = code.Trim();
+        var replay = false;
 
         for (var offset = -Window; offset <= Window; offset++)
         {
             var step = currentStep + offset;
-            if (step <= minTimeStep)
-                continue;
 
             var candidate = ComputeCode(key, step);
-            if (CryptographicOperations.FixedTimeEquals(
+            if (!CryptographicOperations.FixedTimeEquals(
                     System.Text.Encoding.ASCII.GetBytes(candidate),
                     System.Text.Encoding.ASCII.GetBytes(normalizedCode)))
             {
-                matchedTimeStep = step;
-                return true;
+                continue;
             }
+
+            // The code is correct for this step, but if the step was already
+            // accepted the code is a replay rather than a fresh match.
+            if (step <= minTimeStep)
+            {
+                replay = true;
+                continue;
+            }
+
+            matchedTimeStep = step;
+            return TotpValidationResult.Valid;
         }
 
-        return false;
+        return replay ? TotpValidationResult.Replay : TotpValidationResult.Invalid;
     }
 
     private static bool IsSixDigitCode(string code)

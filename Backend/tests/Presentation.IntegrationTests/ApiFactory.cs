@@ -29,6 +29,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
     public FakePaymentService FakePayments { get; } = new();
     public FakeAiService FakeAi { get; } = new();
+    public FakeEmailSender FakeEmails { get; } = new();
 
     public string ExternalHost => "127.0.0.1";
     public int ExternalPort => _externalDb.GetMappedPublicPort(5432);
@@ -101,6 +102,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             services.RemoveAll<IAiService>();
             services.RemoveAll<OpenRouterService>();
             services.AddSingleton<IAiService>(FakeAi);
+
+            services.RemoveAll<IEmailSender>();
+            services.AddSingleton<IEmailSender>(FakeEmails);
         });
     }
 

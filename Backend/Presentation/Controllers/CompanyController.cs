@@ -2,6 +2,7 @@ using Application.DTos.Request;
 using Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Presentation.Middleware;
 
 namespace Presentation.Controllers;
@@ -85,11 +86,21 @@ public class CompanyController : ControllerBase
     }
 
     [HttpPost("{id:guid}/invite")]
+    [EnableRateLimiting("invite")]
     public async Task<IActionResult> InviteUser(Guid id, [FromBody] InviteUserRequest request, CancellationToken ct)
     {
         var actorId = GetUserId();
-        var token = await _companyService.InviteUserAsync(id, request.Email, request.RoleId, actorId, ct);
-        return Ok(new { token });
+        await _companyService.InviteUserAsync(id, request.Email, request.RoleId, request.DeliveryMethod, actorId, ct);
+        return NoContent();
+    }
+
+    [HttpPost("{id:guid}/invites/{inviteId:guid}/resend")]
+    [EnableRateLimiting("invite")]
+    public async Task<IActionResult> ResendInvite(Guid id, Guid inviteId, CancellationToken ct)
+    {
+        var actorId = GetUserId();
+        await _companyService.ResendInviteAsync(id, inviteId, actorId, ct);
+        return NoContent();
     }
 
     [HttpPost("accept-invite")]
