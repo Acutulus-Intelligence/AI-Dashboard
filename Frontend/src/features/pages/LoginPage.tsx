@@ -1,8 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { LogIn, Eye, EyeOff, AlertCircle, ShieldCheck, ArrowLeft } from 'lucide-react';
-import Button from '../components/Button';
-import Header from '../layouts/Header';
+import { LogIn, Eye, EyeOff, ShieldCheck, ArrowLeft } from 'lucide-react';
 import PageMeta from '../components/PageMeta';
 import PublicButton from '../components/PublicButton';
 import PublicError from '../components/PublicError';
