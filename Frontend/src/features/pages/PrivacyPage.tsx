@@ -7,6 +7,7 @@ export default function PrivacyPage() {
     <LegalDocument
       title="Privacy Policy"
       summary="How Acutulus Intelligence handles information when you use AI Dashboard."
+      path={ROUTES.PRIVACY}
     >
       <LegalSection title="Who we are">
         <p>

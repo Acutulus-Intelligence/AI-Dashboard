@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import Header from '../layouts/Header';
 import Footer from '../layouts/Footer';
 import Button from '../components/Button';
+import PageMeta from '../components/PageMeta';
 import BillingToggle from '../components/BillingToggle';
 import PlanCards from '../components/PlanCards';
 import { ROUTES } from '../routes';
@@ -127,6 +128,11 @@ export default function PricingPage() {
 
   return (
     <div className="min-h-screen bg-background text-on-background">
+      <PageMeta
+        title="Pricing — AI Dashboard"
+        description="Compare AI Dashboard plans for individuals and companies. Start a free trial and choose monthly or yearly billing."
+        path={ROUTES.PRICING}
+      />
       <Header />
 
       <main className="pt-16">

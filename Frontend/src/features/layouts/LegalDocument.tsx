@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import PageMeta from '../components/PageMeta';
 import Header from './Header';
 import Footer from './Footer';
 import { ROUTES } from '../routes';
@@ -7,6 +8,7 @@ import { ROUTES } from '../routes';
 interface LegalDocumentProps {
   title: string;
   summary: string;
+  path: string;
   children: ReactNode;
 }
 
@@ -19,9 +21,10 @@ export function LegalSection({ title, children }: { title: string; children: Rea
   );
 }
 
-export default function LegalDocument({ title, summary, children }: LegalDocumentProps) {
+export default function LegalDocument({ title, summary, path, children }: LegalDocumentProps) {
   return (
     <div className="min-h-screen bg-background text-on-background">
+      <PageMeta title={`${title} — AI Dashboard`} description={summary} path={path} />
       <Header />
       <main className="pt-24">
         <article className="mx-auto max-w-3xl px-gutter pb-24 pt-12">

@@ -7,6 +7,7 @@ export default function TermsPage() {
     <LegalDocument
       title="Terms of Service"
       summary="The rules for using AI Dashboard, provided by Acutulus Intelligence."
+      path={ROUTES.TERMS}
     >
       <LegalSection title="Agreement">
         <p>
