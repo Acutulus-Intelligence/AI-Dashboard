@@ -2,7 +2,8 @@ import { useState, useCallback, useRef, forwardRef, useImperativeHandle, useEffe
 import GridLayout, { type Layout, type LayoutItem } from 'react-grid-layout/legacy';
 import 'react-grid-layout/css/styles.css';
 import { Link, useNavigate } from 'react-router-dom';
-import { GripHorizontal, Info, MoreHorizontal, Pencil, PlusCircle, Trash2, X } from 'lucide-react';
+import { Download, FileSpreadsheet, FileText, GripHorizontal, Info, MoreHorizontal, Pencil, PlusCircle, Trash2, X } from 'lucide-react';
+import { toast } from 'sonner';
 import ChartRenderer from '../charts/ChartRenderer';
 import TextWidget from '../components/TextWidget';
 import TextWidgetEditShell from '../components/TextWidgetEditShell';
@@ -25,6 +26,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { getDashboard, saveWidgets, WIDGET_TYPE, TEXT_VARIANT, TEXT_ALIGN_H, TEXT_ALIGN_V, normalizeTextVariant, normalizeTextHorizontalAlign, normalizeTextVerticalAlign, type TextVariant, type TextHorizontalAlign, type TextVerticalAlign, type DashboardWidgetItem } from '../../lib/api/dashboards';
 import { executeChart } from '../../lib/api/charts';
 import { transformResult } from '../charts/transform';
+import { exportChartAsPng } from '../charts/exportChartImage';
+import {
+  exportChartDataAsCsv,
+  exportChartDataAsExcel,
+  hasExportData as chartHasExportData,
+} from '../charts/exportChartData';
 import type { ChartData, ChartStyleConfig } from '../charts/types';
 import { ROUTES, graphEditPath } from '../routes';
 
@@ -287,6 +294,7 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
   const lastPersistHashRef = useRef('');
   const widgetsRef = useRef(widgets);
   const layoutRef = useRef(layout);
+  const chartNodeRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
   widgetsRef.current = widgets;
   layoutRef.current = layout;
 
@@ -439,6 +447,32 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
   const removeWidget = useCallback((id: string) => {
     setWidgets((prev) => prev.filter((w) => w.id !== id));
     setLayout((prev) => prev.filter((item) => item.i !== id));
+  }, []);
+
+  const handleDownloadChart = useCallback(async (widget: ChartWidget) => {
+    try {
+      await exportChartAsPng(chartNodeRefs.current.get(widget.id), widget.title);
+    } catch {
+      toast.error('Could not save the chart as an image.');
+    }
+  }, []);
+
+  const handleDownloadCsv = useCallback(async (widget: ChartWidget) => {
+    if (!widget.data) return;
+    try {
+      await exportChartDataAsCsv(widget.data, widget.chartId, widget.title, widget.styleConfig);
+    } catch {
+      toast.error('Could not save the chart data.');
+    }
+  }, []);
+
+  const handleDownloadExcel = useCallback(async (widget: ChartWidget) => {
+    if (!widget.data) return;
+    try {
+      await exportChartDataAsExcel(widget.data, widget.chartId, widget.title, widget.styleConfig);
+    } catch {
+      toast.error('Could not save the chart data.');
+    }
   }, []);
 
   const handleTextChange = useCallback((id: string, textContent: string) => {
@@ -659,6 +693,10 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
             );
           }
 
+          const widgetHasExportData = widget.data
+            ? chartHasExportData(widget.data, widget.chartId, widget.styleConfig)
+            : false;
+
           return (
             <div key={item.i} onContextMenu={(e) => e.preventDefault()}>
               <Card className="flex h-full flex-col gap-0 overflow-hidden py-0">
@@ -696,6 +734,38 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
                       </Tooltip>
                     )}
 
+                    {(widget.chartId !== 'map' || widgetHasExportData) && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            className="text-muted-foreground hover:text-foreground nodrag inline-flex size-7 cursor-pointer items-center justify-center rounded-md"
+                            aria-label="Save chart"
+                            title="Save chart"
+                            onMouseDown={(e) => e.stopPropagation()}
+                          >
+                            <Download className="size-3.5" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" onMouseDown={(e) => e.stopPropagation()}>
+                          {widget.chartId !== 'map' && (
+                            <DropdownMenuItem onSelect={() => void handleDownloadChart(widget)}>
+                              <Download />
+                              Save as image
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem disabled={!widgetHasExportData} onSelect={() => void handleDownloadCsv(widget)}>
+                            <FileText />
+                            Download CSV
+                          </DropdownMenuItem>
+                          <DropdownMenuItem disabled={!widgetHasExportData} onSelect={() => void handleDownloadExcel(widget)}>
+                            <FileSpreadsheet />
+                            Download Excel
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+
                     {editMode && (
                       <CardAction>
                         <DropdownMenu>
@@ -719,6 +789,12 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
                               <Pencil />
                               Edit
                             </DropdownMenuItem>
+                            {widget.chartId !== 'map' && (
+                              <DropdownMenuItem onSelect={() => void handleDownloadChart(widget)}>
+                                <Download />
+                                Save as image
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem variant="destructive" onSelect={() => removeWidget(widget.id)}>
                               <Trash2 />
                               Remove
@@ -731,7 +807,13 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
                 </CardHeader>
 
                 <CardContent className="relative min-h-0 flex-1 p-3">
-                  <div className="absolute inset-3">
+                  <div
+                    className="absolute inset-3"
+                    ref={(node) => {
+                      if (node) chartNodeRefs.current.set(widget.id, node);
+                      else chartNodeRefs.current.delete(widget.id);
+                    }}
+                  >
                     <ChartRenderer
                       chartId={widget.chartId}
                       data={widget.data}

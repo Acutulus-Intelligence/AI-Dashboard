@@ -7,6 +7,8 @@ export interface ChartData {
   datasets: { label: string; values: number[] }[];
   /** Raw SQL rows, kept so the table chart can show every column. */
   queryResult?: Record<string, unknown>[];
+  /** X-axis column name from the query, used as the first export header. */
+  xAxis?: string;
 }
 
 /**
