@@ -19,6 +19,12 @@ public class StripeService : IPaymentService
         _webhookSecret = settings.Value.WebhookSecret;
     }
 
+    internal StripeService(IOptions<StripeSettings> settings, StripeClient stripeClient)
+        : this(settings)
+    {
+        _stripeClient = stripeClient;
+    }
+
     private StripeClient StripeClient => _stripeClient ??= new StripeClient(_secretKey);
 
     private static string AppendSessionIdTemplate(string url)
@@ -280,9 +286,22 @@ public class StripeService : IPaymentService
 
     public async Task CancelSubscriptionImmediatelyAsync(string stripeSubscriptionId, CancellationToken ct = default)
     {
-        var service = new SubscriptionService(StripeClient);
-        await service.CancelAsync(stripeSubscriptionId, cancellationToken: ct);
+        try
+        {
+            var service = new SubscriptionService(StripeClient);
+            await service.CancelAsync(stripeSubscriptionId, cancellationToken: ct);
+        }
+        catch (StripeException ex) when (IsMissingSubscription(ex))
+        {
+            // The billing period already ended and Stripe deleted the
+            // subscription before our webhook caught up. There is nothing left
+            // to cancel, so treat the cleanup as successful.
+        }
     }
+
+    private static bool IsMissingSubscription(StripeException ex)
+        => ex.HttpStatusCode == System.Net.HttpStatusCode.NotFound
+           || string.Equals(ex.StripeError?.Code, "resource_missing", StringComparison.Ordinal);
 
     public async Task CancelSubscriptionWithProrationAsync(string stripeSubscriptionId, CancellationToken ct = default)
     {

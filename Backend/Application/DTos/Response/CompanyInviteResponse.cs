@@ -6,7 +6,7 @@ public sealed record CompanyInviteResponse(
     Guid Id,
     string Email,
     string? RoleName,
-    Guid RoleId,
+    Guid? RoleId,
     DateTime CreatedAt,
     DateTime ExpiresAt,
     bool IsExpired,

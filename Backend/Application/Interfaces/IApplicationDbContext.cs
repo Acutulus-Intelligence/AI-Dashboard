@@ -1,12 +1,16 @@
 using Domain.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 
 namespace Application.Interfaces;
 
 public interface IApplicationDbContext
 {
+    DatabaseFacade Database { get; }
+
     DbSet<Company> Companies { get; }
     DbSet<CompanyInvite> CompanyInvites { get; }
+    DbSet<CompanyInviteEmailSend> CompanyInviteEmailSends { get; }
     DbSet<CompanyRole> CompanyRoles { get; }
     DbSet<CompanySubscription> CompanySubscriptions { get; }
     DbSet<Dashboard> Dashboards { get; }

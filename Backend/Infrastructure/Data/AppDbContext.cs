@@ -16,6 +16,7 @@ namespace Infrastructure.Data
 
         public DbSet<Company> Companies => Set<Company>();
         public DbSet<CompanyInvite> CompanyInvites => Set<CompanyInvite>();
+        public DbSet<CompanyInviteEmailSend> CompanyInviteEmailSends => Set<CompanyInviteEmailSend>();
         public DbSet<CompanyRole> CompanyRoles => Set<CompanyRole>();
         public DbSet<Dashboard> Dashboards => Set<Dashboard>();
         public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
@@ -37,6 +38,7 @@ namespace Infrastructure.Data
 
             builder.ApplyConfiguration(new CompanyConfiguration());
             builder.ApplyConfiguration(new CompanyInviteConfiguration());
+            builder.ApplyConfiguration(new CompanyInviteEmailSendConfiguration());
             builder.ApplyConfiguration(new CompanyRoleConfiguration());
             builder.ApplyConfiguration(new DashboardConfiguration());
             builder.ApplyConfiguration(new RefreshTokenConfiguration());

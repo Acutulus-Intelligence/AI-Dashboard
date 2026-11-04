@@ -1,4 +1,5 @@
-﻿using Application.Common.Exceptions;
+﻿using Application.Common.Data;
+using Application.Common.Exceptions;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
@@ -101,12 +102,32 @@ namespace Application.Common.Mapping
                 Title = "Email Delivery Failed",
                 ErrorCode = "email_delivery_failed"
             }},
+
+            { typeof(SubscriptionRequiredException), new ExceptionMapResult {
+                StatusCode = (int)HttpStatusCode.Forbidden,
+                Title = "Subscription Required",
+                ErrorCode = "subscription_required"
+            }},
         };
         }
 
         public ExceptionMapResult Map(Exception ex)
         {
             var type = ex.GetType();
+
+            // Only a unique violation is a client conflict. Any other failed
+            // database update is a server error, not a 409.
+            if (type == typeof(DbUpdateException) &&
+                ex is DbUpdateException dbUpdate &&
+                !dbUpdate.IsUniqueViolation())
+            {
+                return new ExceptionMapResult
+                {
+                    StatusCode = (int)HttpStatusCode.InternalServerError,
+                    Title = "Internal Server Error",
+                    ErrorCode = "server_error"
+                };
+            }
 
             if (!_map.TryGetValue(type, out var result))
                 return new ExceptionMapResult

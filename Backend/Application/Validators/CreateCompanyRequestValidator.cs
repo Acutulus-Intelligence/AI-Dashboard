@@ -9,6 +9,7 @@ public class CreateCompanyRequestValidator : AbstractValidator<CreateCompanyRequ
     {
         RuleFor(x => x.Name)
             .NotEmpty()
-            .MaximumLength(200);
+            .MaximumLength(200)
+            .NoMarkupOrControlCharacters();
     }
 }

@@ -23,8 +23,11 @@ public class CompanyInviteConfiguration : IEntityTypeConfiguration<CompanyInvite
         builder.HasIndex(ci => ci.TokenHash)
             .IsUnique();
 
+        // Only one *pending* invite may exist per (company, email); accepted rows
+        // are kept for traceability and must not block a fresh invite.
         builder.HasIndex(ci => new { ci.CompanyId, ci.Email })
-            .IsUnique();
+            .IsUnique()
+            .HasFilter("\"IsAccepted\" = false");
 
         builder.Property(ci => ci.DeliveryMethod)
             .HasConversion<int>();
@@ -37,9 +40,15 @@ public class CompanyInviteConfiguration : IEntityTypeConfiguration<CompanyInvite
             .HasForeignKey(ci => ci.CompanyId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        builder.Property(ci => ci.RoleName)
+            .IsRequired()
+            .HasMaxLength(100);
+
+        // Accepted invites are kept for history, so deleting their role must
+        // not delete the invite; the FK is cleared instead.
         builder.HasOne(ci => ci.Role)
             .WithMany()
             .HasForeignKey(ci => ci.RoleId)
-            .OnDelete(DeleteBehavior.Restrict);
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }

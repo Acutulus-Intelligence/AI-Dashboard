@@ -90,8 +90,8 @@ public class CompanyController : ControllerBase
     public async Task<IActionResult> InviteUser(Guid id, [FromBody] InviteUserRequest request, CancellationToken ct)
     {
         var actorId = GetUserId();
-        var token = await _companyService.InviteUserAsync(id, request.Email, request.RoleId, request.DeliveryMethod, actorId, ct);
-        return Ok(new { token });
+        await _companyService.InviteUserAsync(id, request.Email, request.RoleId, request.DeliveryMethod, actorId, ct);
+        return NoContent();
     }
 
     [HttpPost("{id:guid}/invites/{inviteId:guid}/resend")]

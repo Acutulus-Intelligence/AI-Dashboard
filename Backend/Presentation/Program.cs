@@ -273,12 +273,25 @@ if (rateLimitingEnabled)
 
 var app = builder.Build();
 
+if (string.IsNullOrWhiteSpace(builder.Configuration.GetValue<string>("Email:ResendApiKey")))
+{
+    app.Logger.LogWarning(
+        "Email:ResendApiKey is not configured; email invitations will fail until it is set.");
+}
+
 if (forwardedHeadersEnabled)
 {
     app.UseForwardedHeaders();
 }
 
 app.UseMiddleware<GlobalExceptionMiddleware>();
+
+app.Use(async (context, next) =>
+{
+    // Keep invite/recovery tokens and other URLs out of the Referer header (S3).
+    context.Response.Headers["Referrer-Policy"] = "no-referrer";
+    await next();
+});
 
 if (app.Environment.IsDevelopment())
 {

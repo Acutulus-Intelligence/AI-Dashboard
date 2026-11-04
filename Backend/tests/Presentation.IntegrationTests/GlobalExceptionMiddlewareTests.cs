@@ -3,9 +3,11 @@ using Application.Common.Mapping;
 using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
+using Npgsql;
 using Presentation.Middleware;
 
 namespace Presentation.IntegrationTests;
@@ -33,6 +35,28 @@ public sealed class GlobalExceptionMiddlewareTests
         body.Status.Should().Be(StatusCodes.Status500InternalServerError);
         body.Detail.Should().Be("An unexpected error occurred.");
     }
+
+    [Fact]
+    public void Db_update_unique_violation_maps_to_conflict()
+    {
+        var exception = DbUpdateError(PostgresErrorCodes.UniqueViolation);
+
+        new ExceptionMapper().Map(exception).StatusCode
+            .Should().Be(StatusCodes.Status409Conflict);
+    }
+
+    [Fact]
+    public void Db_update_other_failures_map_to_server_error()
+    {
+        var exception = DbUpdateError(PostgresErrorCodes.NotNullViolation);
+
+        new ExceptionMapper().Map(exception).StatusCode
+            .Should().Be(StatusCodes.Status500InternalServerError);
+    }
+
+    private static DbUpdateException DbUpdateError(string sqlState)
+        => new("database update failed",
+            new PostgresException("database update failed", "ERROR", "ERROR", sqlState));
 
     private static async Task<(int Status, string? Detail)> InvokeAsync(
         Exception exception, string environmentName)

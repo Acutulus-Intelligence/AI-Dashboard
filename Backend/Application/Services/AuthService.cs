@@ -80,6 +80,18 @@ public class AuthService : IAuthService
         if (existingUser is not null)
             throw new ConflictException("Email is already registered.", "email_conflict");
 
+        // Joining via an invite: validate it (including the email match) before
+        // creating the account, so an invalid/expired/mismatched invite can never
+        // leave a parentless account behind.
+        if (!string.IsNullOrEmpty(request.InviteToken))
+        {
+            var invitation = await _companyService.ValidateInvitationAsync(request.InviteToken, ct)
+                ?? throw new InvalidOperationException("This invitation is invalid or has expired.");
+
+            if (!string.Equals(invitation.Email, request.Email, StringComparison.OrdinalIgnoreCase))
+                throw new UnauthorizedAccessException("This invite is not for you.");
+        }
+
         var user = new User
         {
             UserName = request.Email,
@@ -88,6 +100,11 @@ public class AuthService : IAuthService
             LastName = request.LastName,
             UserType = request.UserType
         };
+
+        // Account creation and joining the company commit together: if the invite
+        // was consumed between the validation above and the accept below, the
+        // account is rolled back instead of being orphaned.
+        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
 
         var createResult = await _userManager.CreateAsync(user, request.Password);
         if (!createResult.Succeeded)
@@ -99,6 +116,8 @@ public class AuthService : IAuthService
         {
             await _companyService.AcceptInviteAsync(request.InviteToken, user.Id, ct);
         }
+
+        await transaction.CommitAsync(ct);
 
         var roles = await _userManager.GetRolesAsync(user);
         return await GenerateAuthResultAsync(user, roles);
@@ -119,8 +138,16 @@ public class AuthService : IAuthService
             Email = invitation.Email,
             FirstName = request.FirstName,
             LastName = request.LastName,
-            UserType = UserType.Company
+            UserType = UserType.Company,
+            // Possession of the single-use email invite link proves control of the
+            // mailbox, so the account starts email-confirmed (S2).
+            EmailConfirmed = true
         };
+
+        // Create and join atomically so a failed accept (revoked between the
+        // validation above and here, or a concurrent accept) cannot leave an
+        // account without a company.
+        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
 
         var createResult = await _userManager.CreateAsync(user, request.Password);
         if (!createResult.Succeeded)
@@ -129,6 +156,8 @@ public class AuthService : IAuthService
         await _userManager.AddToRoleAsync(user, "User");
 
         await _companyService.AcceptInviteAsync(token, user.Id, ct);
+
+        await transaction.CommitAsync(ct);
 
         var roles = await _userManager.GetRolesAsync(user);
         return await GenerateAuthResultAsync(user, roles);
@@ -339,12 +368,14 @@ public class AuthService : IAuthService
         if (!await _userManager.CheckPasswordAsync(user, request.Password))
             throw new UnauthorizedAccessException("Current password is incorrect.");
 
-        var factorValid = !string.IsNullOrWhiteSpace(request.RecoveryCode)
-            ? await RedeemRecoveryCodeAsync(user, request.RecoveryCode.Trim(), ct)
+        var factorResult = !string.IsNullOrWhiteSpace(request.RecoveryCode)
+            ? (await RedeemRecoveryCodeAsync(user, request.RecoveryCode.Trim(), ct)
+                ? TotpValidationResult.Valid
+                : TotpValidationResult.Invalid)
             : await VerifyActiveTotpAsync(user, request.Code);
 
-        if (!factorValid)
-            throw new UnauthorizedAccessException("Invalid verification code.");
+        if (factorResult != TotpValidationResult.Valid)
+            throw new UnauthorizedAccessException(DescribeFactorResult(factorResult));
 
         var disableResult = await _userManager.SetTwoFactorEnabledAsync(user, false);
         if (!disableResult.Succeeded)
@@ -381,8 +412,9 @@ public class AuthService : IAuthService
         if (!await _userManager.CheckPasswordAsync(user, request.Password))
             throw new UnauthorizedAccessException("Current password is incorrect.");
 
-        if (!await VerifyActiveTotpAsync(user, request.Code))
-            throw new UnauthorizedAccessException("Invalid verification code.");
+        var factorResult = await VerifyActiveTotpAsync(user, request.Code);
+        if (factorResult != TotpValidationResult.Valid)
+            throw new UnauthorizedAccessException(DescribeFactorResult(factorResult));
 
         var codes = await GenerateRecoveryCodesAsync(user, ct);
         return new TwoFactorRecoveryCodesResponse(codes);
@@ -621,34 +653,34 @@ public class AuthService : IAuthService
         return _encryption.IsEncrypted(stored) ? _encryption.Decrypt(stored) : stored;
     }
 
-    private async Task<bool> VerifyActiveTotpAsync(User user, string? code)
+    /// <summary>
+    /// Validates an authenticator code against the active key and reports the
+    /// outcome. It never records an access failure itself, so callers decide
+    /// whether a rejected code counts toward lockout — management flows (disable
+    /// and regenerate) must not, and already count nothing for a wrong code.
+    /// </summary>
+    private async Task<TotpValidationResult> VerifyActiveTotpAsync(User user, string? code)
     {
         if (string.IsNullOrWhiteSpace(code))
-            return false;
+            return TotpValidationResult.Invalid;
 
         var key = await GetDecryptedAuthenticatorKeyAsync(user);
         if (key is null)
-            return false;
+            return TotpValidationResult.Invalid;
 
         // Reject replaying a code that was already accepted within its validity
         // window (shared with the login flow's replay protection).
         var lastTimeStep = await GetLastTimeStepAsync(user);
         var result = _totp.Validate(key, code.Trim(), lastTimeStep, out var matchedTimeStep);
 
-        if (result == TotpValidationResult.Replay)
-        {
-            // Still count the attempt toward lockout, like any other failed code,
-            // but tell the user why it was rejected.
-            await _userManager.AccessFailedAsync(user);
-            throw new UnauthorizedAccessException(ReusedTwoFactorCodeMessage);
-        }
+        if (result == TotpValidationResult.Valid)
+            await SetLastTimeStepAsync(user, matchedTimeStep);
 
-        if (result != TotpValidationResult.Valid)
-            return false;
-
-        await SetLastTimeStepAsync(user, matchedTimeStep);
-        return true;
+        return result;
     }
+
+    private static string DescribeFactorResult(TotpValidationResult result) =>
+        result == TotpValidationResult.Replay ? ReusedTwoFactorCodeMessage : "Invalid verification code.";
 
     private async Task<bool> VerifyAccountFactorAsync(
         User user, string? code, string? recoveryCode, CancellationToken ct)
@@ -656,7 +688,7 @@ public class AuthService : IAuthService
         if (!string.IsNullOrWhiteSpace(recoveryCode))
             return await RedeemRecoveryCodeAsync(user, recoveryCode.Trim(), ct);
 
-        return await VerifyActiveTotpAsync(user, code);
+        return await VerifyActiveTotpAsync(user, code) == TotpValidationResult.Valid;
     }
 
     private async Task<long> GetLastTimeStepAsync(User user)
