@@ -75,6 +75,7 @@ import {
   exportChartDataAsExcel,
   hasExportData as chartHasExportData,
 } from '../charts/exportChartData';
+import { exportChartAsPng } from '../charts/exportChartImage';
 import type { ChartStyleConfig } from '../charts/types';
 import ChartStylePanel from '../components/ChartStylePanel';
 import AddToDashboardDialog from '../components/AddToDashboardDialog';
@@ -539,7 +540,12 @@ export default function GraphCreationPage() {
   async function handleDownloadCsv() {
     if (!result || !chartData) return;
     try {
-      await exportChartDataAsCsv(chartData, result.chartType, editableTitle || result.title, styleConfig);
+      await exportChartDataAsCsv(
+        chartData,
+        result.chartType,
+        editableTitle || result.title,
+        styleConfig,
+      );
     } catch {
       toast.error('Could not save the chart data.');
     }
@@ -548,9 +554,23 @@ export default function GraphCreationPage() {
   async function handleDownloadExcel() {
     if (!result || !chartData) return;
     try {
-      await exportChartDataAsExcel(chartData, result.chartType, editableTitle || result.title, styleConfig);
+      await exportChartDataAsExcel(
+        chartData,
+        result.chartType,
+        editableTitle || result.title,
+        styleConfig,
+      );
     } catch {
       toast.error('Could not save the chart data.');
+    }
+  }
+
+  async function handleDownloadImage() {
+    if (!result) return;
+    try {
+      await exportChartAsPng(previewRef.current, editableTitle || result.title);
+    } catch {
+      toast.error('Could not save the chart image.');
     }
   }
 
@@ -1265,30 +1285,40 @@ export default function GraphCreationPage() {
                         </TooltipContent>
                       </Tooltip>
                     )}
-                    {(result.chartType !== 'map' || hasExportData) && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            type="button"
-                            className="text-muted-foreground hover:text-foreground inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md"
-                            aria-label="Save chart"
-                            title="Save chart"
-                          >
-                            <Download className="size-4" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">                         
-                          <DropdownMenuItem disabled={!hasExportData} onSelect={() => void handleDownloadCsv()}>
-                            <FileText />
-                            Download CSV
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="text-muted-foreground hover:text-foreground inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md"
+                          aria-label="Save chart"
+                          title="Save chart"
+                        >
+                          <Download className="size-4" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {result.chartType !== 'map' && (
+                          <DropdownMenuItem onSelect={() => void handleDownloadImage()}>
+                            <Download />
+                            Save as image
                           </DropdownMenuItem>
-                          <DropdownMenuItem disabled={!hasExportData} onSelect={() => void handleDownloadExcel()}>
-                            <FileSpreadsheet />
-                            Download Excel
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
+                        )}
+                        <DropdownMenuItem
+                          disabled={!hasExportData}
+                          onSelect={() => void handleDownloadCsv()}
+                        >
+                          <FileText />
+                          Download CSV
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={!hasExportData}
+                          onSelect={() => void handleDownloadExcel()}
+                        >
+                          <FileSpreadsheet />
+                          Download Excel
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                     <Badge variant="secondary" className="shrink-0 capitalize">
                       {result.chartType}
                     </Badge>

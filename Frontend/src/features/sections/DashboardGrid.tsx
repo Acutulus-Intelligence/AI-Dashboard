@@ -754,11 +754,17 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
                               Save as image
                             </DropdownMenuItem>
                           )}
-                          <DropdownMenuItem disabled={!widgetHasExportData} onSelect={() => void handleDownloadCsv(widget)}>
+                          <DropdownMenuItem
+                            disabled={!widgetHasExportData}
+                            onSelect={() => void handleDownloadCsv(widget)}
+                          >
                             <FileText />
                             Download CSV
                           </DropdownMenuItem>
-                          <DropdownMenuItem disabled={!widgetHasExportData} onSelect={() => void handleDownloadExcel(widget)}>
+                          <DropdownMenuItem
+                            disabled={!widgetHasExportData}
+                            onSelect={() => void handleDownloadExcel(widget)}
+                          >
                             <FileSpreadsheet />
                             Download Excel
                           </DropdownMenuItem>
@@ -789,12 +795,6 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
                               <Pencil />
                               Edit
                             </DropdownMenuItem>
-                            {widget.chartId !== 'map' && (
-                              <DropdownMenuItem onSelect={() => void handleDownloadChart(widget)}>
-                                <Download />
-                                Save as image
-                              </DropdownMenuItem>
-                            )}
                             <DropdownMenuItem variant="destructive" onSelect={() => removeWidget(widget.id)}>
                               <Trash2 />
                               Remove

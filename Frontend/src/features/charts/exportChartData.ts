@@ -1,7 +1,8 @@
 import type { ChartData, ChartStyleConfig } from './types';
-import { slugifyTitle } from './exportChartImage';
+import { downloadBlob, slugifyTitle } from './download';
 
 type SheetUtils = typeof import('xlsx')['utils'];
+type CellMapper = (value: ExportCell) => ExportCell;
 
 export type ExportCell = string | number | boolean;
 
@@ -10,24 +11,29 @@ export interface ExportTable {
   rows: ExportCell[][];
 }
 
-const DEFAULT_TABLE_ROWS = 100;
+/** Excel rejects cells longer than 32,767 characters. */
+const MAX_CELL_CHARS = 32_767;
 const MAX_COLUMN_WIDTH = 40;
 
 /** Leading characters spreadsheets treat as the start of a formula. */
 const FORMULA_PREFIXES = ['=', '+', '-', '@', '\t', '\r'];
+
+function clampText(value: string): string {
+  return value.length > MAX_CELL_CHARS ? value.slice(0, MAX_CELL_CHARS) : value;
+}
 
 /** Coerces an arbitrary query value into something a spreadsheet cell accepts. */
 function normalizeCell(value: unknown): ExportCell {
   if (value === null || value === undefined) return '';
   if (typeof value === 'number') return Number.isFinite(value) ? value : '';
   if (typeof value === 'boolean') return value;
-  if (typeof value === 'bigint') return value.toString();
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value === 'string') return value;
+  if (typeof value === 'bigint') return clampText(value.toString());
+  if (value instanceof Date) return clampText(value.toISOString());
+  if (typeof value === 'string') return clampText(value);
   try {
-    return JSON.stringify(value);
+    return clampText(JSON.stringify(value));
   } catch {
-    return String(value);
+    return clampText(String(value));
   }
 }
 
@@ -42,16 +48,25 @@ function escapeFormula(value: ExportCell): ExportCell {
   return Number.isFinite(Number(value)) ? value : `'${value}`;
 }
 
-function resolveMaxRows(styleConfig?: ChartStyleConfig): number {
-  const value = styleConfig?.params?.maxRows;
-  return typeof value === 'number' && Number.isFinite(value) && value > 0
-    ? Math.floor(value)
-    : DEFAULT_TABLE_ROWS;
+/**
+ * Escapes formulas and writes decimals with a comma, matching the `;` field
+ * separator European Excel expects. Runs after escaping so `-3,5` is not
+ * mistaken for a formula.
+ */
+function toCsvCell(value: ExportCell): ExportCell {
+  const escaped = escapeFormula(value);
+  if (typeof escaped === 'number' && !Number.isInteger(escaped)) {
+    return String(escaped).replace('.', ',');
+  }
+  return escaped;
 }
 
-/** Raw table variant: the query-result columns the table displays, limited to shown rows. */
-function buildTableData(data: ChartData, styleConfig?: ChartStyleConfig): ExportTable {
-  const rows = (data.queryResult ?? []).slice(0, resolveMaxRows(styleConfig));
+/**
+ * Raw table variant: every query-result column the table displays. Row limits
+ * are a display concern, so exports include all rows.
+ */
+function buildTableData(data: ChartData): ExportTable {
+  const rows = data.queryResult ?? [];
   if (!rows.length) return { header: [], rows: [] };
 
   const header: string[] = [];
@@ -95,7 +110,7 @@ export function buildExportTable(
   styleConfig?: ChartStyleConfig,
 ): ExportTable {
   if (chartId === 'table' && styleConfig?.variant !== 'summary') {
-    return buildTableData(data, styleConfig);
+    return buildTableData(data);
   }
   const includeAllDatasets = chartId !== 'pie' && chartId !== 'radial';
   return buildSeriesData(data, includeAllDatasets);
@@ -113,25 +128,16 @@ export function hasExportData(
   return data.labels.length > 0 && data.datasets.length > 0;
 }
 
-function toWorksheet(table: ExportTable, escapeFormulas: boolean, utils: SheetUtils) {
-  const map = (value: ExportCell) => (escapeFormulas ? escapeFormula(value) : value);
-  const aoa: ExportCell[][] = [table.header.map(map), ...table.rows.map((row) => row.map(map))];
+function toWorksheet(table: ExportTable, mapCell: CellMapper, utils: SheetUtils) {
+  const aoa: ExportCell[][] = [
+    table.header.map(mapCell),
+    ...table.rows.map((row) => row.map(mapCell)),
+  ];
   const sheet = utils.aoa_to_sheet(aoa);
   sheet['!cols'] = table.header.map((name) => ({
     wch: Math.min(Math.max(String(name).length + 2, 10), MAX_COLUMN_WIDTH),
   }));
   return sheet;
-}
-
-function downloadBlob(blob: Blob, fileName: string): void {
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = fileName;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 export async function exportChartDataAsCsv(
@@ -144,7 +150,10 @@ export async function exportChartDataAsCsv(
   if (!table.rows.length) throw new Error('There is no data to export.');
 
   const { utils } = await import('xlsx');
-  const csv = utils.sheet_to_csv(toWorksheet(table, true, utils), { FS: ';', RS: '\r\n' });
+  const csv = utils.sheet_to_csv(toWorksheet(table, toCsvCell, utils), {
+    FS: ';',
+    RS: '\r\n',
+  });
   // BOM keeps Excel from misreading non-ASCII (e.g. Swedish names).
   const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
   downloadBlob(blob, `${slugifyTitle(title) || 'chart'}.csv`);
@@ -161,6 +170,6 @@ export async function exportChartDataAsExcel(
 
   const { utils, writeFile } = await import('xlsx');
   const book = utils.book_new();
-  utils.book_append_sheet(book, toWorksheet(table, false, utils), 'Data');
+  utils.book_append_sheet(book, toWorksheet(table, (value) => value, utils), 'Data');
   writeFile(book, `${slugifyTitle(title) || 'chart'}.xlsx`);
 }
