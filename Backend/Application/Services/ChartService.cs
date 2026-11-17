@@ -1,3 +1,4 @@
+using Application.Caching;
 using Application.Common.Exceptions;
 using Application.Datasets;
 using Application.DTos.Request;
@@ -6,6 +7,7 @@ using Application.Interfaces;
 using Domain.Charts;
 using Domain.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Application.Services;
 
@@ -17,6 +19,9 @@ public class ChartService : IChartService
     private readonly IDataQueryExecutor _dataQueryExecutor;
     private readonly IConnectionAccessService _access;
     private readonly ICollectionAccessService _collectionAccess;
+    private readonly IChartResultCache _chartCache;
+    private readonly IKeyedAsyncLock _executionLock;
+    private readonly ILogger<ChartService> _logger;
 
     public ChartService(
         IApplicationDbContext db,
@@ -24,7 +29,10 @@ public class ChartService : IChartService
         IDatasetQueryExecutor datasetQueryExecutor,
         IDataQueryExecutor dataQueryExecutor,
         IConnectionAccessService access,
-        ICollectionAccessService collectionAccess)
+        ICollectionAccessService collectionAccess,
+        IChartResultCache chartCache,
+        IKeyedAsyncLock executionLock,
+        ILogger<ChartService> logger)
     {
         _db = db;
         _queryExecutor = queryExecutor;
@@ -32,6 +40,9 @@ public class ChartService : IChartService
         _dataQueryExecutor = dataQueryExecutor;
         _access = access;
         _collectionAccess = collectionAccess;
+        _chartCache = chartCache;
+        _executionLock = executionLock;
+        _logger = logger;
     }
 
     public async Task<ChartResponse> SaveChartAsync(Guid userId, SaveChartRequest request, CancellationToken ct = default)
@@ -138,6 +149,7 @@ public class ChartService : IChartService
         chart.UpdatedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync(ct);
+        await _chartCache.InvalidateAsync(userId, id, ct);
 
         return new ChartDetailResponse(
             chart.Id, chart.Title, chart.ChartType,
@@ -158,6 +170,7 @@ public class ChartService : IChartService
 
         _db.SavedCharts.Remove(chart);
         await _db.SaveChangesAsync(ct);
+        await _chartCache.InvalidateAsync(userId, id, ct);
     }
 
     public async Task MoveChartAsync(Guid id, Guid userId, Guid? folderId, CancellationToken ct = default)
@@ -173,7 +186,11 @@ public class ChartService : IChartService
         await _db.SaveChangesAsync(ct);
     }
 
-    public async Task<ChartConfigResponse> ExecuteChartAsync(Guid id, Guid userId, CancellationToken ct = default)
+    public async Task<ChartConfigResponse> ExecuteChartAsync(
+        Guid id,
+        Guid userId,
+        bool forceRefresh = false,
+        CancellationToken ct = default)
     {
         var chart = await _db.SavedCharts
             .AsNoTracking()
@@ -183,19 +200,44 @@ public class ChartService : IChartService
         if (chart.ConnectionId is null && chart.DatasetId is null)
             throw new InvalidOperationException("Chart has no associated data source.");
 
-        List<Dictionary<string, object?>> result;
+        SavedDataset? dataset = null;
 
         if (chart.DatasetId is not null)
         {
-            var dataset = await _db.SavedDatasets
+            dataset = await _db.SavedDatasets
                 .AsNoTracking()
                 .FirstOrDefaultAsync(ds => ds.Id == chart.DatasetId.Value, ct)
                 ?? throw new KeyNotFoundException("Dataset not found.");
 
-            var canViewCollection = await _collectionAccess.CanViewAsync(dataset.CollectionId, userId, ct);
-            if (!canViewCollection)
+            if (!await _collectionAccess.CanViewAsync(dataset.CollectionId, userId, ct))
                 throw new UnauthorizedAccessException("Dataset collection is not accessible to you.");
+        }
+        else if (!await _access.CanViewAsync(chart.ConnectionId!.Value, userId, ct))
+        {
+            throw new UnauthorizedAccessException("Connection is not accessible to you.");
+        }
 
+        if (!forceRefresh)
+        {
+            var cached = await TryGetCachedAsync(chart, userId, ct);
+            if (cached is not null)
+                return BuildResponse(chart, cached.Rows, cached.DataUpdatedAt);
+        }
+
+        // Collapse concurrent cache misses for the same chart into one query.
+        using var lease = await _executionLock.AcquireAsync($"{userId:N}:{id:N}", ct);
+
+        if (!forceRefresh)
+        {
+            var cached = await TryGetCachedAsync(chart, userId, ct);
+            if (cached is not null)
+                return BuildResponse(chart, cached.Rows, cached.DataUpdatedAt);
+        }
+
+        List<Dictionary<string, object?>> result;
+
+        if (dataset is not null)
+        {
             var columnNames = dataset.ColumnNames;
             var columnTypes = dataset.ColumnTypes;
             var rows = DatasetRows.Decode(dataset);
@@ -213,9 +255,75 @@ public class ChartService : IChartService
         }
         else
         {
-            result = await _queryExecutor.ExecuteAsync(chart.ConnectionId!.Value, userId, chart.SqlQuery, ct);
+            result = await _queryExecutor.ExecuteAsync(
+                chart.ConnectionId!.Value, userId, chart.SqlQuery, ct);
         }
 
+        var dataUpdatedAt = DateTimeOffset.UtcNow;
+
+        try
+        {
+            await _chartCache.SetAsync(
+                userId,
+                id,
+                new CachedChartResult(result, chart.UpdatedAt, dataUpdatedAt),
+                ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to cache chart result for user {UserId} and chart {ChartId}.",
+                userId,
+                id);
+        }
+
+        return BuildResponse(chart, result, dataUpdatedAt);
+    }
+
+    private async Task<CachedChartResult?> TryGetCachedAsync(
+        SavedChart chart,
+        Guid userId,
+        CancellationToken ct)
+    {
+        try
+        {
+            var cached = await _chartCache.GetAsync(userId, chart.Id, ct);
+            if (cached is null)
+                return null;
+
+            if (cached.ChartUpdatedAt != chart.UpdatedAt)
+            {
+                await _chartCache.InvalidateAsync(userId, chart.Id, ct);
+                return null;
+            }
+
+            return cached;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to read chart cache for user {UserId} and chart {ChartId}.",
+                userId,
+                chart.Id);
+            return null;
+        }
+    }
+
+    private static ChartConfigResponse BuildResponse(
+        SavedChart chart,
+        List<Dictionary<string, object?>> rows,
+        DateTimeOffset dataUpdatedAt)
+    {
         return new ChartConfigResponse(
             chart.ChartType,
             chart.Title,
@@ -224,8 +332,9 @@ public class ChartService : IChartService
             chart.Aggregation,
             chart.GroupBy,
             chart.SqlQuery,
-            result,
-            chart.StyleConfig
+            rows,
+            chart.StyleConfig,
+            DataUpdatedAt: dataUpdatedAt
         );
     }
 

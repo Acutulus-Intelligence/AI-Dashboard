@@ -4,18 +4,21 @@ class ApiError extends Error {
   status: number;
   code?: string;
   fieldErrors?: Record<string, string[]>;
+  retryAfterSeconds?: number;
 
   constructor(
     message: string,
     status: number,
     code?: string,
     fieldErrors?: Record<string, string[]>,
+    retryAfterSeconds?: number,
   ) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
     this.fieldErrors = fieldErrors;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
@@ -149,7 +152,13 @@ async function handleResponse<T>(res: Response): Promise<T> {
     } catch {
       /* ignore */
     }
-    throw new ApiError(message, res.status, code, fieldErrors);
+
+    const retryAfterHeader = res.headers.get('Retry-After');
+    const retryAfterSeconds = retryAfterHeader && /^\d+$/.test(retryAfterHeader)
+      ? Number(retryAfterHeader)
+      : undefined;
+
+    throw new ApiError(message, res.status, code, fieldErrors, retryAfterSeconds);
   }
 
   if (res.status === 204) return undefined as T;

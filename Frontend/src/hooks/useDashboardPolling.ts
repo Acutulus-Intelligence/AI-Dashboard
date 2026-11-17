@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ApiError } from '../lib/api/client';
 
 export const DASHBOARD_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -22,6 +23,7 @@ interface UseDashboardPollingResult {
   lastUpdatedAt: number | null;
   nextRefreshAt: number | null;
   error: string | null;
+  cooldownUntil: number | null;
   refreshNow: () => Promise<void>;
   markUpdated: (timestamp?: number) => void;
   markError: (message: string | null) => void;
@@ -38,6 +40,7 @@ export function useDashboardPolling({
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [nextRefreshAt, setNextRefreshAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cooldownUntil, setCooldownUntil] = useState<number | null>(null);
 
   const onRefreshRef = useRef(onRefresh);
   const enabledRef = useRef(enabled);
@@ -45,6 +48,7 @@ export function useDashboardPolling({
   const mountedRef = useRef(true);
   const blockedRef = useRef(false);
   const timerRef = useRef<number | null>(null);
+  const cooldownTimerRef = useRef<number | null>(null);
   const inFlightRef = useRef<Promise<void> | null>(null);
   const lastUpdatedRef = useRef<number | null>(null);
   const scheduleRef = useRef<(delay: number) => void>(() => {});
@@ -123,10 +127,27 @@ export function useDashboardPolling({
           setError(REFRESH_ERROR_MESSAGE);
         } else if (outcome.succeeded > 0) {
           setError(null);
+          if (cooldownTimerRef.current !== null) {
+            window.clearTimeout(cooldownTimerRef.current);
+            cooldownTimerRef.current = null;
+          }
+          setCooldownUntil(null);
         }
-      } catch {
+      } catch (err) {
         if (mountedRef.current) {
-          setError(REFRESH_ERROR_MESSAGE);
+          if (err instanceof ApiError && err.status === 429) {
+            const seconds = err.retryAfterSeconds ?? 60;
+            setCooldownUntil(Date.now() + seconds * 1000);
+            setError(`Too many refreshes. Try again in ${seconds}s.`);
+            if (cooldownTimerRef.current !== null)
+              window.clearTimeout(cooldownTimerRef.current);
+            cooldownTimerRef.current = window.setTimeout(() => {
+              cooldownTimerRef.current = null;
+              if (mountedRef.current) setCooldownUntil(null);
+            }, seconds * 1000);
+          } else {
+            setError(REFRESH_ERROR_MESSAGE);
+          }
         }
       } finally {
         if (mountedRef.current) {
@@ -212,6 +233,10 @@ export function useDashboardPolling({
     return () => {
       mountedRef.current = false;
       clearTimer();
+      if (cooldownTimerRef.current !== null) {
+        window.clearTimeout(cooldownTimerRef.current);
+        cooldownTimerRef.current = null;
+      }
       inFlightRef.current = null;
     };
   }, [clearTimer]);
@@ -221,6 +246,7 @@ export function useDashboardPolling({
     lastUpdatedAt,
     nextRefreshAt: enabled ? nextRefreshAt : null,
     error,
+    cooldownUntil,
     refreshNow,
     markUpdated,
     markError,

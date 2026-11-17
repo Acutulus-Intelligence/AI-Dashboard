@@ -2,6 +2,7 @@ using Application.DTos.Request;
 using Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Presentation.Middleware;
 
 namespace Presentation.Controllers;
@@ -73,10 +74,14 @@ public class ChartController : ControllerBase
     }
 
     [HttpPost("{id:guid}/execute")]
-    public async Task<IActionResult> Execute(Guid id, CancellationToken ct)
+    [EnableRateLimiting("chart-refresh")]
+    public async Task<IActionResult> Execute(
+        Guid id,
+        [FromQuery] bool forceRefresh = false,
+        CancellationToken ct = default)
     {
         var userId = GetUserId();
-        var result = await _chartService.ExecuteChartAsync(id, userId, ct);
+        var result = await _chartService.ExecuteChartAsync(id, userId, forceRefresh, ct);
         return Ok(result);
     }
 

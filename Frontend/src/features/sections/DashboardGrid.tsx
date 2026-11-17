@@ -196,7 +196,7 @@ async function addWidgetWithData(
   setWidgets: React.Dispatch<React.SetStateAction<Widget[]>>,
   setLayout: React.Dispatch<React.SetStateAction<LayoutItem[]>>,
 ) {
-  const result = await executeChart(savedChartId);
+  const result = await executeChart(savedChartId, { forceRefresh: false });
   const data = transformResult(result);
   const id = createId();
   setWidgets((prev) => [...prev, {
@@ -326,6 +326,7 @@ interface LoadDashboardOptions {
 
 interface LoadDashboardResult {
   name: string;
+  mode: 'initial' | 'manual' | 'auto';
   autoRefreshEnabled: boolean;
   widgets: Widget[];
   layout: LayoutItem[];
@@ -334,6 +335,7 @@ interface LoadDashboardResult {
   failed: number;
   blocked: boolean;
   loadedAt: number;
+  oldestDataUpdatedAt: number | null;
 }
 
 async function loadDashboardState({
@@ -417,6 +419,7 @@ async function loadDashboardState({
     styleConfig?: ChartStyleConfig;
     title: string;
     chartId: string;
+    updatedAt: number;
   }>();
   const failedIds = new Set<string>();
   let succeeded = 0;
@@ -428,17 +431,25 @@ async function loadDashboardState({
     MAX_CONCURRENT_CHART_REFRESHES,
     async (widget) => {
       try {
-        const result = await executeChart(widget.savedChartId, signal);
+        const result = await executeChart(widget.savedChartId, {
+          signal,
+          forceRefresh: mode !== 'initial',
+        });
         if (signal?.aborted) return;
         if (!result || !Array.isArray(result.queryResult)) {
           throw new Error('Unexpected chart execute response.');
         }
+
+        const parsedUpdatedAt = result.dataUpdatedAt
+          ? Date.parse(result.dataUpdatedAt)
+          : Number.NaN;
 
         results.set(widget.id, {
           data: transformResult(result),
           styleConfig: result.styleConfig ?? undefined,
           title: result.title,
           chartId: result.chartType,
+          updatedAt: Number.isFinite(parsedUpdatedAt) ? parsedUpdatedAt : Date.now(),
         });
         succeeded += 1;
       } catch (err) {
@@ -462,7 +473,7 @@ async function loadDashboardState({
 
     const update = results.get(widget.id);
     if (update) {
-      runtime[widget.id] = { lastUpdatedAt: loadedAt, status: 'idle' };
+      runtime[widget.id] = { lastUpdatedAt: update.updatedAt, status: 'idle' };
       return {
         ...widget,
         ...update,
@@ -486,8 +497,18 @@ async function loadDashboardState({
     return widget;
   });
 
+  let oldestDataUpdatedAt: number | null = null;
+  for (const widget of hydrated) {
+    if (widget.kind !== 'chart') continue;
+    const timestamp = runtime[widget.id]?.lastUpdatedAt;
+    if (timestamp == null) continue;
+    if (oldestDataUpdatedAt === null || timestamp < oldestDataUpdatedAt)
+      oldestDataUpdatedAt = timestamp;
+  }
+
   return {
     name: dash.name,
+    mode,
     autoRefreshEnabled: dash.autoRefreshEnabled ?? false,
     widgets: hydrated,
     layout,
@@ -496,6 +517,7 @@ async function loadDashboardState({
     failed,
     blocked,
     loadedAt,
+    oldestDataUpdatedAt,
   };
 }
 
@@ -511,6 +533,8 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
   const [chartRuntime, setChartRuntime] = useState<Record<string, ChartRuntime>>({});
   const [settingsSaving, setSettingsSaving] = useState(false);
+  const initialAutoRefreshDoneRef = useRef(false);
+  const lastRateLimitToastRef = useRef(0);
   const snapshotRef = useRef<DashboardSnapshot | null>(null);
   const prevEditModeRef = useRef(false);
   const persistInFlightRef = useRef(false);
@@ -584,13 +608,19 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
         MAX_CONCURRENT_CHART_REFRESHES,
         async (widget) => {
           try {
-            const result = await executeChart(widget.savedChartId, controller.signal);
+            const result = await executeChart(widget.savedChartId, {
+              signal: controller.signal,
+              forceRefresh: true,
+            });
             if (controller.signal.aborted) return;
             if (!result || !Array.isArray(result.queryResult)) {
               throw new Error('Unexpected chart execute response.');
             }
 
-            const updatedAt = Date.now();
+            const parsedUpdatedAt = result.dataUpdatedAt
+              ? Date.parse(result.dataUpdatedAt)
+              : Number.NaN;
+            const updatedAt = Number.isFinite(parsedUpdatedAt) ? parsedUpdatedAt : Date.now();
             setWidgets((prev) => prev.map((item) => (
               item.id === widget.id && item.kind === 'chart'
                 ? {
@@ -613,6 +643,14 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
             failed += 1;
             if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
               blocked = true;
+            }
+            if (err instanceof ApiError && err.status === 429) {
+              const now = Date.now();
+              if (now - lastRateLimitToastRef.current > 3000) {
+                lastRateLimitToastRef.current = now;
+                const seconds = err.retryAfterSeconds ?? 60;
+                toast.error(`Too many refreshes. Try again in ${seconds}s.`);
+              }
             }
             setChartRuntime((prev) => ({
               ...prev,
@@ -655,6 +693,7 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
     lastUpdatedAt,
     nextRefreshAt,
     error: refreshError,
+    cooldownUntil: refreshCooldownUntil,
     refreshNow,
     markUpdated,
     markError,
@@ -681,7 +720,12 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
     setChartRuntime(state.runtime);
     lastPersistHashRef.current = persistPayloadHash(state.widgets, state.layout);
 
-    if (state.succeeded > 0) markUpdated(state.loadedAt);
+    if (state.succeeded > 0) {
+      const updatedAt = state.mode === 'initial'
+        ? state.oldestDataUpdatedAt ?? state.loadedAt
+        : state.loadedAt;
+      markUpdated(updatedAt);
+    }
     if (state.failed > 0) {
       markError('Retrying connection… Showing the last known data.');
     } else if (state.succeeded > 0) {
@@ -756,6 +800,34 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
 
     return () => { cancelled = true; };
   }, [dashboardId, onLoaded, applyDashboardState]);
+
+  useEffect(() => {
+    initialAutoRefreshDoneRef.current = false;
+  }, [dashboardId]);
+
+  useEffect(() => {
+    if (!loaded || editMode || !autoRefreshEnabled || !hasAutoRefreshableCharts)
+      return;
+    if (initialAutoRefreshDoneRef.current)
+      return;
+
+    initialAutoRefreshDoneRef.current = true;
+    void refreshCharts(undefined, { onlyPolled: true }).then((outcome) => {
+      if (outcome.succeeded > 0) {
+        markUpdated(outcome.lastUpdatedAt ?? Date.now());
+      } else if (outcome.failed > 0) {
+        markError('Retrying connection… Showing the last known data.');
+      }
+    });
+  }, [
+    loaded,
+    editMode,
+    autoRefreshEnabled,
+    hasAutoRefreshableCharts,
+    refreshCharts,
+    markUpdated,
+    markError,
+  ]);
 
   useEffect(() => {
     if (editMode && !prevEditModeRef.current) {
@@ -1054,6 +1126,7 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
             isRefreshing={isDashboardRefreshing}
             lastUpdatedAt={lastUpdatedAt}
             nextRefreshAt={nextRefreshAt}
+            cooldownUntil={refreshCooldownUntil}
             error={refreshError}
             charts={refreshChartOptions}
             onRefresh={() => void refreshNow()}

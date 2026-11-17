@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Threading.RateLimiting;
+using Application.Caching;
 using Application.Common.Mapping;
 using Application.Datasets;
 using Application.Interfaces;
@@ -11,6 +12,7 @@ using Domain.Models;
 using FluentValidation;
 using FluentValidation.AspNetCore;
 using Infrastructure.Auth;
+using Infrastructure.Caching;
 using Infrastructure.Data;
 using Infrastructure.Ai;
 using Infrastructure.Ai.Services;
@@ -106,7 +108,24 @@ builder.Services.AddHttpClient();
 
 // Encryption
 builder.Services.Configure<EncryptionSettings>(builder.Configuration.GetSection("Encryption"));
-builder.Services.AddScoped<IEncryptionService, AesEncryptionService>();
+builder.Services.AddSingleton<IEncryptionService, AesEncryptionService>();
+
+// Chart result cache: in-process L1 -> Redis L2 -> query/DB.
+var chartCacheSection = builder.Configuration.GetSection(ChartCacheSettings.SectionName);
+builder.Services.Configure<ChartCacheSettings>(chartCacheSection);
+var chartCacheSettings = chartCacheSection.Get<ChartCacheSettings>() ?? new ChartCacheSettings();
+builder.Services.AddMemoryCache(options =>
+{
+    if (chartCacheSettings.L1SizeLimitBytes > 0)
+        options.SizeLimit = chartCacheSettings.L1SizeLimitBytes;
+});
+builder.Services.AddSingleton<IRedisConnectionProvider, RedisConnectionProvider>();
+builder.Services.AddSingleton<RedisChartResultCache>();
+builder.Services.AddSingleton<IChartResultCache>(sp => sp.GetRequiredService<RedisChartResultCache>());
+builder.Services.AddSingleton<IChartCacheInvalidationHandler>(sp => sp.GetRequiredService<RedisChartResultCache>());
+builder.Services.AddHostedService<ChartCacheInvalidationSubscriber>();
+builder.Services.AddScoped<IChartCacheInvalidator, ChartCacheInvalidator>();
+builder.Services.AddSingleton<IKeyedAsyncLock, KeyedAsyncLock>();
 
 // External database connections
 builder.Services.AddScoped<IExternalConnectionService, ExternalConnectionService>();
@@ -214,6 +233,18 @@ if (rateLimitingEnabled)
     {
         options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
+        options.OnRejected = async (context, token) =>
+        {
+            if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+                context.HttpContext.Response.Headers.RetryAfter =
+                    Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds)).ToString();
+
+            context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+            await context.HttpContext.Response.WriteAsJsonAsync(
+                new { detail = "Too many requests. Please wait and try again." },
+                token);
+        };
+
         options.AddPolicy("login", httpContext =>
         {
             // Authenticated management calls (2FA setup/disable, account
@@ -225,12 +256,17 @@ if (rateLimitingEnabled)
                 ? $"user:{userId}"
                 : $"ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
 
+            var permitLimit = builder.Configuration.GetValue(
+                "RateLimiting:Login:PermitLimit", 10);
+            var windowSeconds = builder.Configuration.GetValue(
+                "RateLimiting:Login:WindowSeconds", 60);
+
             return RateLimitPartition.GetFixedWindowLimiter(
                 partitionKey: partitionKey,
                 factory: _ => new FixedWindowRateLimiterOptions
                 {
-                    PermitLimit = 10,
-                    Window = TimeSpan.FromMinutes(1),
+                    PermitLimit = Math.Max(1, permitLimit),
+                    Window = TimeSpan.FromSeconds(Math.Max(1, windowSeconds)),
                     QueueLimit = 0,
                 });
         });
@@ -244,12 +280,17 @@ if (rateLimitingEnabled)
                 ? $"user:{userId}"
                 : $"ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
 
+            var permitLimit = builder.Configuration.GetValue(
+                "RateLimiting:Invite:PermitLimit", 20);
+            var windowSeconds = builder.Configuration.GetValue(
+                "RateLimiting:Invite:WindowSeconds", 3600);
+
             return RateLimitPartition.GetFixedWindowLimiter(
                 partitionKey: partitionKey,
                 factory: _ => new FixedWindowRateLimiterOptions
                 {
-                    PermitLimit = 20,
-                    Window = TimeSpan.FromHours(1),
+                    PermitLimit = Math.Max(1, permitLimit),
+                    Window = TimeSpan.FromSeconds(Math.Max(1, windowSeconds)),
                     QueueLimit = 0,
                 });
         });
@@ -259,12 +300,67 @@ if (rateLimitingEnabled)
         {
             var partitionKey = $"ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
 
+            var permitLimit = builder.Configuration.GetValue(
+                "RateLimiting:InviteAccept:PermitLimit", 15);
+            var windowSeconds = builder.Configuration.GetValue(
+                "RateLimiting:InviteAccept:WindowSeconds", 60);
+
             return RateLimitPartition.GetFixedWindowLimiter(
                 partitionKey: partitionKey,
                 factory: _ => new FixedWindowRateLimiterOptions
                 {
-                    PermitLimit = 15,
-                    Window = TimeSpan.FromMinutes(1),
+                    PermitLimit = Math.Max(1, permitLimit),
+                    Window = TimeSpan.FromSeconds(Math.Max(1, windowSeconds)),
+                    QueueLimit = 0,
+                });
+        });
+
+        // Every forced execution is rate-limited. The client cannot be trusted
+        // to distinguish "manual" from "auto": that would be a trivial bypass.
+        options.AddPolicy("chart-refresh", httpContext =>
+        {
+            var forceRefresh = bool.TryParse(
+                httpContext.Request.Query["forceRefresh"],
+                out var force) && force;
+
+            var userId = httpContext.User?.FindFirst("userId")?.Value;
+
+            if (!forceRefresh)
+            {
+                var executePartitionKey = !string.IsNullOrEmpty(userId)
+                    ? $"chart-execute:user:{userId}"
+                    : $"chart-execute:ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+
+                var executePermitLimit = builder.Configuration.GetValue(
+                    "RateLimiting:ChartExecute:PermitLimit", 1200);
+                var executeWindowSeconds = builder.Configuration.GetValue(
+                    "RateLimiting:ChartExecute:WindowSeconds", 60);
+
+                return RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: executePartitionKey,
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = Math.Max(1, executePermitLimit),
+                        Window = TimeSpan.FromSeconds(Math.Max(1, executeWindowSeconds)),
+                        QueueLimit = 0,
+                    });
+            }
+
+            var partitionKey = !string.IsNullOrEmpty(userId)
+                ? $"chart-refresh:user:{userId}"
+                : $"chart-refresh:ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+
+            var permitLimit = builder.Configuration.GetValue(
+                "RateLimiting:ChartRefresh:PermitLimit", 300);
+            var windowSeconds = builder.Configuration.GetValue(
+                "RateLimiting:ChartRefresh:WindowSeconds", 60);
+
+            return RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: partitionKey,
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = Math.Max(1, permitLimit),
+                    Window = TimeSpan.FromSeconds(Math.Max(1, windowSeconds)),
                     QueueLimit = 0,
                 });
         });

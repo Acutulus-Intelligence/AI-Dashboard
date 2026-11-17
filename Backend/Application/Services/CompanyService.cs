@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Application.Caching;
 using Application.Common.Exceptions;
 using Application.DTos.Request;
 using Application.DTos.Response;
@@ -20,6 +21,7 @@ public class CompanyService : ICompanyService
     private readonly UserManager<User> _userManager;
     private readonly IPaymentService _paymentService;
     private readonly IEmailSender _emailSender;
+    private readonly IChartCacheInvalidator _chartCacheInvalidator;
     private readonly EmailSettings _emailSettings;
 
     public CompanyService(
@@ -27,12 +29,14 @@ public class CompanyService : ICompanyService
         UserManager<User> userManager,
         IPaymentService paymentService,
         IEmailSender emailSender,
+        IChartCacheInvalidator chartCacheInvalidator,
         IOptions<EmailSettings> emailSettings)
     {
         _db = db;
         _userManager = userManager;
         _paymentService = paymentService;
         _emailSender = emailSender;
+        _chartCacheInvalidator = chartCacheInvalidator;
         _emailSettings = emailSettings.Value;
     }
 
@@ -525,6 +529,61 @@ public class CompanyService : ICompanyService
         }
     }
 
+    private async Task<List<ChartCacheTarget>> GetCompanySourceChartTargetsAsync(
+        Guid companyId,
+        Guid? userId,
+        CancellationToken ct)
+    {
+        var connectionIds = await _db.ExternalConnections
+            .AsNoTracking()
+            .Where(ec => ec.CompanyId == companyId)
+            .Select(ec => ec.Id)
+            .ToListAsync(ct);
+
+        var datasetIds = await _db.SavedDatasets
+            .AsNoTracking()
+            .Where(ds => ds.Collection.CompanyId == companyId)
+            .Select(ds => ds.Id)
+            .ToListAsync(ct);
+
+        if (connectionIds.Count == 0 && datasetIds.Count == 0)
+            return [];
+
+        var connectionIdList = connectionIds.ToArray();
+        var datasetIdList = datasetIds.ToArray();
+
+        return await _db.SavedCharts
+            .AsNoTracking()
+            .Where(sc =>
+                (!userId.HasValue || sc.UserId == userId.Value) &&
+                ((sc.ConnectionId != null && connectionIdList.Contains(sc.ConnectionId.Value)) ||
+                 (sc.DatasetId != null && datasetIdList.Contains(sc.DatasetId.Value))))
+            .Select(sc => new ChartCacheTarget(sc.UserId, sc.Id))
+            .ToListAsync(ct);
+    }
+
+    private async Task InvalidateChartsBestEffortAsync(
+        IReadOnlyCollection<ChartCacheTarget> targets,
+        CancellationToken ct)
+    {
+        if (targets.Count == 0)
+            return;
+
+        try
+        {
+            await _chartCacheInvalidator.InvalidateChartsAsync(targets, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Access checks already prevent these cached rows from being served;
+            // invalidation is retention cleanup and must not fail the operation.
+        }
+    }
+
     private async Task<Company> GetMembershipCompanyAsync(Guid userId, CancellationToken ct)
     {
         var user = await _db.Users
@@ -583,12 +642,15 @@ public class CompanyService : ICompanyService
             .Where(ec => ec.CompanyId == companyId)
             .ToListAsync(ct);
 
+        var companySourceCharts = await GetCompanySourceChartTargetsAsync(companyId, userId: null, ct);
+
         _db.CompanyInvites.RemoveRange(invites);
         _db.ExternalConnections.RemoveRange(connections);
         _db.CompanyRoles.RemoveRange(company.CompanyRoles);
         _db.Companies.Remove(company);
 
         await _db.SaveChangesAsync(ct);
+        await InvalidateChartsBestEffortAsync(companySourceCharts, ct);
     }
 
     public async Task RevokeInviteAsync(Guid companyId, Guid inviteId, Guid actorId, CancellationToken ct = default)
@@ -639,11 +701,14 @@ public class CompanyService : ICompanyService
                 throw new UnauthorizedAccessException("Cannot remove a user with the same permissions as you.");
         }
 
+        var companySourceCharts = await GetCompanySourceChartTargetsAsync(companyId, userIdToRemove, ct);
+
         user.CompanyId = null;
         user.CompanyRoleId = null;
         user.UserType = UserType.Individual;
 
         await _db.SaveChangesAsync(ct);
+        await InvalidateChartsBestEffortAsync(companySourceCharts, ct);
     }
 
     public async Task<List<CompanyRoleResponse>> GetRolesAsync(Guid companyId, Guid userId, CancellationToken ct = default)

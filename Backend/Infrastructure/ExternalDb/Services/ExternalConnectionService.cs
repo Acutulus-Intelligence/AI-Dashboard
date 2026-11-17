@@ -24,19 +24,22 @@ public class ExternalConnectionService : IExternalConnectionService
     private readonly ExternalDbSettings _settings;
     private readonly ILogger<ExternalConnectionService> _logger;
     private readonly IConnectionAccessService _access;
+    private readonly IChartCacheInvalidator _chartCacheInvalidator;
 
     public ExternalConnectionService(
         AppDbContext db,
         IEncryptionService encryption,
         IOptions<ExternalDbSettings> settings,
         ILogger<ExternalConnectionService> logger,
-        IConnectionAccessService access)
+        IConnectionAccessService access,
+        IChartCacheInvalidator chartCacheInvalidator)
     {
         _db = db;
         _encryption = encryption;
         _settings = settings.Value;
         _logger = logger;
         _access = access;
+        _chartCacheInvalidator = chartCacheInvalidator;
     }
 
     public async Task<ConnectionResponse> CreateAsync(Guid userId, CreateConnectionRequest request, CancellationToken ct = default)
@@ -294,6 +297,8 @@ public class ExternalConnectionService : IExternalConnectionService
 
         var connectionString = request.ConnectionString;
 
+        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+
         connection.Name = request.Name;
         connection.DbProvider = request.DbProvider;
         connection.EncryptedConnectionString = _encryption.Encrypt(connectionString);
@@ -302,6 +307,30 @@ public class ExternalConnectionService : IExternalConnectionService
         connection.IsVerified = false;
 
         await _db.SaveChangesAsync(ct);
+
+        // Repointing a connection must make every cached chart result from the
+        // old data source unreachable, even if a concurrent execute finishes
+        // after invalidation.
+        var updatedAt = DateTime.UtcNow;
+        await _db.SavedCharts
+            .Where(sc => sc.ConnectionId == connection.Id)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(sc => sc.UpdatedAt, updatedAt), ct);
+
+        await transaction.CommitAsync(ct);
+
+        try
+        {
+            await _chartCacheInvalidator.InvalidateForConnectionAsync(connection.Id, ct);
+        }
+        catch (Exception ex)
+        {
+            // The update is already committed. Cache invalidation is best-effort;
+            // the chart UpdatedAt bump above prevents stale cache hits.
+            _logger.LogWarning(
+                ex,
+                "Failed to invalidate chart caches after updating connection {ConnectionId}.",
+                connection.Id);
+        }
 
         return MapResponse(connection);
     }
@@ -315,6 +344,7 @@ public class ExternalConnectionService : IExternalConnectionService
         if (!await _access.CanManageAsync(id, userId, ct))
             throw new UnauthorizedAccessException("You do not have permission to manage this connection.");
 
+        await _chartCacheInvalidator.InvalidateForConnectionAsync(connection.Id, ct);
         _db.ExternalConnections.Remove(connection);
         await _db.SaveChangesAsync(ct);
     }

@@ -1,6 +1,8 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using Application.Caching;
 using Application.DTos.Request;
+using Application.Interfaces;
 using Domain.Enums;
 using Domain.Models;
 using FluentAssertions;
@@ -120,6 +122,16 @@ public static class ApiClientExtensions
         var user = await users.FindByEmailAsync(email)
             ?? throw new InvalidOperationException($"User {email} not found.");
         return user.Id;
+    }
+
+    public static async Task<CachedChartResult?> GetCachedChartResultAsync(
+        this ApiFactory factory,
+        Guid userId,
+        Guid chartId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var cache = scope.ServiceProvider.GetRequiredService<IChartResultCache>();
+        return await cache.GetAsync(userId, chartId);
     }
 
     public static async Task<Guid> SeedIndividualPlanWithDashboardLimitAsync(this ApiFactory factory, int maxDashboards)

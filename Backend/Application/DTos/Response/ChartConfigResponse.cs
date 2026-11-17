@@ -14,5 +14,6 @@ public sealed record ChartConfigResponse(
     List<Dictionary<string, object?>> QueryResult,
     ChartStyleConfig? StyleConfig = null,
     DataQueryModel? DataModel = null,
-    AiGenerationDebug? AiDebug = null
+    AiGenerationDebug? AiDebug = null,
+    DateTimeOffset? DataUpdatedAt = null
 );

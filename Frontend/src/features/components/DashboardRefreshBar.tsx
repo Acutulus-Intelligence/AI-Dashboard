@@ -26,6 +26,7 @@ interface DashboardRefreshBarProps {
   isRefreshing: boolean;
   lastUpdatedAt: number | null;
   nextRefreshAt: number | null;
+  cooldownUntil: number | null;
   error: string | null;
   charts: RefreshChartOption[];
   onRefresh: () => void;
@@ -57,6 +58,7 @@ export default function DashboardRefreshBar({
   isRefreshing,
   lastUpdatedAt,
   nextRefreshAt,
+  cooldownUntil,
   error,
   charts,
   onRefresh,
@@ -66,13 +68,13 @@ export default function DashboardRefreshBar({
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    if (!nextRefreshAt && !lastUpdatedAt) return;
+    if (!nextRefreshAt && !lastUpdatedAt && !cooldownUntil) return;
     const timer = window.setInterval(
       () => setNow(Date.now()),
-      nextRefreshAt ? 1000 : 30_000,
+      nextRefreshAt || cooldownUntil ? 1000 : 30_000,
     );
     return () => window.clearInterval(timer);
-  }, [nextRefreshAt, lastUpdatedAt]);
+  }, [nextRefreshAt, lastUpdatedAt, cooldownUntil]);
 
   const lastUpdatedLabel = lastUpdatedAt
     ? `Last updated ${formatRelativeTime(lastUpdatedAt, now)}`
@@ -88,6 +90,12 @@ export default function DashboardRefreshBar({
     ? Math.min(100, (elapsedSinceUpdate / DASHBOARD_REFRESH_INTERVAL_MS) * 100)
     : 0;
 
+  const cooldownRemaining = cooldownUntil ? Math.max(0, cooldownUntil - now) : 0;
+  const coolingDown = cooldownRemaining > 0;
+  const cooldownLabel = coolingDown
+    ? `Try again in ${Math.ceil(cooldownRemaining / 1000)}s`
+    : null;
+
   const hasCharts = charts.length > 0;
 
   return (
@@ -98,7 +106,7 @@ export default function DashboardRefreshBar({
           variant="outline"
           size="sm"
           onClick={onRefresh}
-          disabled={isRefreshing || !hasCharts}
+          disabled={isRefreshing || coolingDown || !hasCharts}
         >
           <RefreshCw className={isRefreshing ? 'animate-spin' : undefined} />
           {isRefreshing ? 'Refreshing…' : 'Refresh'}
@@ -110,6 +118,12 @@ export default function DashboardRefreshBar({
             <>
               <span aria-hidden="true">·</span>
               <span>{countdownLabel}</span>
+            </>
+          )}
+          {cooldownLabel && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span>{cooldownLabel}</span>
             </>
           )}
           {!enabled && (
@@ -224,7 +238,7 @@ export default function DashboardRefreshBar({
                 variant="ghost"
                 size="xs"
                 onClick={onRefresh}
-                disabled={isRefreshing}
+                disabled={isRefreshing || coolingDown}
               >
                 Retry now
               </Button>

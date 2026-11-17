@@ -55,7 +55,6 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         Environment.SetEnvironmentVariable("Stripe__SecretKey", "sk_test_fake");
         Environment.SetEnvironmentVariable("Stripe__WebhookSecret", "whsec_fake");
         Environment.SetEnvironmentVariable("Ai__ApiKey", "fake");
-        Environment.SetEnvironmentVariable("RateLimiting__Enabled", "false");
         Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Development");
     }
 
@@ -90,7 +89,15 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
                 ["ExternalDb:PreviewMaxRows"] = "10",
                 ["ExternalDb:QueryMaxRows"] = "10000",
                 ["ExternalDb:QueryTimeoutSeconds"] = "30",
-                ["RateLimiting:Enabled"] = "false",
+                ["RateLimiting:Enabled"] = "true",
+                ["RateLimiting:Login:PermitLimit"] = "10000",
+                ["RateLimiting:Invite:PermitLimit"] = "10000",
+                ["RateLimiting:InviteAccept:PermitLimit"] = "10000",
+                ["RateLimiting:ChartExecute:PermitLimit"] = "10000",
+                ["RateLimiting:ChartRefresh:PermitLimit"] = "10000",
+                ["ChartCache:Enabled"] = "true",
+                ["ChartCache:RedisEnabled"] = "false",
+                ["ChartCache:RedisConnectionString"] = "",
             });
         });
 
