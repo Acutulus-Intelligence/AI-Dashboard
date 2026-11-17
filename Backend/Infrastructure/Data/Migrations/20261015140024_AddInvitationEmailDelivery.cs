@@ -71,6 +71,11 @@ namespace Infrastructure.Data.Migrations
                 name: "TokenHash",
                 table: "CompanyInvites");
 
+            // The restored Token column defaults to an empty string for every
+            // row, which the unique index would reject. Drop the rows first, as
+            // Up() does when moving to hashed tokens.
+            migrationBuilder.Sql("DELETE FROM \"CompanyInvites\";");
+
             migrationBuilder.AddColumn<string>(
                 name: "Token",
                 table: "CompanyInvites",

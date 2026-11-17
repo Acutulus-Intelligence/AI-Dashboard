@@ -144,11 +144,14 @@ public sealed class FakePaymentService : IPaymentService
 
     public List<string> ImmediateCancelFailures { get; } = [];
 
+    public List<string> ImmediateCancels { get; } = [];
+
     public Task CancelSubscriptionImmediatelyAsync(string stripeSubscriptionId, CancellationToken ct = default)
     {
         if (ImmediateCancelFailures.Contains(stripeSubscriptionId))
             throw new InvalidOperationException("Stripe is unavailable.");
 
+        ImmediateCancels.Add(stripeSubscriptionId);
         return Task.CompletedTask;
     }
 

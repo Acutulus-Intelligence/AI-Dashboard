@@ -12,7 +12,7 @@ public interface ICompanyService
     Task<List<CompanyUserResponse>> GetUsersAsync(Guid companyId, Guid userId, CancellationToken ct = default);
     Task UpdateUserRoleAsync(Guid companyId, Guid userId, Guid roleId, Guid actorId, CancellationToken ct = default);
     Task TransferOwnershipAsync(Guid companyId, Guid currentOwnerId, TransferOwnershipRequest request, CancellationToken ct = default);
-    Task<string?> InviteUserAsync(Guid companyId, string email, Guid roleId, InviteDeliveryMethod deliveryMethod, Guid actorId, CancellationToken ct = default);
+    Task InviteUserAsync(Guid companyId, string email, Guid roleId, InviteDeliveryMethod deliveryMethod, Guid actorId, CancellationToken ct = default);
     Task ResendInviteAsync(Guid companyId, Guid inviteId, Guid actorId, CancellationToken ct = default);
     Task<InvitationDetailsResponse?> ValidateInvitationAsync(string token, CancellationToken ct = default);
     Task AcceptInviteAsync(string token, Guid userId, CancellationToken ct = default);

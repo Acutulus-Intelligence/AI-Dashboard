@@ -1,59 +1,77 @@
-import { Brain, Database, RefreshCw } from 'lucide-react';
+import { Database, FolderKanban, LayoutDashboard, Sparkles, type LucideIcon } from 'lucide-react';
 import Reveal from '../components/Reveal';
 
-const features = [
+const features: { title: string; description: string; icon: LucideIcon }[] = [
   {
-    title: 'Seamless Connection',
+    title: 'Secure connections',
     description:
-      'Securely connect to SQL, NoSQL, or cloud databases. We support all major providers with encrypted data transfer.',
+      'Connect PostgreSQL, MySQL, or SQL Server. Credentials are encrypted before they are stored.',
     icon: Database,
   },
   {
-    title: 'AI-Driven Visualization',
+    title: 'Plain-language charts',
     description:
-      'Ask questions in plain text and get instant charts. Our AI understands complex queries and picks the right chart type for your needs.',
-    icon: Brain,
-    highlighted: true,
+      'Ask for the view you need. The assistant picks a chart type and returns SELECT-only SQL.',
+    icon: Sparkles,
   },
   {
-    title: 'Real-Time Updates',
+    title: 'Dashboards you arrange',
     description:
-      'Your dashboards update as your data changes. See changes in real time without having to refresh the page.',
-    icon: RefreshCw,
+      'Drag and resize widgets, keep multiple dashboards, and place a saved chart on any of them.',
+    icon: LayoutDashboard,
+  },
+  {
+    title: 'Folders and roles',
+    description:
+      'Group charts into folders. Company workspaces add members, custom roles, and shared connections.',
+    icon: FolderKanban,
   },
 ];
 
+function IconMedallion({ icon: Icon }: { icon: LucideIcon }) {
+  return (
+    <div className="relative mx-auto mb-6 size-[4.5rem]" aria-hidden="true">
+      <div className="absolute inset-1 rotate-6 rounded-[22px] bg-gradient-to-br from-blue-500 to-blue-800 shadow-lg shadow-blue-700/30" />
+      <div className="absolute inset-1 -rotate-3 rounded-[22px] bg-gradient-to-br from-sky-100 to-white shadow-md" />
+      <div className="relative flex size-[4.5rem] items-center justify-center">
+        <div className="flex size-14 items-center justify-center rounded-2xl bg-white text-blue-700 shadow-[0_10px_24px_-12px_rgba(29,78,216,0.85)]">
+          <Icon className="size-7" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function FeaturesSection() {
   return (
-    <section id="features" className="bg-surface-bright px-gutter py-16">
-      <div className="mx-auto grid max-w-container-max gap-8 md:grid-cols-3">
-        {features.map((feature, index) => {
-          const Icon = feature.icon;
+    <section id="features" className="scroll-mt-24 bg-white px-5 py-20 sm:px-6 md:py-28">
+      <div className="mx-auto max-w-6xl">
+        <Reveal>
+          <div className="mx-auto max-w-2xl text-center">
+            <p className="inline-flex rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-blue-800">
+              Features
+            </p>
+            <h2 className="mt-4 text-balance text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl md:text-5xl">
+              Everything between your database and a dashboard
+            </h2>
+            <p className="mt-4 text-pretty text-base leading-relaxed text-slate-600 sm:text-lg">
+              Connect a source, ask in plain language, and arrange the result. Schema inspection sends
+              metadata only — your rows stay in your database.
+            </p>
+          </div>
+        </Reveal>
 
-          return (
-            <Reveal key={feature.title} delay={index * 120}>
-              <article
-                className={`group h-full rounded-xl border bg-surface-container-lowest p-8 transition-all hover:border-cyan-action ${
-                  feature.highlighted
-                    ? 'border-brand/20 shadow-[inset_0_0_15px_rgba(6,182,212,0.1)] border-l-2 border-cyan-action'
-                    : 'border-outline-variant'
-                }`}
-              >
-                <div
-                  className={`mb-6 flex size-12 items-center justify-center rounded-lg transition-colors ${
-                    feature.highlighted
-                      ? 'bg-brand-container/20 text-brand'
-                      : 'bg-surface-container text-on-background group-hover:bg-cyan-50'
-                  }`}
-                >
-                  <Icon className="size-6" aria-hidden="true" />
-                </div>
-                <h3 className="mb-4 text-headline-md font-semibold">{feature.title}</h3>
-                <p className="text-body-md text-on-surface-variant">{feature.description}</p>
+        <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          {features.map((feature, index) => (
+            <Reveal key={feature.title} delay={index * 90} className="h-full">
+              <article className="landing-card h-full rounded-3xl border border-slate-200/80 bg-white px-6 py-8 text-center shadow-[0_16px_40px_-28px_rgba(15,23,42,0.45)]">
+                <IconMedallion icon={feature.icon} />
+                <h3 className="text-lg font-semibold tracking-tight text-slate-900">{feature.title}</h3>
+                <p className="mt-3 text-sm leading-relaxed text-slate-600">{feature.description}</p>
               </article>
             </Reveal>
-          );
-        })}
+          ))}
+        </div>
       </div>
     </section>
   );

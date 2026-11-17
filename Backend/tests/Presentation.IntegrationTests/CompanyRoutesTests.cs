@@ -51,7 +51,7 @@ public sealed class CompanyRoutesTests
         var inviteeEmail = $"invitee_{Guid.NewGuid():N}@example.com";
         var invite = await ownerClient.PostAsJsonAsync($"/api/companies/{company.Id}/invite",
             new InviteUserRequest(inviteeEmail, newRole.Id));
-        invite.StatusCode.Should().Be(HttpStatusCode.OK);
+        invite.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         var invites = await ownerClient.GetAsync($"/api/companies/{company.Id}/invites");
         invites.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -78,7 +78,7 @@ public sealed class CompanyRoutesTests
         var otherEmail = $"other_{Guid.NewGuid():N}@example.com";
         var invite2 = await ownerClient.PostAsJsonAsync($"/api/companies/{company.Id}/invite",
             new InviteUserRequest(otherEmail, newRole.Id));
-        invite2.StatusCode.Should().Be(HttpStatusCode.OK);
+        invite2.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         var invites2 = await ownerClient.GetAsync($"/api/companies/{company.Id}/invites");
         var inviteList2 = await invites2.ReadJsonAsync<List<CompanyInviteResponse>>();

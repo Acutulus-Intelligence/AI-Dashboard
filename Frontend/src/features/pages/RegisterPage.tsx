@@ -1,8 +1,14 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { AlertCircle, ArrowLeft, Eye, EyeOff } from 'lucide-react';
-import Button from '../components/Button';
+import { ArrowLeft, Eye, EyeOff } from 'lucide-react';
+import PageMeta from '../components/PageMeta';
 import PasswordRequirements from '../components/PasswordRequirements';
+import PublicButton from '../components/PublicButton';
+import PublicError from '../components/PublicError';
+import PublicAuthFrame from '../layouts/PublicAuthFrame';
+import PublicLayout from '../layouts/PublicLayout';
+import { cn } from '@/lib/utils';
+import { publicInputClass, publicInputErrorClass, publicLabelClass, publicLinkClass } from '../layouts/publicChrome';
 import { useAuth } from '../store/useAuth';
 import { ROUTES } from '../routes';
 import { ApiError } from '../../lib/api/client';
@@ -13,11 +19,7 @@ import {
 } from '../validation/registerForm';
 
 function fieldClass(hasError: boolean) {
-  return `w-full rounded-xl border bg-surface-container-lowest px-4 py-3 text-body-md text-on-background placeholder:text-on-surface-variant/50 focus:outline-hidden focus:ring-2 ${
-    hasError
-      ? 'border-red-400 focus:border-red-400 focus:ring-red-200'
-      : 'border-outline-variant focus:border-primary focus:ring-primary/20'
-  }`;
+  return cn(publicInputClass, hasError && publicInputErrorClass);
 }
 
 export default function RegisterPage() {
@@ -76,36 +78,38 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-on-background">
-      <main className="flex min-h-screen justify-center px-4 py-8">
-        <div className="w-full max-w-lg">
-          <div className="rounded-2xl border border-outline-variant bg-surface p-6 shadow-xs md:p-8">
-            <div className="mb-6">
-              <Link
-                to={ROUTES.PRICING}
-                className="mb-4 inline-flex items-center gap-1.5 text-body-sm font-medium text-primary hover:underline"
-              >
-                <ArrowLeft size={16} />
-                Back to plans
-              </Link>
-              <h1 className="text-headline-lg font-bold text-on-background">Create your account</h1>
-              <p className="mt-2 text-body-md text-on-surface-variant">
-                Sign up to get started with your free trial.
-              </p>
-            </div>
+    <PublicLayout>
+      <PageMeta
+        title="Sign up — AI Dashboard"
+        description="Create an AI Dashboard account and start a free trial."
+        path={ROUTES.REGISTER}
+      />
+      <PublicAuthFrame wide>
+          <div className="mb-6">
+            <Link
+              to={ROUTES.PRICING}
+              className={`mb-4 inline-flex items-center gap-1.5 text-sm ${publicLinkClass}`}
+            >
+              <ArrowLeft size={16} />
+              Back to plans
+            </Link>
+            <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Create your account</h1>
+            <p className="mt-2 text-base leading-relaxed text-slate-600">
+              Sign up to get started with your free trial.
+            </p>
+          </div>
 
-            {formError && (
-              <div className="mb-6 flex items-center gap-2 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-body-sm text-red-700">
-                <AlertCircle size={16} className="shrink-0" />
-                <span role="alert">{formError}</span>
-              </div>
-            )}
+          {formError && (
+            <div className="mb-6">
+              <PublicError>{formError}</PublicError>
+            </div>
+          )}
 
             <form onSubmit={handleSubmit} noValidate>
               <div className="space-y-5">
                 <div className="grid gap-4 md:grid-cols-2">
                   <div>
-                    <label htmlFor="firstName" className="mb-1.5 block text-body-sm font-medium text-on-surface-variant">
+                    <label htmlFor="firstName" className={publicLabelClass}>
                       First Name
                     </label>
                     <input
@@ -118,11 +122,11 @@ export default function RegisterPage() {
                       className={fieldClass(!!fieldErrors.firstName)}
                     />
                     {fieldErrors.firstName && (
-                      <p className="mt-1 text-body-sm text-red-600" role="alert">{fieldErrors.firstName}</p>
+                      <p className="mt-1 text-sm text-red-600" role="alert">{fieldErrors.firstName}</p>
                     )}
                   </div>
                   <div>
-                    <label htmlFor="lastName" className="mb-1.5 block text-body-sm font-medium text-on-surface-variant">
+                    <label htmlFor="lastName" className={publicLabelClass}>
                       Last Name
                     </label>
                     <input
@@ -135,13 +139,13 @@ export default function RegisterPage() {
                       className={fieldClass(!!fieldErrors.lastName)}
                     />
                     {fieldErrors.lastName && (
-                      <p className="mt-1 text-body-sm text-red-600" role="alert">{fieldErrors.lastName}</p>
+                      <p className="mt-1 text-sm text-red-600" role="alert">{fieldErrors.lastName}</p>
                     )}
                   </div>
                 </div>
 
                 <div>
-                  <label htmlFor="regEmail" className="mb-1.5 block text-body-sm font-medium text-on-surface-variant">
+                  <label htmlFor="regEmail" className={publicLabelClass}>
                     Email
                   </label>
                   <input
@@ -155,12 +159,12 @@ export default function RegisterPage() {
                     className={fieldClass(!!fieldErrors.email)}
                   />
                   {fieldErrors.email && (
-                    <p className="mt-1 text-body-sm text-red-600" role="alert">{fieldErrors.email}</p>
+                    <p className="mt-1 text-sm text-red-600" role="alert">{fieldErrors.email}</p>
                   )}
                 </div>
 
                 <div>
-                  <label htmlFor="regPassword" className="mb-1.5 block text-body-sm font-medium text-on-surface-variant">
+                  <label htmlFor="regPassword" className={publicLabelClass}>
                     Password
                   </label>
                   <div className="relative">
@@ -172,25 +176,25 @@ export default function RegisterPage() {
                       placeholder="Create a strong password"
                       autoComplete="new-password"
                       aria-invalid={!!fieldErrors.password}
-                      className={`${fieldClass(!!fieldErrors.password)} pr-11`}
+                      className={cn(fieldClass(!!fieldErrors.password), 'pr-12')}
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-background"
+                      className="absolute right-1.5 top-1/2 inline-flex size-10 -translate-y-1/2 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-900"
                       tabIndex={-1}
                     >
                       {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
                   </div>
                   {fieldErrors.password && (
-                    <p className="mt-1 text-body-sm text-red-600" role="alert">{fieldErrors.password}</p>
+                    <p className="mt-1 text-sm text-red-600" role="alert">{fieldErrors.password}</p>
                   )}
-                  <PasswordRequirements password={password} />
+                  <PasswordRequirements password={password} tone="public" />
                 </div>
 
                 <div>
-                  <label htmlFor="confirmPassword" className="mb-1.5 block text-body-sm font-medium text-on-surface-variant">
+                  <label htmlFor="confirmPassword" className={publicLabelClass}>
                     Confirm Password
                   </label>
                   <input
@@ -204,44 +208,42 @@ export default function RegisterPage() {
                     className={fieldClass(!!fieldErrors.confirmPassword)}
                   />
                   {fieldErrors.confirmPassword && (
-                    <p className="mt-1 text-body-sm text-red-600" role="alert">{fieldErrors.confirmPassword}</p>
+                    <p className="mt-1 text-sm text-red-600" role="alert">{fieldErrors.confirmPassword}</p>
                   )}
                 </div>
 
-                <p className="text-center text-body-sm text-on-surface-variant">
+                <p className="text-center text-sm text-slate-600">
                   By creating an account, you agree to the{' '}
-                  <Link to={ROUTES.TERMS} className="font-medium text-primary hover:underline">
+                  <Link to={ROUTES.TERMS} className={publicLinkClass}>
                     Terms of Service
                   </Link>{' '}
                   and{' '}
-                  <Link to={ROUTES.PRIVACY} className="font-medium text-primary hover:underline">
+                  <Link to={ROUTES.PRIVACY} className={publicLinkClass}>
                     Privacy Policy
                   </Link>
                   .
                 </p>
 
-                <Button type="submit" variant="primary" className="w-full" disabled={loading}>
+                <PublicButton type="submit" className="w-full" disabled={loading}>
                   {loading ? (
                     <span className="flex items-center justify-center gap-2">
-                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                      <div className="size-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
                       Creating account...
                     </span>
                   ) : (
                     'Create account'
                   )}
-                </Button>
+                </PublicButton>
               </div>
             </form>
 
-            <p className="mt-6 text-center text-body-sm text-on-surface-variant">
+            <p className="mt-6 text-center text-sm text-slate-600">
               Already have an account?{' '}
-              <Link to={ROUTES.LOGIN} className="font-semibold text-primary hover:underline">
+              <Link to={ROUTES.LOGIN} className={publicLinkClass}>
                 Sign in
               </Link>
             </p>
-          </div>
-        </div>
-      </main>
-    </div>
+      </PublicAuthFrame>
+    </PublicLayout>
   );
 }

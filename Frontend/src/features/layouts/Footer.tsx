@@ -1,30 +1,33 @@
-import HashLink from '../components/HashLink';
+import SectionLink from '../components/SectionLink';
 import { ROUTES } from '../routes';
+import type { LandingSectionId } from '../navigation/publicNav';
+import logoSrc from '../../assets/images/IconTransNoText.png';
 
-const footerGroups = [
+type FooterLink = {
+  label: string;
+  to: string;
+  sectionId?: LandingSectionId;
+};
+
+const footerGroups: { title: string; links: FooterLink[] }[] = [
   {
     title: 'PRODUCT',
     links: [
-      { label: 'Features', to: '/#features' },
-      { label: 'Integrations', to: '/#product' },
-      { label: 'Pricing', to: '/pricing' },
+      { label: 'Features', to: ROUTES.HOME, sectionId: 'features' },
+      { label: 'Platform', to: ROUTES.HOME, sectionId: 'platform' },
+      { label: 'Pricing', to: ROUTES.PRICING },
     ],
   },
   {
     title: 'COMPANY',
     links: [
-      { label: 'Company Page', to: '#' },
       { label: 'Privacy Policy', to: ROUTES.PRIVACY },
       { label: 'Terms of Service', to: ROUTES.TERMS },
-      { label: 'Security', to: '#' },
     ],
   },
   {
     title: 'SUPPORT',
-    links: [
-      { label: 'Status', to: '#' },
-      { label: 'Contact', to: '/contact' },
-    ],
+    links: [{ label: 'Contact', to: ROUTES.CONTACT }],
   },
 ];
 
@@ -33,7 +36,10 @@ export default function Footer() {
     <footer className="w-full border-t border-outline-variant bg-surface-container-lowest py-8">
       <div className="mx-auto grid w-full max-w-container-max grid-cols-1 gap-gutter px-gutter md:grid-cols-2 lg:grid-cols-4">
         <div>
-          <div className="mb-4 text-headline-md font-bold text-primary">AI Dashboard</div>
+          <div className="mb-4 flex items-center gap-2.5 text-headline-md font-bold text-primary">
+            <img src={logoSrc} alt="" className="size-8 object-contain" />
+            AI Dashboard
+          </div>
           <p className="max-w-xs text-body-sm text-on-surface-variant">
             Intelligent data analysis for modern businesses. Visualize the future with AI.
           </p>
@@ -45,12 +51,13 @@ export default function Footer() {
             <ul className="space-y-2">
               {group.links.map((link) => (
                 <li key={link.label}>
-                  <HashLink
+                  <SectionLink
                     className="text-body-sm text-on-surface-variant transition-all hover:text-primary hover:underline"
                     to={link.to}
+                    sectionId={link.sectionId}
                   >
                     {link.label}
-                  </HashLink>
+                  </SectionLink>
                 </li>
               ))}
             </ul>

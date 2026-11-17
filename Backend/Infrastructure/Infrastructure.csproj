@@ -36,4 +36,8 @@
     <ProjectReference Include="..\Domain\Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Presentation.IntegrationTests" />
+  </ItemGroup>
+
 </Project>
