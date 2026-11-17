@@ -28,8 +28,8 @@ public class AccountDeletionService : IAccountDeletionService
         _userManager = userManager;
         _db = db;
         _paymentService = paymentService;
-        _scopeFactory = scopeFactory;
         _chartCacheInvalidator = chartCacheInvalidator;
+        _scopeFactory = scopeFactory;
         _logger = logger;
     }
 
@@ -214,8 +214,8 @@ public class AccountDeletionService : IAccountDeletionService
         if (!result.Succeeded)
             throw new InvalidOperationException($"Failed to purge account {userId}.");
 
-        await _chartCacheInvalidator.InvalidateForUserAsync(userId, ct);
-
         await transaction.CommitAsync(ct);
+
+        await _chartCacheInvalidator.InvalidateForUserAsync(userId, ct);
     }
 }
