@@ -4,7 +4,7 @@ import type { ChartData, ResolvedStyle } from './types';
 
 /** Turns an API chart response into the normalised shape the renderers consume. */
 export function transformResult(res: ChartConfigResponse): ChartData {
-  if (!res.queryResult?.length) return { labels: [], datasets: [], queryResult: [] };
+  if (!res.queryResult?.length) return { labels: [], datasets: [], queryResult: [], xAxis: res.xAxis };
 
   const labels = res.queryResult.map((row) => String(row[res.xAxis] ?? ''));
   const datasets = res.yAxis.map((axis) => ({
@@ -16,7 +16,7 @@ export function transformResult(res: ChartConfigResponse): ChartData {
     }),
   }));
 
-  return { labels, datasets, queryResult: res.queryResult };
+  return { labels, datasets, queryResult: res.queryResult, xAxis: res.xAxis };
 }
 
 /** Recharts wants one row per label with a key per series. */
