@@ -1,4 +1,5 @@
 import { getFontEmbedCSS, toBlob } from 'html-to-image';
+import { downloadBlob, slugifyTitle } from './download';
 
 const DEFAULT_PIXEL_RATIO = 2;
 const FALLBACK_BACKGROUND = '#ffffff';
@@ -19,15 +20,6 @@ function resolveCardBackground(): string {
     .getPropertyValue('--card')
     .trim();
   return value || FALLBACK_BACKGROUND;
-}
-
-/** Slugifies a chart title into a safe file-name stem (no extension). */
-export function slugifyTitle(title: string): string {
-  return title
-    .trim()
-    .replace(/[^a-zA-Z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 64);
 }
 
 export function chartTitleToFileName(title: string): string {
@@ -66,10 +58,5 @@ export async function exportChartAsPng(
     throw new Error('Could not render the chart image.');
   }
 
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = chartTitleToFileName(title);
-  anchor.click();
-  URL.revokeObjectURL(url);
+  downloadBlob(blob, chartTitleToFileName(title));
 }
