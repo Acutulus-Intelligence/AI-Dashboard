@@ -564,6 +564,17 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
 
   const canManageRefreshSettings = !!user && (user.userType !== 1 || user.isCompanyOwner);
 
+  const resetChartRefreshStatus = useCallback((id: string) => {
+    setChartRuntime((prev) => {
+      const runtime = prev[id];
+      if (!runtime || runtime.status !== 'refreshing') return prev;
+      return {
+        ...prev,
+        [id]: { ...runtime, status: 'idle' },
+      };
+    });
+  }, []);
+
   const refreshCharts = useCallback(async (
     ids?: string[],
     options: { onlyPolled?: boolean } = {},
@@ -612,7 +623,10 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
               signal: controller.signal,
               forceRefresh: true,
             });
-            if (controller.signal.aborted) return;
+            if (controller.signal.aborted) {
+              resetChartRefreshStatus(widget.id);
+              return;
+            }
             if (!result || !Array.isArray(result.queryResult)) {
               throw new Error('Unexpected chart execute response.');
             }
@@ -639,7 +653,10 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
             }));
             succeeded += 1;
           } catch (err) {
-            if (controller.signal.aborted) return;
+            if (controller.signal.aborted) {
+              resetChartRefreshStatus(widget.id);
+              return;
+            }
             failed += 1;
             if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
               blocked = true;
@@ -676,7 +693,7 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
       lastUpdatedAt: succeeded > 0 ? Date.now() : null,
       blocked,
     };
-  }, [autoRefreshEnabled]);
+  }, [autoRefreshEnabled, resetChartRefreshStatus]);
 
   const refreshDashboard = useCallback(
     (manual: boolean) => reloadDashboardRef.current(manual),
