@@ -50,6 +50,7 @@ export function useDashboardPolling({
   const timerRef = useRef<number | null>(null);
   const cooldownTimerRef = useRef<number | null>(null);
   const inFlightRef = useRef<Promise<void> | null>(null);
+  const inFlightManualRef = useRef(false);
   const lastUpdatedRef = useRef<number | null>(null);
   const scheduleRef = useRef<(delay: number) => void>(() => {});
   const runRefreshRef = useRef<(manual: boolean) => Promise<void>>(async () => {});
@@ -99,12 +100,16 @@ export function useDashboardPolling({
 
   const runRefresh = useCallback(async (manual: boolean) => {
     if (inFlightRef.current) {
+      const inFlightWasManual = inFlightManualRef.current;
       await inFlightRef.current;
-      return;
+      if (!manual || inFlightWasManual) {
+        return;
+      }
     }
 
     clearTimer();
     setNextRefreshAt(null);
+    inFlightManualRef.current = manual;
 
     const run = (async () => {
       if (mountedRef.current) {
@@ -154,6 +159,7 @@ export function useDashboardPolling({
           setIsRefreshing(false);
         }
         inFlightRef.current = null;
+        inFlightManualRef.current = false;
 
         const shouldContinue =
           manual || enabledRef.current;
@@ -238,6 +244,7 @@ export function useDashboardPolling({
         cooldownTimerRef.current = null;
       }
       inFlightRef.current = null;
+      inFlightManualRef.current = false;
     };
   }, [clearTimer]);
 

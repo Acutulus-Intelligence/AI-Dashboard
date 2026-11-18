@@ -4,10 +4,12 @@ using Application.Datasets;
 using Application.DTos.Request;
 using Application.DTos.Response;
 using Application.Interfaces;
+using Application.Settings;
 using Domain.Charts;
 using Domain.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Application.Services;
 
@@ -21,6 +23,7 @@ public class ChartService : IChartService
     private readonly ICollectionAccessService _collectionAccess;
     private readonly IChartResultCache _chartCache;
     private readonly IKeyedAsyncLock _executionLock;
+    private readonly ChartCacheSettings _cacheSettings;
     private readonly ILogger<ChartService> _logger;
 
     public ChartService(
@@ -32,6 +35,7 @@ public class ChartService : IChartService
         ICollectionAccessService collectionAccess,
         IChartResultCache chartCache,
         IKeyedAsyncLock executionLock,
+        IOptions<ChartCacheSettings> cacheSettings,
         ILogger<ChartService> logger)
     {
         _db = db;
@@ -42,6 +46,7 @@ public class ChartService : IChartService
         _collectionAccess = collectionAccess;
         _chartCache = chartCache;
         _executionLock = executionLock;
+        _cacheSettings = cacheSettings.Value;
         _logger = logger;
     }
 
@@ -260,6 +265,9 @@ public class ChartService : IChartService
         }
 
         var dataUpdatedAt = DateTimeOffset.UtcNow;
+        var cacheTtl = chart.ConnectionId is not null && _cacheSettings.ConnectionEntryTtlMinutes > 0
+            ? TimeSpan.FromMinutes(_cacheSettings.ConnectionEntryTtlMinutes)
+            : (TimeSpan?)null;
 
         try
         {
@@ -267,6 +275,7 @@ public class ChartService : IChartService
                 userId,
                 id,
                 new CachedChartResult(result, chart.UpdatedAt, dataUpdatedAt),
+                cacheTtl,
                 ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

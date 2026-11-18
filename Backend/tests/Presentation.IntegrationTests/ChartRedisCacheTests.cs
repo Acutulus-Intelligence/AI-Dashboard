@@ -87,4 +87,46 @@ public sealed class ChartRedisCacheTests : IAsyncLifetime
         // L1 is cleared in production by the pub/sub subscriber.)
         (await third.GetAsync(userId, chartId)).Should().BeNull();
     }
+
+    [Fact]
+    public async Task Redis_cache_honours_ttl_override()
+    {
+        var settings = new ChartCacheSettings
+        {
+            Enabled = true,
+            RedisEnabled = true,
+            RedisConnectionString = _redis.GetConnectionString(),
+            InstanceName = $"test-{Guid.NewGuid():N}:",
+            L1TtlSeconds = 60,
+            EntryTtlDays = 30,
+            EncryptPayloads = true,
+        };
+        var options = Options.Create(settings);
+        var encryption = new AesEncryptionService(Options.Create(new EncryptionSettings
+        {
+            Key = "chart-cache-test-encryption-key-32b!",
+        }));
+
+        using var provider = new RedisConnectionProvider(
+            options, NullLogger<RedisConnectionProvider>.Instance);
+        using var l1 = new MemoryCache(new MemoryCacheOptions());
+        var cache = new RedisChartResultCache(
+            l1, provider, encryption, options,
+            NullLogger<RedisChartResultCache>.Instance);
+
+        var userId = Guid.NewGuid();
+        var chartId = Guid.NewGuid();
+        var entry = new CachedChartResult(
+            [],
+            DateTime.UtcNow,
+            DateTimeOffset.UtcNow);
+
+        await cache.SetAsync(userId, chartId, entry, TimeSpan.FromMinutes(2));
+
+        var key = $"{settings.InstanceName}chart-result:v1:{userId:N}:{chartId:N}";
+        var ttl = await provider.Connection!.GetDatabase().KeyTimeToLiveAsync(key);
+
+        ttl.Should().NotBeNull();
+        ttl!.Value.TotalMinutes.Should().BeInRange(1.5, 2.1);
+    }
 }

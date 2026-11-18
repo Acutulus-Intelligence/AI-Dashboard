@@ -13,6 +13,7 @@ using Domain.Enums;
 using Domain.Models;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Application.Services;
@@ -24,6 +25,7 @@ public class CompanyService : ICompanyService
     private readonly IPaymentService _paymentService;
     private readonly IEmailSender _emailSender;
     private readonly IChartCacheInvalidator _chartCacheInvalidator;
+    private readonly ILogger<CompanyService> _logger;
     private readonly EmailSettings _emailSettings;
 
     public CompanyService(
@@ -32,6 +34,7 @@ public class CompanyService : ICompanyService
         IPaymentService paymentService,
         IEmailSender emailSender,
         IChartCacheInvalidator chartCacheInvalidator,
+        ILogger<CompanyService> logger,
         IOptions<EmailSettings> emailSettings)
     {
         _db = db;
@@ -39,6 +42,7 @@ public class CompanyService : ICompanyService
         _paymentService = paymentService;
         _emailSender = emailSender;
         _chartCacheInvalidator = chartCacheInvalidator;
+        _logger = logger;
         _emailSettings = emailSettings.Value;
     }
 
@@ -642,6 +646,9 @@ public class CompanyService : ICompanyService
         {
             // Access checks already prevent these cached rows from being served;
             // invalidation is retention cleanup and must not fail the operation.
+            _logger.LogWarning(
+                ex,
+                "Failed to invalidate chart cache after a company change.");
         }
     }
 

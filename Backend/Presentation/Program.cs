@@ -29,6 +29,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.IdentityModel.Tokens;
 using Presentation.Middleware;
 using Presentation.Services;
@@ -114,11 +115,14 @@ builder.Services.AddSingleton<IEncryptionService, AesEncryptionService>();
 var chartCacheSection = builder.Configuration.GetSection(ChartCacheSettings.SectionName);
 builder.Services.Configure<ChartCacheSettings>(chartCacheSection);
 var chartCacheSettings = chartCacheSection.Get<ChartCacheSettings>() ?? new ChartCacheSettings();
-builder.Services.AddMemoryCache(options =>
-{
-    if (chartCacheSettings.L1SizeLimitBytes > 0)
-        options.SizeLimit = chartCacheSettings.L1SizeLimitBytes;
-});
+builder.Services.AddMemoryCache();
+builder.Services.AddKeyedSingleton<IMemoryCache>(ChartCacheSettings.L1CacheKey, (_, _) =>
+    new MemoryCache(new MemoryCacheOptions
+    {
+        SizeLimit = chartCacheSettings.L1SizeLimitBytes > 0
+            ? chartCacheSettings.L1SizeLimitBytes
+            : null,
+    }));
 builder.Services.AddSingleton<IRedisConnectionProvider, RedisConnectionProvider>();
 builder.Services.AddSingleton<RedisChartResultCache>();
 builder.Services.AddSingleton<IChartResultCache>(sp => sp.GetRequiredService<RedisChartResultCache>());
@@ -351,7 +355,7 @@ if (rateLimitingEnabled)
                 : $"chart-refresh:ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
 
             var permitLimit = builder.Configuration.GetValue(
-                "RateLimiting:ChartRefresh:PermitLimit", 300);
+                "RateLimiting:ChartRefresh:PermitLimit", 60);
             var windowSeconds = builder.Configuration.GetValue(
                 "RateLimiting:ChartRefresh:WindowSeconds", 60);
 

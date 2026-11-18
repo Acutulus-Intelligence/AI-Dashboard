@@ -5,6 +5,7 @@ using Application.Caching;
 using Application.Interfaces;
 using Application.Settings;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
@@ -29,7 +30,7 @@ public sealed class RedisChartResultCache : IChartResultCache, IChartCacheInvali
     private readonly ConcurrentDictionary<string, byte> _l1Keys = new();
 
     public RedisChartResultCache(
-        IMemoryCache memory,
+        [FromKeyedServices(ChartCacheSettings.L1CacheKey)] IMemoryCache memory,
         IRedisConnectionProvider redisProvider,
         IEncryptionService encryption,
         IOptions<ChartCacheSettings> settings,
@@ -95,6 +96,7 @@ public sealed class RedisChartResultCache : IChartResultCache, IChartCacheInvali
         Guid userId,
         Guid chartId,
         CachedChartResult result,
+        TimeSpan? ttl = null,
         CancellationToken ct = default)
     {
         if (!_settings.Enabled)
@@ -137,9 +139,10 @@ public sealed class RedisChartResultCache : IChartResultCache, IChartCacheInvali
         try
         {
             var stored = _settings.EncryptPayloads ? _encryption.Encrypt(payload) : payload;
-            var expiry = _settings.EntryTtlDays > 0
-                ? new Expiration(TimeSpan.FromDays(_settings.EntryTtlDays))
-                : Expiration.Default;
+            var lifetime = ttl ?? (_settings.EntryTtlDays > 0
+                ? TimeSpan.FromDays(_settings.EntryTtlDays)
+                : (TimeSpan?)null);
+            var expiry = lifetime.HasValue ? new Expiration(lifetime.Value) : Expiration.Default;
 
             await database.StringSetAsync(key, stored, expiry);
             await PublishAsync(new ChartCacheInvalidationMessage(

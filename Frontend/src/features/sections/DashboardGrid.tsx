@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import ChartRenderer from '../charts/ChartRenderer';
 import DashboardRefreshBar, { type RefreshChartOption } from '../components/DashboardRefreshBar';
 import { useAuth } from '../store/useAuth';
-import { useDashboardPolling, type DashboardRefreshOutcome } from '../../hooks/useDashboardPolling';
+import { useDashboardPolling, DASHBOARD_REFRESH_INTERVAL_MS, type DashboardRefreshOutcome } from '../../hooks/useDashboardPolling';
 import { ApiError } from '../../lib/api/client';
 import TextWidget from '../components/TextWidget';
 import TextWidgetEditShell from '../components/TextWidgetEditShell';
@@ -812,7 +812,21 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
       return;
 
     initialAutoRefreshDoneRef.current = true;
-    void refreshCharts(undefined, { onlyPolled: true }).then((outcome) => {
+
+    const now = Date.now();
+    const staleIds = widgetsRef.current
+      .filter((widget): widget is ChartWidget => {
+        if (widget.kind !== 'chart' || !widget.savedChartId) return false;
+        if (widget.autoRefreshEnabled === false) return false;
+        const lastUpdatedAt = chartRuntimeRef.current[widget.id]?.lastUpdatedAt;
+        return lastUpdatedAt == null || now - lastUpdatedAt >= DASHBOARD_REFRESH_INTERVAL_MS;
+      })
+      .map((widget) => widget.id);
+
+    if (staleIds.length === 0)
+      return;
+
+    void refreshCharts(staleIds, { onlyPolled: true }).then((outcome) => {
       if (outcome.succeeded > 0) {
         markUpdated(outcome.lastUpdatedAt ?? Date.now());
       } else if (outcome.failed > 0) {
@@ -832,6 +846,10 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
   useEffect(() => {
     if (editMode && !prevEditModeRef.current) {
       snapshotRef.current = cloneSnapshot(widgetsRef.current, layoutRef.current);
+      activeReloadControllerRef.current?.abort();
+      activeReloadControllerRef.current = null;
+      for (const controller of refreshControllersRef.current) controller.abort();
+      refreshControllersRef.current.clear();
     }
     prevEditModeRef.current = editMode;
   }, [editMode]);

@@ -480,7 +480,7 @@ public sealed class ChartCacheRoutesTests
         var invite = await ownerClient.PostAsJsonAsync(
             $"/api/companies/{companyId}/invite",
             new InviteUserRequest(inviteeEmail, roleId));
-        invite.StatusCode.Should().Be(HttpStatusCode.OK);
+        invite.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         var pending = await inviteeClient.GetAsync("/api/invites/pending");
         pending.StatusCode.Should().Be(HttpStatusCode.OK);
