@@ -27,6 +27,24 @@ services:
       db:
         condition: service_healthy
 
+  redis:
+    image: redis:7-alpine
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   presentation:
     build:
       context: .
@@ -35,8 +53,12 @@ services:
       - "8080:8080"
     env_file: 
       - ./.env
+    environment:
+      - ChartCache__RedisConnectionString=redis:6379
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
 volumes:

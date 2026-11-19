@@ -289,7 +289,7 @@ export default function GraphCreationPage() {
       try {
         const [detail, executed] = await Promise.all([
           getChart(routeChartId),
-          executeChart(routeChartId),
+          executeChart(routeChartId, { forceRefresh: true }),
         ]);
         if (cancelled) return;
         setConnectionId(detail.connectionId ?? '');

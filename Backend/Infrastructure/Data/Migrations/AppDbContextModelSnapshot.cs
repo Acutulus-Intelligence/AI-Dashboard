@@ -338,6 +338,11 @@ namespace Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text[]");
 
+                    b.Property<bool>("AutoRefreshEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<Guid?>("CompanyId")
                         .HasColumnType("uuid");
 
@@ -372,6 +377,9 @@ namespace Infrastructure.Data.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<bool?>("AutoRefreshEnabled")
+                        .HasColumnType("boolean");
 
                     b.Property<Guid>("DashboardId")
                         .HasColumnType("uuid");

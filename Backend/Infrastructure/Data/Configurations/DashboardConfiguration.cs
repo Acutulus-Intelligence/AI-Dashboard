@@ -22,6 +22,9 @@ public class DashboardConfiguration : IEntityTypeConfiguration<Dashboard>
         builder.Property(d => d.AllowedRoles)
             .HasColumnType("text[]");
 
+        builder.Property(d => d.AutoRefreshEnabled)
+            .HasDefaultValue(false);
+
         builder.Property(d => d.CreatedAt)
             .IsRequired();
 

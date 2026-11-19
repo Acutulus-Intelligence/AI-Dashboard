@@ -13,6 +13,7 @@ public class AccountDeletionService : IAccountDeletionService
     private readonly UserManager<User> _userManager;
     private readonly IApplicationDbContext _db;
     private readonly IPaymentService _paymentService;
+    private readonly IChartCacheInvalidator _chartCacheInvalidator;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<AccountDeletionService> _logger;
 
@@ -20,12 +21,14 @@ public class AccountDeletionService : IAccountDeletionService
         UserManager<User> userManager,
         IApplicationDbContext db,
         IPaymentService paymentService,
+        IChartCacheInvalidator chartCacheInvalidator,
         IServiceScopeFactory scopeFactory,
         ILogger<AccountDeletionService> logger)
     {
         _userManager = userManager;
         _db = db;
         _paymentService = paymentService;
+        _chartCacheInvalidator = chartCacheInvalidator;
         _scopeFactory = scopeFactory;
         _logger = logger;
     }
@@ -212,5 +215,7 @@ public class AccountDeletionService : IAccountDeletionService
             throw new InvalidOperationException($"Failed to purge account {userId}.");
 
         await transaction.CommitAsync(ct);
+
+        await _chartCacheInvalidator.InvalidateForUserAsync(userId, ct);
     }
 }

@@ -34,6 +34,7 @@ export interface UserInfo {
   twoFactorEnabled: boolean;
   isDeactivated?: boolean;
   deletionScheduledAt?: string | null;
+  isCompanyOwner?: boolean;
 }
 
 export function register(data: RegisterRequest): Promise<AuthResponse> {

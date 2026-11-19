@@ -12,5 +12,6 @@ public sealed record UserMeResponse(
     string? CompanyRoleName,
     bool TwoFactorEnabled,
     bool IsDeactivated = false,
-    DateTime? DeletionScheduledAt = null
+    DateTime? DeletionScheduledAt = null,
+    bool IsCompanyOwner = false
 );

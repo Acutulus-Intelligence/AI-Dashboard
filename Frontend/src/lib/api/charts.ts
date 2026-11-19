@@ -89,6 +89,12 @@ export interface ChartConfigResponse {
   queryResult: Record<string, unknown>[];
   styleConfig?: ChartStyleConfig | null;
   dataModel?: DataQueryModel | null;
+  dataUpdatedAt?: string | null;
+}
+
+export interface ExecuteChartOptions {
+  signal?: AbortSignal;
+  forceRefresh?: boolean;
 }
 
 export interface CatalogParamOption {
@@ -162,6 +168,19 @@ export function deleteChart(id: string): Promise<void> {
   return apiFetch(`/api/charts/${id}`, { method: 'DELETE' });
 }
 
-export function executeChart(id: string): Promise<ChartConfigResponse> {
-  return apiFetch<ChartConfigResponse>(`/api/charts/${id}/execute`, { method: 'POST' });
+export function executeChart(
+  id: string,
+  options: ExecuteChartOptions = {},
+): Promise<ChartConfigResponse> {
+  const params = new URLSearchParams();
+  if (options.forceRefresh) {
+    params.set('forceRefresh', 'true');
+  }
+  const query = params.toString();
+
+  return apiFetch<ChartConfigResponse>(`/api/charts/${id}/execute${query ? `?${query}` : ''}`, {
+    method: 'POST',
+    signal: options.signal,
+    cache: 'no-store',
+  });
 }

@@ -49,6 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         twoFactorEnabled: userInfo.twoFactorEnabled ?? false,
         isDeactivated: userInfo.isDeactivated ?? false,
         deletionScheduledAt: userInfo.deletionScheduledAt ?? null,
+        isCompanyOwner: userInfo.isCompanyOwner ?? false,
       };
       setUser(authUser);
       return authUser;

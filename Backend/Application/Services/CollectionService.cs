@@ -20,6 +20,7 @@ public class CollectionService : ICollectionService
     private readonly ICollectionAccessService _access;
     private readonly IDatasetFileParser[] _parsers;
     private readonly DatasetSettings _settings;
+    private readonly IChartCacheInvalidator _chartCacheInvalidator;
 
     public CollectionService(
         IApplicationDbContext db,
@@ -27,7 +28,8 @@ public class CollectionService : ICollectionService
         IDataQueryExecutor dataQueryExecutor,
         ICollectionAccessService access,
         IEnumerable<IDatasetFileParser> parsers,
-        IOptions<DatasetSettings> settings)
+        IOptions<DatasetSettings> settings,
+        IChartCacheInvalidator chartCacheInvalidator)
     {
         _db = db;
         _aiService = aiService;
@@ -35,6 +37,7 @@ public class CollectionService : ICollectionService
         _access = access;
         _parsers = parsers.ToArray();
         _settings = settings.Value;
+        _chartCacheInvalidator = chartCacheInvalidator;
     }
 
     public async Task<CollectionResponse> CreateAsync(Guid userId, CreateCollectionRequest request, CancellationToken ct = default)
@@ -201,6 +204,14 @@ public class CollectionService : ICollectionService
     public async Task DeleteCollectionAsync(Guid id, Guid userId, CancellationToken ct = default)
     {
         var collection = await GetManageableAsync(id, userId, ct);
+        var datasetIds = await _db.SavedDatasets
+            .AsNoTracking()
+            .Where(f => f.CollectionId == id)
+            .Select(f => f.Id)
+            .ToListAsync(ct);
+
+        await _chartCacheInvalidator.InvalidateForDatasetsAsync(datasetIds, ct);
+
         _db.DataCollections.Remove(collection);
         await _db.SaveChangesAsync(ct);
     }
@@ -292,6 +303,9 @@ public class CollectionService : ICollectionService
     {
         await GetManageableAsync(collectionId, userId, ct);
         var dataset = await GetFileAsync(collectionId, fileId, ct);
+
+        await _chartCacheInvalidator.InvalidateForDatasetsAsync([dataset.Id], ct);
+
         _db.SavedDatasets.Remove(dataset);
         await _db.SaveChangesAsync(ct);
     }

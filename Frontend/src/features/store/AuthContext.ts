@@ -12,6 +12,7 @@ export interface AuthUser {
   twoFactorEnabled: boolean;
   isDeactivated: boolean;
   deletionScheduledAt?: string | null;
+  isCompanyOwner: boolean;
 }
 
 export type LoginResult =
