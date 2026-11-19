@@ -34,10 +34,7 @@ public sealed class RedisConnectionProvider : IRedisConnectionProvider, IDisposa
 
         try
         {
-            var options = ConfigurationOptions.Parse(_settings.RedisConnectionString);
-            options.AbortOnConnectFail = false;
-            options.ConnectTimeout = 5000;
-            options.SyncTimeout = 5000;
+            var options = CreateOptions(_settings.RedisConnectionString);
 
             var connection = ConnectionMultiplexer.Connect(options);
             _logger.LogInformation("Connected to Redis for chart cache.");
@@ -45,11 +42,55 @@ public sealed class RedisConnectionProvider : IRedisConnectionProvider, IDisposa
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(
+            _logger.LogError(
                 ex,
                 "Could not connect to Redis for chart cache; using in-process cache only.");
             return null;
         }
+    }
+
+    private static ConfigurationOptions CreateOptions(string connectionString)
+    {
+        ConfigurationOptions options;
+
+        if (connectionString.StartsWith("redis://", StringComparison.OrdinalIgnoreCase) ||
+            connectionString.StartsWith("rediss://", StringComparison.OrdinalIgnoreCase))
+        {
+            var uri = new Uri(connectionString);
+            options = new ConfigurationOptions
+            {
+                Ssl = uri.Scheme.Equals("rediss", StringComparison.OrdinalIgnoreCase),
+            };
+
+            // Uri returns -1 for schemes without a registered default port.
+            options.EndPoints.Add(uri.Host, uri.Port > 0 ? uri.Port : 6379);
+
+            var database = uri.AbsolutePath.Trim('/');
+            if (int.TryParse(database, out var databaseIndex) && databaseIndex >= 0)
+                options.DefaultDatabase = databaseIndex;
+
+            if (!string.IsNullOrEmpty(uri.UserInfo))
+            {
+                var separator = uri.UserInfo.IndexOf(':');
+                var user = separator >= 0 ? uri.UserInfo[..separator] : uri.UserInfo;
+                var password = separator >= 0 ? uri.UserInfo[(separator + 1)..] : string.Empty;
+
+                if (!string.IsNullOrEmpty(user))
+                    options.User = Uri.UnescapeDataString(user);
+                if (!string.IsNullOrEmpty(password))
+                    options.Password = Uri.UnescapeDataString(password);
+            }
+        }
+        else
+        {
+            options = ConfigurationOptions.Parse(connectionString);
+        }
+
+        options.AbortOnConnectFail = false;
+        options.ConnectTimeout = 5000;
+        options.SyncTimeout = 5000;
+
+        return options;
     }
 
     public void Dispose()

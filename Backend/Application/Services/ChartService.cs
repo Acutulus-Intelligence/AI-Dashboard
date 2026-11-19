@@ -274,7 +274,7 @@ public class ChartService : IChartService
             await _chartCache.SetAsync(
                 userId,
                 id,
-                new CachedChartResult(result, chart.UpdatedAt, dataUpdatedAt),
+                new CachedChartResult(userId, id, result, chart.UpdatedAt, dataUpdatedAt),
                 cacheTtl,
                 ct);
         }

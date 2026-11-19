@@ -64,6 +64,8 @@ public sealed class ChartRedisCacheTests : IAsyncLifetime
         var chartId = Guid.NewGuid();
         var dataUpdatedAt = DateTimeOffset.UtcNow;
         var entry = new CachedChartResult(
+            userId,
+            chartId,
             [new Dictionary<string, object?> { ["amount"] = 42 }],
             DateTime.UtcNow,
             dataUpdatedAt);
@@ -117,6 +119,8 @@ public sealed class ChartRedisCacheTests : IAsyncLifetime
         var userId = Guid.NewGuid();
         var chartId = Guid.NewGuid();
         var entry = new CachedChartResult(
+            userId,
+            chartId,
             [],
             DateTime.UtcNow,
             DateTimeOffset.UtcNow);
@@ -128,5 +132,111 @@ public sealed class ChartRedisCacheTests : IAsyncLifetime
 
         ttl.Should().NotBeNull();
         ttl!.Value.TotalMinutes.Should().BeInRange(1.5, 2.1);
+    }
+
+    [Fact]
+    public async Task Redis_cache_accepts_redis_uri_connection_string()
+    {
+        var settings = new ChartCacheSettings
+        {
+            Enabled = true,
+            RedisEnabled = true,
+            RedisConnectionString = $"redis://localhost:{_redis.GetMappedPublicPort(6379)}/2",
+            InstanceName = $"test-{Guid.NewGuid():N}:",
+        };
+        var options = Options.Create(settings);
+
+        using var provider = new RedisConnectionProvider(
+            options, NullLogger<RedisConnectionProvider>.Instance);
+
+        provider.Connection.Should().NotBeNull();
+        provider.Connection!.GetDatabase().Database.Should().Be(2);
+        var ping = await provider.Connection.GetDatabase().PingAsync();
+        ping.Should().BeGreaterThan(TimeSpan.Zero);
+    }
+
+    [Fact]
+    public async Task Redis_cache_discards_entries_that_do_not_match_the_key()
+    {
+        var settings = new ChartCacheSettings
+        {
+            Enabled = true,
+            RedisEnabled = true,
+            RedisConnectionString = _redis.GetConnectionString(),
+            InstanceName = $"test-{Guid.NewGuid():N}:",
+            EntryTtlDays = 1,
+            EncryptPayloads = true,
+        };
+        var options = Options.Create(settings);
+        var encryption = new AesEncryptionService(Options.Create(new EncryptionSettings
+        {
+            Key = "chart-cache-test-encryption-key-32b!",
+        }));
+
+        using var provider = new RedisConnectionProvider(
+            options, NullLogger<RedisConnectionProvider>.Instance);
+        using var readerL1 = new MemoryCache(new MemoryCacheOptions());
+        var reader = new RedisChartResultCache(
+            readerL1, provider, encryption, options,
+            NullLogger<RedisChartResultCache>.Instance);
+
+        var userId = Guid.NewGuid();
+        var chartId = Guid.NewGuid();
+        var key = $"{settings.InstanceName}chart-result:v1:{userId:N}:{chartId:N}";
+        var database = provider.Connection!.GetDatabase();
+
+        var entry = new CachedChartResult(
+            Guid.NewGuid(),
+            chartId,
+            [new Dictionary<string, object?> { ["amount"] = 99 }],
+            DateTime.UtcNow,
+            DateTimeOffset.UtcNow);
+
+        // SetAsync refuses to persist a payload bound to another key.
+        await reader.SetAsync(userId, chartId, entry);
+        (await database.KeyExistsAsync(key)).Should().BeFalse();
+
+        // Even a payload written directly to Redis is rejected on read and removed.
+        var payload = JsonSerializer.Serialize(
+            entry, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        await database.StringSetAsync(key, encryption.Encrypt(payload), TimeSpan.FromMinutes(5));
+
+        (await reader.GetAsync(userId, chartId)).Should().BeNull();
+        (await database.KeyExistsAsync(key)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Redis_cache_removes_corrupt_entries()
+    {
+        var settings = new ChartCacheSettings
+        {
+            Enabled = true,
+            RedisEnabled = true,
+            RedisConnectionString = _redis.GetConnectionString(),
+            InstanceName = $"test-{Guid.NewGuid():N}:",
+            EntryTtlDays = 1,
+            EncryptPayloads = true,
+        };
+        var options = Options.Create(settings);
+        var encryption = new AesEncryptionService(Options.Create(new EncryptionSettings
+        {
+            Key = "chart-cache-test-encryption-key-32b!",
+        }));
+
+        using var provider = new RedisConnectionProvider(
+            options, NullLogger<RedisConnectionProvider>.Instance);
+        using var l1 = new MemoryCache(new MemoryCacheOptions());
+        var cache = new RedisChartResultCache(
+            l1, provider, encryption, options,
+            NullLogger<RedisChartResultCache>.Instance);
+
+        var userId = Guid.NewGuid();
+        var chartId = Guid.NewGuid();
+        var key = $"{settings.InstanceName}chart-result:v1:{userId:N}:{chartId:N}";
+        var database = provider.Connection!.GetDatabase();
+        await database.StringSetAsync(key, "not-a-valid-payload", TimeSpan.FromMinutes(5));
+
+        (await cache.GetAsync(userId, chartId)).Should().BeNull();
+        (await database.KeyExistsAsync(key)).Should().BeFalse();
     }
 }

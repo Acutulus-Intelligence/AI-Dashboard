@@ -224,7 +224,7 @@ builder.Services.AddCors(options =>
             .WithOrigins(corsOrigins)
             .WithMethods("GET", "POST", "PUT", "DELETE")
             .WithHeaders("Content-Type", "Authorization")
-            .WithExposedHeaders("X-Company-Connection-Count")
+            .WithExposedHeaders("X-Company-Connection-Count", "Retry-After")
             .AllowCredentials();
     });
 });
@@ -323,9 +323,10 @@ if (rateLimitingEnabled)
         // to distinguish "manual" from "auto": that would be a trivial bypass.
         options.AddPolicy("chart-refresh", httpContext =>
         {
-            var forceRefresh = bool.TryParse(
-                httpContext.Request.Query["forceRefresh"],
-                out var force) && force;
+            // Model binding uses the first value, so a duplicate query string
+            // such as ?forceRefresh=true&forceRefresh=true must not dodge this bucket.
+            var forceRefresh = httpContext.Request.Query["forceRefresh"]
+                .Any(value => bool.TryParse(value, out var force) && force);
 
             var userId = httpContext.User?.FindFirst("userId")?.Value;
 
@@ -358,14 +359,23 @@ if (rateLimitingEnabled)
                 "RateLimiting:ChartRefresh:PermitLimit", 60);
             var windowSeconds = builder.Configuration.GetValue(
                 "RateLimiting:ChartRefresh:WindowSeconds", 60);
+            var burstLimit = builder.Configuration.GetValue(
+                "RateLimiting:ChartRefresh:BurstLimit", 300);
 
-            return RateLimitPartition.GetFixedWindowLimiter(
+            var tokensPerPeriod = Math.Max(1, permitLimit);
+
+            // A dashboard refresh issues one request per chart. The bucket keeps
+            // the sustained rate at PermitLimit per window but allows a burst so
+            // dashboards with many charts (or several tabs) still refresh.
+            return RateLimitPartition.GetTokenBucketLimiter(
                 partitionKey: partitionKey,
-                factory: _ => new FixedWindowRateLimiterOptions
+                factory: _ => new TokenBucketRateLimiterOptions
                 {
-                    PermitLimit = Math.Max(1, permitLimit),
-                    Window = TimeSpan.FromSeconds(Math.Max(1, windowSeconds)),
+                    TokenLimit = Math.Max(tokensPerPeriod, burstLimit),
+                    TokensPerPeriod = tokensPerPeriod,
+                    ReplenishmentPeriod = TimeSpan.FromSeconds(Math.Max(1, windowSeconds)),
                     QueueLimit = 0,
+                    AutoReplenishment = true,
                 });
         });
     });

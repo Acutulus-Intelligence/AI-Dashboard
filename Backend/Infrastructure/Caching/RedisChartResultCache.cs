@@ -71,8 +71,15 @@ public sealed class RedisChartResultCache : IChartResultCache, IChartCacheInvali
                 payload = _encryption.Decrypt(payload);
 
             var result = JsonSerializer.Deserialize<CachedChartResult>(payload, JsonOptions);
-            if (result is null)
+            if (result is null || result.UserId != userId || result.ChartId != chartId)
+            {
+                _logger.LogWarning(
+                    "Discarding chart cache entry whose payload does not match user {UserId} and chart {ChartId}.",
+                    userId,
+                    chartId);
+                await TryDeleteAsync(database, key);
                 return null;
+            }
 
             SetLocal(key, result, Encoding.UTF8.GetByteCount(payload));
             return result;
@@ -83,6 +90,9 @@ public sealed class RedisChartResultCache : IChartResultCache, IChartCacheInvali
         }
         catch (Exception ex)
         {
+            // A rotated encryption key or corrupt payload would otherwise log on
+            // every read. Remove the entry so the next request recomputes it.
+            await TryDeleteAsync(database, key);
             _logger.LogWarning(
                 ex,
                 "Failed to read chart cache for user {UserId} and chart {ChartId}.",
@@ -101,6 +111,15 @@ public sealed class RedisChartResultCache : IChartResultCache, IChartCacheInvali
     {
         if (!_settings.Enabled)
             return;
+
+        if (result.UserId != userId || result.ChartId != chartId)
+        {
+            _logger.LogWarning(
+                "Refusing to cache a chart result whose payload is bound to a different user {UserId} and chart {ChartId}.",
+                userId,
+                chartId);
+            return;
+        }
 
         var key = BuildKey(userId, chartId);
         string payload;
@@ -274,6 +293,20 @@ public sealed class RedisChartResultCache : IChartResultCache, IChartCacheInvali
         => $"{_settings.InstanceName}chart-result:v1:{userId:N}:";
 
     private IDatabase? GetDatabase() => _redisProvider.Connection?.GetDatabase();
+
+    private async Task TryDeleteAsync(IDatabase database, string key)
+    {
+        try
+        {
+            // Fire-and-forget: a failing Redis must not add another timeout to
+            // every chart read while the cache is unavailable.
+            await database.KeyDeleteAsync(key, CommandFlags.FireAndForget);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to remove unusable chart cache entry.");
+        }
+    }
 
     private void SetLocal(string key, CachedChartResult result, long size)
     {

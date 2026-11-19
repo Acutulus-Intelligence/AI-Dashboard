@@ -191,6 +191,7 @@ public sealed class ChartCacheRoutesTests
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["RateLimiting:ChartRefresh:PermitLimit"] = "2",
+                    ["RateLimiting:ChartRefresh:BurstLimit"] = "2",
                     ["RateLimiting:ChartRefresh:WindowSeconds"] = "60",
                 });
             });
@@ -218,6 +219,59 @@ public sealed class ChartCacheRoutesTests
 
             // source=auto must not bypass the forced-refresh budget.
             var bypassAttempt = await client.PostAsync($"{url}&source=auto", null);
+            bypassAttempt.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+            bypassAttempt.Headers.RetryAfter.Should().NotBeNull();
+
+            (await client.DeleteAsync($"/api/charts/{chartId}")).StatusCode.Should()
+                .Be(HttpStatusCode.NoContent);
+            (await client.DeleteAsync($"/api/connections/{connectionId}")).StatusCode.Should()
+                .Be(HttpStatusCode.NoContent);
+        }
+        finally
+        {
+            await ExecuteExternalSqlAsync($"DROP TABLE IF EXISTS {tableName};");
+        }
+    }
+
+    [Fact]
+    public async Task Duplicate_force_refresh_parameters_cannot_bypass_the_forced_limit()
+    {
+        using var limitedFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureAppConfiguration((_, config) =>
+            {
+                config.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["RateLimiting:ChartRefresh:PermitLimit"] = "2",
+                    ["RateLimiting:ChartRefresh:BurstLimit"] = "2",
+                    ["RateLimiting:ChartRefresh:WindowSeconds"] = "60",
+                });
+            });
+        });
+
+        var client = limitedFactory.CreateClient(new() { AllowAutoRedirect = false });
+        var email = $"cacheduplicatelimit_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        await _factory.SeedActiveSubscriptionAsync(email);
+
+        var tableName = $"cache_dup_limit_{Guid.NewGuid():N}";
+        await ExecuteExternalSqlAsync(
+            $"CREATE TABLE {tableName} (category TEXT NOT NULL, amount NUMERIC NOT NULL);" +
+            $"INSERT INTO {tableName} (category, amount) VALUES ('A', 10);");
+
+        try
+        {
+            var connectionId = await CreateConnectionAsync(client);
+            var sql = $"SELECT category, SUM(amount) AS amount FROM {tableName} GROUP BY category";
+            var chartId = await CreateChartAsync(client, connectionId, tableName, sql);
+            var url = $"/api/charts/{chartId}/execute?forceRefresh=true";
+
+            (await client.PostAsync(url, null)).StatusCode.Should().Be(HttpStatusCode.OK);
+            (await client.PostAsync(url, null)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+            // The model binder uses the first value, so the limiter must treat
+            // any true value as a forced refresh.
+            var bypassAttempt = await client.PostAsync($"{url}&forceRefresh=true", null);
             bypassAttempt.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
             bypassAttempt.Headers.RetryAfter.Should().NotBeNull();
 

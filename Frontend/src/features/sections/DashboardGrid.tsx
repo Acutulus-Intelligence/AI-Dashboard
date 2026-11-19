@@ -334,6 +334,7 @@ interface LoadDashboardResult {
   succeeded: number;
   failed: number;
   blocked: boolean;
+  rateLimitedSeconds: number | null;
   loadedAt: number;
   oldestDataUpdatedAt: number | null;
 }
@@ -424,7 +425,8 @@ async function loadDashboardState({
   const failedIds = new Set<string>();
   let succeeded = 0;
   let failed = 0;
-  let blocked = false;
+  let unauthorizedFailures = 0;
+  let rateLimitedSeconds: number | null = null;
 
   await runWithConcurrency(
     targets,
@@ -457,13 +459,20 @@ async function loadDashboardState({
         failed += 1;
         failedIds.add(widget.id);
         if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-          blocked = true;
+          unauthorizedFailures += 1;
+        }
+        if (err instanceof ApiError && err.status === 429) {
+          const seconds = err.retryAfterSeconds ?? 60;
+          rateLimitedSeconds = Math.max(rateLimitedSeconds ?? 0, seconds);
         }
       }
     },
   );
 
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+
+  // A single inaccessible chart should not stop polling for the whole dashboard.
+  const blocked = targets.length > 0 && failed === targets.length && unauthorizedFailures > 0;
 
   const loadedAt = Date.now();
   const runtime: Record<string, ChartRuntime> = {};
@@ -516,6 +525,7 @@ async function loadDashboardState({
     succeeded,
     failed,
     blocked,
+    rateLimitedSeconds,
     loadedAt,
     oldestDataUpdatedAt,
   };
@@ -578,7 +588,7 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
   const refreshCharts = useCallback(async (
     ids?: string[],
     options: { onlyPolled?: boolean } = {},
-  ) => {
+  ): Promise<DashboardRefreshOutcome> => {
     const targetWidgets = widgetsRef.current.filter((widget): widget is ChartWidget => {
       if (widget.kind !== 'chart' || !widget.savedChartId) return false;
       if (ids && !ids.includes(widget.id)) return false;
@@ -611,7 +621,8 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
 
     let succeeded = 0;
     let failed = 0;
-    let blocked = false;
+    let unauthorizedFailures = 0;
+    let rateLimitedSeconds: number | null = null;
 
     try {
       await runWithConcurrency(
@@ -659,13 +670,14 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
             }
             failed += 1;
             if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-              blocked = true;
+              unauthorizedFailures += 1;
             }
             if (err instanceof ApiError && err.status === 429) {
+              const seconds = err.retryAfterSeconds ?? 60;
+              rateLimitedSeconds = Math.max(rateLimitedSeconds ?? 0, seconds);
               const now = Date.now();
               if (now - lastRateLimitToastRef.current > 3000) {
                 lastRateLimitToastRef.current = now;
-                const seconds = err.retryAfterSeconds ?? 60;
                 toast.error(`Too many refreshes. Try again in ${seconds}s.`);
               }
             }
@@ -687,11 +699,16 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
       for (const id of targetIdSet) inFlightChartIdsRef.current.delete(id);
     }
 
+    // A single inaccessible chart should not stop polling for the whole dashboard.
+    const blocked =
+      targetWidgets.length > 0 && failed === targetWidgets.length && unauthorizedFailures > 0;
+
     return {
       succeeded,
       failed,
       lastUpdatedAt: succeeded > 0 ? Date.now() : null,
       blocked,
+      rateLimitedSeconds: rateLimitedSeconds ?? undefined,
     };
   }, [autoRefreshEnabled, resetChartRefreshStatus]);
 
@@ -714,6 +731,7 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
     refreshNow,
     markUpdated,
     markError,
+    markRateLimited,
   } = useDashboardPolling({
     enabled: loaded && !editMode && autoRefreshEnabled && hasAutoRefreshableCharts,
     onRefresh: refreshDashboard,
@@ -743,12 +761,14 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
         : state.loadedAt;
       markUpdated(updatedAt);
     }
-    if (state.failed > 0) {
+    if (state.mode === 'initial' && state.rateLimitedSeconds) {
+      markRateLimited(state.rateLimitedSeconds);
+    } else if (state.failed > 0) {
       markError('Retrying connection… Showing the last known data.');
     } else if (state.succeeded > 0) {
       markError(null);
     }
-  }, [markUpdated, markError]);
+  }, [markUpdated, markError, markRateLimited]);
 
   const reloadDashboard = useCallback(async (manual: boolean) => {
     const controller = new AbortController();
@@ -776,6 +796,7 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
         failed: state.failed,
         lastUpdatedAt: state.succeeded > 0 ? state.loadedAt : null,
         blocked: state.blocked,
+        rateLimitedSeconds: state.rateLimitedSeconds ?? undefined,
       };
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
@@ -846,7 +867,10 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
     void refreshCharts(staleIds, { onlyPolled: true }).then((outcome) => {
       if (outcome.succeeded > 0) {
         markUpdated(outcome.lastUpdatedAt ?? Date.now());
-      } else if (outcome.failed > 0) {
+      }
+      if (outcome.rateLimitedSeconds) {
+        markRateLimited(outcome.rateLimitedSeconds);
+      } else if (outcome.succeeded === 0 && outcome.failed > 0) {
         markError('Retrying connection… Showing the last known data.');
       }
     });
@@ -858,6 +882,7 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
     refreshCharts,
     markUpdated,
     markError,
+    markRateLimited,
   ]);
 
   useEffect(() => {
@@ -1311,6 +1336,9 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
                             onClick={(e) => {
                               e.stopPropagation();
                               void refreshCharts([widget.id]).then((outcome) => {
+                                if (outcome.rateLimitedSeconds) {
+                                  markRateLimited(outcome.rateLimitedSeconds);
+                                }
                                 if (outcome.succeeded > 0) markUpdated();
                               });
                             }}
