@@ -71,9 +71,7 @@ public class DashboardService : IDashboardService
         }
 
         var name = request.Name.Trim();
-        var nameTaken = await _db.Dashboards.AnyAsync(d => d.UserId == userId && d.Name == name, ct);
-        if (nameTaken)
-            throw new ConflictException("You already have a dashboard with that name.", "dashboard_name_conflict");
+        await EnsureUniqueNameAsync(userId, name, excludeId: null, ct);
 
         var dashboard = new Dashboard
         {
@@ -95,10 +93,7 @@ public class DashboardService : IDashboardService
         var dashboard = await EnsureOwnedAsync(userId, dashboardId, ct);
 
         var name = request.Name.Trim();
-        var nameTaken = await _db.Dashboards
-            .AnyAsync(d => d.UserId == userId && d.Name == name && d.Id != dashboardId, ct);
-        if (nameTaken)
-            throw new ConflictException("You already have a dashboard with that name.", "dashboard_name_conflict");
+        await EnsureUniqueNameAsync(userId, name, excludeId: dashboardId, ct);
 
         dashboard.Name = name;
         dashboard.UpdatedAt = DateTime.UtcNow;
@@ -241,6 +236,12 @@ public class DashboardService : IDashboardService
             .Distinct()
             .ToList();
 
+        var takenDashboardNames = (await _db.Dashboards
+            .Where(d => d.UserId == newOwner.Id)
+            .Select(d => d.Name)
+            .ToListAsync(ct))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         var charts = chartIds.Count > 0
             ? await _db.SavedCharts
                 .Where(sc => chartIds.Contains(sc.Id) && sc.UserId == userId)
@@ -282,6 +283,7 @@ public class DashboardService : IDashboardService
             }
         }
 
+        dashboard.Name = ResolveUniqueTitle(dashboard.Name, takenDashboardNames);
         dashboard.UserId = newOwner.Id;
         dashboard.UpdatedAt = DateTime.UtcNow;
 
@@ -337,6 +339,7 @@ public class DashboardService : IDashboardService
                 else
                 {
                     chart.UserId = newOwner.Id;
+                    chart.FolderId = null;
                     chart.UpdatedAt = DateTime.UtcNow;
                     chart.Title = ResolveUniqueTitle(chart.Title, takenTitles);
                 }
@@ -507,6 +510,24 @@ public class DashboardService : IDashboardService
         } while (!takenTitles.Add(candidate));
 
         return candidate;
+    }
+
+    private async Task EnsureUniqueNameAsync(
+        Guid userId, string name, Guid? excludeId, CancellationToken ct)
+    {
+        var normalized = name.ToLower();
+        var taken = await _db.Dashboards.AnyAsync(
+            d => d.UserId == userId
+                && d.Name.ToLower() == normalized
+                && (!excludeId.HasValue || d.Id != excludeId.Value),
+            ct);
+
+        if (taken)
+        {
+            throw new ConflictException(
+                "You already have a dashboard with that name.",
+                "dashboard_name_conflict");
+        }
     }
 
     private async Task SaveDashboardAsync(CancellationToken ct)

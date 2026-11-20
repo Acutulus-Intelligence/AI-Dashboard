@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, forwardRef, useImperativeHandle, useEffe
 import GridLayout, { type Layout, type LayoutItem } from 'react-grid-layout/legacy';
 import 'react-grid-layout/css/styles.css';
 import { Link, useNavigate } from 'react-router-dom';
-import { Download, FileSpreadsheet, FileText, GripHorizontal, Info, MoreHorizontal, Pencil, PlusCircle, RefreshCw, Trash2, X } from 'lucide-react';
+import { Download, FileQuestion, FileSpreadsheet, FileText, GripHorizontal, Info, MoreHorizontal, Pencil, PlusCircle, RefreshCw, Trash2, X, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import ChartRenderer from '../charts/ChartRenderer';
 import DashboardRefreshBar, { type RefreshChartOption } from '../components/DashboardRefreshBar';
@@ -27,7 +27,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { getDashboard, saveWidgets, updateDashboardSettings, updateWidgetRefreshSetting, WIDGET_TYPE, TEXT_VARIANT, TEXT_ALIGN_H, TEXT_ALIGN_V, normalizeTextVariant, normalizeTextHorizontalAlign, normalizeTextVerticalAlign, type TextVariant, type TextHorizontalAlign, type TextVerticalAlign, type DashboardWidgetItem } from '../../lib/api/dashboards';
+import { getDashboard, saveWidgets, updateDashboardSettings, updateWidgetRefreshSetting, WIDGET_TYPE, TEXT_VARIANT, TEXT_ALIGN_H, TEXT_ALIGN_V, normalizeTextVariant, normalizeTextHorizontalAlign, normalizeTextVerticalAlign, dashboardSaveErrorMessage, type TextVariant, type TextHorizontalAlign, type TextVerticalAlign, type DashboardWidgetItem } from '../../lib/api/dashboards';
 import { executeChart } from '../../lib/api/charts';
 import { transformResult } from '../charts/transform';
 import { exportChartAsPng } from '../charts/exportChartImage';
@@ -47,10 +47,13 @@ export interface DashboardGridHandle {
   cancelEdit: () => void;
 }
 
+export type DashboardLoadState = 'loading' | 'ready' | 'not-found' | 'error';
+
 interface DashboardGridProps {
   dashboardId: string;
   editMode: boolean;
   onLoaded?: (name: string) => void;
+  onLoadStateChange?: (state: DashboardLoadState) => void;
 }
 
 interface ChartWidget {
@@ -531,7 +534,7 @@ async function loadDashboardState({
   };
 }
 
-const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(function DashboardGrid({ dashboardId, editMode, onLoaded }, ref) {
+const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(function DashboardGrid({ dashboardId, editMode, onLoaded, onLoadStateChange }, ref) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { width: containerWidth, containerRef } = useContainerWidth();
@@ -539,7 +542,9 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
   const [widgets, setWidgets] = useState<Widget[]>([]);
   const [layout, setLayout] = useState<LayoutItem[]>([]);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  const [loadState, setLoadState] = useState<DashboardLoadState>('loading');
+  const [loadErrorMessage, setLoadErrorMessage] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
   const [chartRuntime, setChartRuntime] = useState<Record<string, ChartRuntime>>({});
   const [settingsSaving, setSettingsSaving] = useState(false);
@@ -559,6 +564,26 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
   const reloadDashboardRef = useRef<(manual: boolean) => Promise<DashboardRefreshOutcome>>(
     async () => ({ succeeded: 0, failed: 0, lastUpdatedAt: null }),
   );
+
+  const loaded = loadState === 'ready';
+
+  useEffect(() => {
+    onLoadStateChange?.(loadState);
+  }, [loadState, onLoadStateChange]);
+
+  const handleRequestError = useCallback((err: unknown) => {
+    if (err instanceof ApiError && err.status === 404) {
+      setLoadState('not-found');
+      return true;
+    }
+    return false;
+  }, []);
+
+  const handleRetry = useCallback(() => {
+    setLoadState('loading');
+    setLoadErrorMessage(null);
+    setRetryCount((count) => count + 1);
+  }, []);
 
   useEffect(() => {
     widgetsRef.current = widgets;
@@ -802,6 +827,9 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
       if (err instanceof DOMException && err.name === 'AbortError') {
         return { succeeded: 0, failed: 0, lastUpdatedAt: null };
       }
+      if (handleRequestError(err)) {
+        return { succeeded: 0, failed: 1, lastUpdatedAt: null, blocked: true };
+      }
       throw err;
     } finally {
       refreshControllersRef.current.delete(controller);
@@ -809,7 +837,7 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
         activeReloadControllerRef.current = null;
       }
     }
-  }, [applyDashboardState, autoRefreshEnabled, dashboardId]);
+  }, [applyDashboardState, autoRefreshEnabled, dashboardId, handleRequestError]);
 
   useEffect(() => {
     reloadDashboardRef.current = reloadDashboard;
@@ -830,14 +858,20 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
         onLoaded?.(state.name);
         setAutoRefreshEnabled(state.autoRefreshEnabled);
         applyDashboardState(state);
-        setLoaded(true);
+        setLoadState('ready');
       })
-      .catch(() => {
-        if (!cancelled) setLoaded(true);
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 404) {
+          setLoadState('not-found');
+          return;
+        }
+        setLoadErrorMessage(err instanceof Error ? err.message : 'Could not load dashboard.');
+        setLoadState('error');
       });
 
     return () => { cancelled = true; };
-  }, [dashboardId, onLoaded, applyDashboardState]);
+  }, [dashboardId, retryCount, onLoaded, applyDashboardState]);
 
   useEffect(() => {
     initialAutoRefreshDoneRef.current = false;
@@ -1068,16 +1102,22 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
     setLayout([]);
     try {
       await persistLayout([], []);
-    } catch {
-      /* ignore */
+    } catch (err) {
+      handleRequestError(err);
+      toast.error(dashboardSaveErrorMessage(err));
     }
-  }, [persistLayout]);
+  }, [persistLayout, handleRequestError]);
 
   const saveEdit = useCallback(async () => {
     lastPersistHashRef.current = '';
-    await persistLayout(widgets, layout);
-    snapshotRef.current = null;
-  }, [persistLayout, widgets, layout]);
+    try {
+      await persistLayout(widgets, layout);
+      snapshotRef.current = null;
+    } catch (err) {
+      handleRequestError(err);
+      throw err;
+    }
+  }, [persistLayout, widgets, layout, handleRequestError]);
 
   const cancelEdit = useCallback(() => {
     if (snapshotRef.current) {
@@ -1096,10 +1136,13 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
   useEffect(() => {
     if (!loaded || editMode) return;
     const timer = setTimeout(() => {
-      persistLayout(widgets, layout).catch(() => {});
+      persistLayout(widgets, layout).catch((err: unknown) => {
+        handleRequestError(err);
+        toast.error(dashboardSaveErrorMessage(err));
+      });
     }, 500);
     return () => clearTimeout(timer);
-  }, [widgets, layout, loaded, editMode, persistLayout]);
+  }, [widgets, layout, loaded, editMode, persistLayout, handleRequestError]);
 
   const widgetById = useMemo(() => {
     const map: Record<string, Widget> = {};
@@ -1136,7 +1179,53 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
     return <div ref={containerRef} />;
   }
 
-  if (!loaded) {
+  if (loadState === 'not-found') {
+    return (
+      <div
+        ref={containerRef}
+        className="border-border flex min-h-[360px] flex-col items-center justify-center gap-4 rounded-xl border border-dashed p-8 text-center"
+      >
+        <div className="bg-muted flex size-12 items-center justify-center rounded-full">
+          <FileQuestion className="text-muted-foreground size-6" />
+        </div>
+        <div className="max-w-md">
+          <h2 className="text-lg font-semibold">Dashboard not found</h2>
+          <p className="text-muted-foreground mt-1 text-sm">
+            This dashboard was deleted or transferred to another owner.
+          </p>
+        </div>
+        <Button asChild>
+          <Link to={ROUTES.DASHBOARD}>Back to dashboards</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  if (loadState === 'error') {
+    return (
+      <div
+        ref={containerRef}
+        className="border-border flex min-h-[360px] flex-col items-center justify-center gap-4 rounded-xl border border-dashed p-8 text-center"
+        role="alert"
+      >
+        <div className="bg-muted flex size-12 items-center justify-center rounded-full">
+          <AlertTriangle className="text-muted-foreground size-6" />
+        </div>
+        <div className="max-w-md">
+          <h2 className="text-lg font-semibold">Could not load dashboard</h2>
+          <p className="text-muted-foreground mt-1 text-sm">
+            {loadErrorMessage ?? 'Something went wrong. Try again in a moment.'}
+          </p>
+        </div>
+        <Button onClick={handleRetry}>
+          <RefreshCw />
+          Try again
+        </Button>
+      </div>
+    );
+  }
+
+  if (loadState === 'loading') {
     return (
       <div ref={containerRef} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {Array.from({ length: 3 }, (_, i) => (
