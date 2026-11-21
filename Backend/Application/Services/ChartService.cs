@@ -173,16 +173,16 @@ public class ChartService : IChartService
             .FirstOrDefaultAsync(sc => sc.Id == id && sc.UserId == userId, ct)
             ?? throw new KeyNotFoundException("Chart not found.");
 
-        var referencingWidgets = await _db.DashboardWidgets
+        // Widgets are removed by the database (FK cascade), but their dashboards
+        // still need a fresh UpdatedAt so clients reload without the deleted widget.
+        var dashboardIds = await _db.DashboardWidgets
             .Where(w => w.SavedChartId == id)
+            .Select(w => w.DashboardId)
+            .Distinct()
             .ToListAsync(ct);
 
-        if (referencingWidgets.Count > 0)
+        if (dashboardIds.Count > 0)
         {
-            var dashboardIds = referencingWidgets
-                .Select(w => w.DashboardId)
-                .Distinct()
-                .ToList();
             var affectedDashboards = await _db.Dashboards
                 .Where(d => dashboardIds.Contains(d.Id))
                 .ToListAsync(ct);
@@ -190,8 +190,6 @@ public class ChartService : IChartService
 
             foreach (var dashboard in affectedDashboards)
                 dashboard.UpdatedAt = now;
-
-            _db.DashboardWidgets.RemoveRange(referencingWidgets);
         }
 
         _db.SavedCharts.Remove(chart);

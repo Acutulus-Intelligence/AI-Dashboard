@@ -99,20 +99,8 @@ public class AccountDeletionService : IAccountDeletionService
             .Where(c => c.UserId == userId)
             .ToListAsync(ct);
 
-        // Widgets reference charts with a Restrict FK, so remove any widget that
-        // points at one of this user's charts (for example a widget on a
-        // company/shared dashboard) before the charts are removed. The chart is
-        // gone, so leaving the widget behind would only render as "Unknown".
-        var chartIds = charts.Select(c => c.Id).ToList();
-        if (chartIds.Count > 0)
-        {
-            var referencingWidgets = await _db.DashboardWidgets
-                .Where(w => w.SavedChartId != null && chartIds.Contains(w.SavedChartId!.Value))
-                .ToListAsync(ct);
-
-            _db.DashboardWidgets.RemoveRange(referencingWidgets);
-        }
-
+        // Widgets that point at this user's charts (for example on a company/shared
+        // dashboard) are removed by the FK cascade, so no manual cleanup is needed.
         _db.SavedCharts.RemoveRange(charts);
 
         var connections = await _db.ExternalConnections
