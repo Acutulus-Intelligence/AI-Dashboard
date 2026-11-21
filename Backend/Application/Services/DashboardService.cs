@@ -1,3 +1,4 @@
+using Application.Caching;
 using Application.Common.Data;
 using Application.Common.Exceptions;
 using Application.DTos.Request;
@@ -13,13 +14,14 @@ namespace Application.Services;
 public class DashboardService : IDashboardService
 {
     private const int MaxTextContentLength = 5000;
-    private const int MaxChartTitleLength = 200;
+    private const int MaxNameLength = 200;
     private readonly IApplicationDbContext _db;
     private readonly ISubscriptionService _subscriptionService;
     private readonly UserManager<User> _userManager;
     private readonly ICurrentPasswordVerifier _currentPasswordVerifier;
     private readonly IConnectionAccessService _connectionAccess;
     private readonly ICollectionAccessService _collectionAccess;
+    private readonly IChartCacheInvalidator _chartCacheInvalidator;
 
     public DashboardService(
         IApplicationDbContext db,
@@ -27,7 +29,8 @@ public class DashboardService : IDashboardService
         UserManager<User> userManager,
         ICurrentPasswordVerifier currentPasswordVerifier,
         IConnectionAccessService connectionAccess,
-        ICollectionAccessService collectionAccess)
+        ICollectionAccessService collectionAccess,
+        IChartCacheInvalidator chartCacheInvalidator)
     {
         _db = db;
         _subscriptionService = subscriptionService;
@@ -35,6 +38,7 @@ public class DashboardService : IDashboardService
         _currentPasswordVerifier = currentPasswordVerifier;
         _connectionAccess = connectionAccess;
         _collectionAccess = collectionAccess;
+        _chartCacheInvalidator = chartCacheInvalidator;
     }
 
     public async Task<List<DashboardSummaryResponse>> GetDashboardsAsync(Guid userId, CancellationToken ct = default)
@@ -71,9 +75,7 @@ public class DashboardService : IDashboardService
         }
 
         var name = request.Name.Trim();
-        var nameTaken = await _db.Dashboards.AnyAsync(d => d.UserId == userId && d.Name == name, ct);
-        if (nameTaken)
-            throw new ConflictException("You already have a dashboard with that name.", "dashboard_name_conflict");
+        await EnsureUniqueNameAsync(userId, name, excludeId: null, ct);
 
         var dashboard = new Dashboard
         {
@@ -95,10 +97,7 @@ public class DashboardService : IDashboardService
         var dashboard = await EnsureOwnedAsync(userId, dashboardId, ct);
 
         var name = request.Name.Trim();
-        var nameTaken = await _db.Dashboards
-            .AnyAsync(d => d.UserId == userId && d.Name == name && d.Id != dashboardId, ct);
-        if (nameTaken)
-            throw new ConflictException("You already have a dashboard with that name.", "dashboard_name_conflict");
+        await EnsureUniqueNameAsync(userId, name, excludeId: dashboardId, ct);
 
         dashboard.Name = name;
         dashboard.UpdatedAt = DateTime.UtcNow;
@@ -149,7 +148,22 @@ public class DashboardService : IDashboardService
         }
 
         dashboard.UpdatedAt = DateTime.UtcNow;
-        await _db.SaveChangesAsync(ct);
+
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ex.IsForeignKeyViolation())
+        {
+            // A chart or the dashboard itself was deleted between validation and save.
+            // Report the stale state instead of letting the FK violation become a 500.
+            if (!await _db.Dashboards.AnyAsync(d => d.Id == dashboardId && d.UserId == userId, ct))
+                throw new KeyNotFoundException("Dashboard not found.");
+
+            throw new ConflictException(
+                "A chart on this dashboard was deleted. Reload the dashboard and try again.",
+                "chart_deleted");
+        }
 
         var updated = await _db.Dashboards
             .Include(d => d.Widgets)
@@ -241,6 +255,12 @@ public class DashboardService : IDashboardService
             .Distinct()
             .ToList();
 
+        var takenDashboardNames = (await _db.Dashboards
+            .Where(d => d.UserId == newOwner.Id)
+            .Select(d => d.Name)
+            .ToListAsync(ct))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         var charts = chartIds.Count > 0
             ? await _db.SavedCharts
                 .Where(sc => chartIds.Contains(sc.Id) && sc.UserId == userId)
@@ -282,8 +302,13 @@ public class DashboardService : IDashboardService
             }
         }
 
+        dashboard.Name = ResolveUniqueName(dashboard.Name, takenDashboardNames);
         dashboard.UserId = newOwner.Id;
         dashboard.UpdatedAt = DateTime.UtcNow;
+
+        // Moved charts change owner, so the previous owner's cached result for that
+        // chart id becomes unreachable; drop it instead of waiting for its TTL.
+        var staleCacheTargets = new List<ChartCacheTarget>();
 
         if (charts.Count > 0)
         {
@@ -314,7 +339,7 @@ public class DashboardService : IDashboardService
                     {
                         Id = Guid.NewGuid(),
                         UserId = newOwner.Id,
-                        Title = ResolveUniqueTitle(chart.Title, takenTitles),
+                        Title = ResolveUniqueName(chart.Title, takenTitles),
                         ChartType = chart.ChartType,
                         XAxis = chart.XAxis,
                         YAxis = chart.YAxis.ToArray(),
@@ -337,13 +362,28 @@ public class DashboardService : IDashboardService
                 else
                 {
                     chart.UserId = newOwner.Id;
+                    chart.FolderId = null;
                     chart.UpdatedAt = DateTime.UtcNow;
-                    chart.Title = ResolveUniqueTitle(chart.Title, takenTitles);
+                    chart.Title = ResolveUniqueName(chart.Title, takenTitles);
+                    staleCacheTargets.Add(new ChartCacheTarget(userId, chart.Id));
                 }
             }
         }
 
-        await _db.SaveChangesAsync(ct);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
+        {
+            // A concurrent create by the new owner claimed one of the names resolved above.
+            throw new ConflictException(
+                "The transfer could not be completed because a name is already in use. Please try again.",
+                "dashboard_name_conflict");
+        }
+
+        if (staleCacheTargets.Count > 0)
+            await _chartCacheInvalidator.InvalidateChartsAsync(staleCacheTargets, ct);
 
         return new TransferDashboardResponse(true, []);
     }
@@ -488,25 +528,44 @@ public class DashboardService : IDashboardService
             ?? throw new KeyNotFoundException("Dashboard not found.");
     }
 
-    private static string ResolveUniqueTitle(string title, HashSet<string> takenTitles)
+    private static string ResolveUniqueName(string name, HashSet<string> takenNames)
     {
-        if (title.Length > MaxChartTitleLength)
-            title = title[..MaxChartTitleLength];
+        // Dashboards.Name and SavedChart.Title are both limited to 200 characters.
+        if (name.Length > MaxNameLength)
+            name = name[..MaxNameLength];
 
-        if (takenTitles.Add(title))
-            return title;
+        if (takenNames.Add(name))
+            return name;
 
         var suffix = 2;
         string candidate;
         do
         {
             var suffixText = $" ({suffix++})";
-            var maxBaseLength = MaxChartTitleLength - suffixText.Length;
-            var baseTitle = title.Length > maxBaseLength ? title[..maxBaseLength] : title;
-            candidate = $"{baseTitle}{suffixText}";
-        } while (!takenTitles.Add(candidate));
+            var maxBaseLength = MaxNameLength - suffixText.Length;
+            var baseName = name.Length > maxBaseLength ? name[..maxBaseLength] : name;
+            candidate = $"{baseName}{suffixText}";
+        } while (!takenNames.Add(candidate));
 
         return candidate;
+    }
+
+    private async Task EnsureUniqueNameAsync(
+        Guid userId, string name, Guid? excludeId, CancellationToken ct)
+    {
+        var normalized = name.ToLower();
+        var taken = await _db.Dashboards.AnyAsync(
+            d => d.UserId == userId
+                && d.Name.ToLower() == normalized
+                && (!excludeId.HasValue || d.Id != excludeId.Value),
+            ct);
+
+        if (taken)
+        {
+            throw new ConflictException(
+                "You already have a dashboard with that name.",
+                "dashboard_name_conflict");
+        }
     }
 
     private async Task SaveDashboardAsync(CancellationToken ct)

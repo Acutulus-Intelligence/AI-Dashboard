@@ -34,10 +34,12 @@ public class DashboardWidgetConfiguration : IEntityTypeConfiguration<DashboardWi
             .HasForeignKey(dw => dw.DashboardId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        // Deleting a chart removes every widget that points at it, so a widget can
+        // never be left behind as "Unknown" and no manual cleanup is needed.
         builder.HasOne(dw => dw.SavedChart)
             .WithMany()
             .HasForeignKey(dw => dw.SavedChartId)
             .IsRequired(false)
-            .OnDelete(DeleteBehavior.Restrict);
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

@@ -59,6 +59,29 @@ public sealed class DashboardRoutesTests
     }
 
     [Fact]
+    public async Task Dashboard_names_are_case_insensitively_unique_per_user()
+    {
+        var client = CreateClient();
+        var email = $"dashcase_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        await _factory.SeedActiveSubscriptionAsync(email);
+
+        var create = await client.PostAsJsonAsync("/api/dashboards", new CreateDashboardRequest("Executive"));
+        create.StatusCode.Should().Be(HttpStatusCode.OK);
+        var executive = await create.ReadJsonAsync<DashboardResponse>();
+
+        (await client.PostAsJsonAsync("/api/dashboards", new CreateDashboardRequest("executive")))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        var boardId = await CreateDashboardAsync(client, "Board");
+        (await client.PutAsJsonAsync($"/api/dashboards/{boardId}", new RenameDashboardRequest("EXECUTIVE")))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        (await client.PutAsJsonAsync($"/api/dashboards/{executive.Id}", new RenameDashboardRequest("EXECUTIVE")))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task Dashboards_are_private_to_their_owner()
     {
         var ownerClient = CreateClient();
@@ -131,6 +154,24 @@ public sealed class DashboardRoutesTests
     }
 
     [Fact]
+    public async Task Transferring_a_dashboard_renames_on_a_case_insensitive_name_conflict()
+    {
+        var setup = await CreateCompanyWithMemberAsync();
+        await CreateDashboardAsync(setup.InviteeClient, "executive");
+        var dashboardId = await CreateDashboardAsync(setup.OwnerClient, "Executive");
+
+        var transfer = await setup.OwnerClient.PostAsJsonAsync(
+            $"/api/dashboards/{dashboardId}/transfer-ownership",
+            new TransferDashboardRequest(setup.InviteeId, ApiClientExtensions.DefaultPassword));
+        transfer.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await transfer.ReadJsonAsync<TransferDashboardResponse>()).Transferred.Should().BeTrue();
+
+        var transferred = await (await setup.InviteeClient.GetAsync($"/api/dashboards/{dashboardId}"))
+            .ReadJsonAsync<DashboardResponse>();
+        transferred.Name.Should().Be("Executive (2)");
+    }
+
+    [Fact]
     public async Task Transferring_a_shared_chart_copies_it_for_the_new_owner()
     {
         var setup = await CreateCompanyWithMemberAsync();
@@ -160,6 +201,50 @@ public sealed class DashboardRoutesTests
         var copiedChartId = moved.Widgets.Single(w => w.WidgetType == WidgetType.Chart).SavedChartId!.Value;
         copiedChartId.Should().NotBe(chartId);
         (await _factory.GetSavedChartOwnerAsync(copiedChartId)).Should().Be(setup.InviteeId);
+    }
+
+    [Fact]
+    public async Task Transferring_a_filed_chart_unfiles_it_for_the_new_owner()
+    {
+        var setup = await CreateCompanyWithMemberAsync();
+        var chartId = await _factory.SeedSavedChartAsync(setup.OwnerId, "Filed chart");
+
+        var folderResponse = await setup.OwnerClient.PostAsJsonAsync(
+            "/api/chart-folders", new CreateChartFolderRequest("Old owner folder"));
+        folderResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var folder = await folderResponse.ReadJsonAsync<ChartFolderResponse>();
+
+        (await setup.OwnerClient.PutAsJsonAsync(
+            $"/api/charts/{chartId}/folder", new MoveChartRequest(folder.Id)))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var dashboardId = await CreateDashboardAsync(setup.OwnerClient, "Filed chart board");
+        (await setup.OwnerClient.PutAsJsonAsync($"/api/dashboards/{dashboardId}/widgets", new SaveWidgetsRequest(
+        [
+            new WidgetItem(null, WidgetType.Chart, chartId, null, null, null, null, 0, 0, 4, 3),
+        ]))).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var transfer = await setup.OwnerClient.PostAsJsonAsync(
+            $"/api/dashboards/{dashboardId}/transfer-ownership",
+            new TransferDashboardRequest(setup.InviteeId, ApiClientExtensions.DefaultPassword));
+        transfer.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await transfer.ReadJsonAsync<TransferDashboardResponse>()).Transferred.Should().BeTrue();
+
+        var chart = await (await setup.InviteeClient.GetAsync($"/api/charts/{chartId}"))
+            .ReadJsonAsync<ChartDetailResponse>();
+        chart.FolderId.Should().BeNull();
+
+        var charts = await (await setup.InviteeClient.GetAsync("/api/charts"))
+            .ReadJsonAsync<List<ChartResponse>>();
+        charts.Single(c => c.Id == chartId).FolderId.Should().BeNull();
+
+        var folders = await (await setup.OwnerClient.GetAsync("/api/chart-folders"))
+            .ReadJsonAsync<List<ChartFolderResponse>>();
+        folders.Single(f => f.Id == folder.Id).ChartCount.Should().Be(0);
+
+        var transferred = await (await setup.InviteeClient.GetAsync($"/api/dashboards/{dashboardId}"))
+            .ReadJsonAsync<DashboardResponse>();
+        transferred.Widgets.Should().ContainSingle(w => w.SavedChartId == chartId);
     }
 
     [Fact]
@@ -285,7 +370,7 @@ public sealed class DashboardRoutesTests
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         db.Dashboards.Add(new Dashboard { Id = Guid.NewGuid(), Name = "Duplicate", UserId = userId, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
-        db.Dashboards.Add(new Dashboard { Id = Guid.NewGuid(), Name = "Duplicate", UserId = userId, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+        db.Dashboards.Add(new Dashboard { Id = Guid.NewGuid(), Name = "duplicate", UserId = userId, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
 
         var act = async () => await db.SaveChangesAsync();
         await act.Should().ThrowAsync<DbUpdateException>();
@@ -310,6 +395,51 @@ public sealed class DashboardRoutesTests
             $"/api/dashboards/{dashboardId}/transfer-ownership",
             new TransferDashboardRequest(otherId, ApiClientExtensions.DefaultPassword));
         transfer.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Deleting_a_chart_removes_its_widgets_from_every_dashboard()
+    {
+        var client = CreateClient();
+        var email = $"chartdelete_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        await _factory.SeedActiveSubscriptionAsync(email);
+        var userId = await _factory.GetUserIdAsync(email);
+
+        var chartId = await _factory.SeedSavedChartAsync(userId, "Chart to delete");
+        var firstId = await CreateDashboardAsync(client, "First board");
+        var secondId = await CreateDashboardAsync(client, "Second board");
+
+        var widget = new WidgetItem(null, WidgetType.Chart, chartId, null, null, null, null, 0, 0, 4, 3);
+        (await client.PutAsJsonAsync($"/api/dashboards/{firstId}/widgets", new SaveWidgetsRequest([widget])))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await client.PutAsJsonAsync($"/api/dashboards/{secondId}/widgets", new SaveWidgetsRequest([widget])))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var oldUpdatedAt = DateTime.UtcNow.AddHours(-1);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var dashboards = await db.Dashboards
+                .Where(d => d.Id == firstId || d.Id == secondId)
+                .ToListAsync();
+            foreach (var dashboard in dashboards)
+                dashboard.UpdatedAt = oldUpdatedAt;
+            await db.SaveChangesAsync();
+        }
+
+        (await client.DeleteAsync($"/api/charts/{chartId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var first = await (await client.GetAsync($"/api/dashboards/{firstId}")).ReadJsonAsync<DashboardResponse>();
+        first.Widgets.Should().BeEmpty();
+        var second = await (await client.GetAsync($"/api/dashboards/{secondId}")).ReadJsonAsync<DashboardResponse>();
+        second.Widgets.Should().BeEmpty();
+        (await client.GetAsync($"/api/charts/{chartId}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        var summaries = await (await client.GetAsync("/api/dashboards"))
+            .ReadJsonAsync<List<DashboardSummaryResponse>>();
+        summaries.Single(d => d.Id == firstId).UpdatedAt.Should().BeAfter(oldUpdatedAt);
+        summaries.Single(d => d.Id == secondId).UpdatedAt.Should().BeAfter(oldUpdatedAt);
     }
 
     private async Task<(HttpClient OwnerClient, Guid OwnerId, string OwnerEmail, HttpClient InviteeClient, Guid InviteeId, string InviteeEmail)> CreateCompanyWithMemberAsync()
