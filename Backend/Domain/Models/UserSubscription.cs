@@ -19,4 +19,10 @@ public class UserSubscription
     public bool CancelAtPeriodEnd { get; set; }
     public string? StripeSubscriptionId { get; set; }
     public DateTime? TrialEndDate { get; set; }
+
+    /// <summary>
+    /// Creation timestamp of the newest Stripe event already applied to this row. Used to drop
+    /// out-of-order webhook deliveries.
+    /// </summary>
+    public DateTime? LastStripeEventAt { get; set; }
 }

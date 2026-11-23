@@ -289,6 +289,9 @@ namespace Infrastructure.Data.Migrations
                     b.Property<DateTime?>("EndDate")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("LastStripeEventAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int?>("MaxUsers")
                         .HasColumnType("integer");
 
@@ -524,6 +527,27 @@ namespace Infrastructure.Data.Migrations
                         .HasFilter("\"CompanyId\" IS NULL OR \"Visibility\" = 'Private'");
 
                     b.ToTable("external_connections", (string)null);
+                });
+
+            modelBuilder.Entity("Domain.Models.ProcessedStripeEvent", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTime>("ProcessedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProcessedAt");
+
+                    b.ToTable("ProcessedStripeEvents", (string)null);
                 });
 
             modelBuilder.Entity("Domain.Models.RefreshToken", b =>
@@ -892,6 +916,9 @@ namespace Infrastructure.Data.Migrations
                         .HasDefaultValue(false);
 
                     b.Property<DateTime?>("EndDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastStripeEventAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<decimal?>("NextPrice")

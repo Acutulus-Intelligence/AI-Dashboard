@@ -167,6 +167,7 @@ builder.Services.AddScoped<IAccountDeletionService, AccountDeletionService>();
 builder.Services.AddScoped<RequireActiveSubscriptionFilter>();
 
 builder.Services.AddHostedService<AccountPurgeBackgroundService>();
+builder.Services.AddHostedService<SubscriptionExpiryBackgroundService>();
 
 builder.Services.AddScoped<ITokenService, JwtService>();
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();

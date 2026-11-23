@@ -31,6 +31,66 @@ public sealed class StripeServiceTests
         await act.Should().ThrowAsync<StripeException>();
     }
 
+    [Fact]
+    public async Task Cancel_at_period_end_reports_missing_subscription_instead_of_throwing()
+    {
+        var service = CreateService(HttpStatusCode.NotFound,
+            """{"error":{"type":"invalid_request_error","code":"resource_missing","message":"No such subscription"}}""");
+
+        var scheduled = await service.CancelSubscriptionAtPeriodEndAsync("sub_missing");
+
+        scheduled.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Switch_price_ignores_missing_subscription()
+    {
+        var service = CreateService(HttpStatusCode.NotFound,
+            """{"error":{"type":"invalid_request_error","code":"resource_missing","message":"No such subscription"}}""");
+
+        var act = () => service.SwitchSubscriptionPriceAsync("sub_missing", "price_new");
+
+        await act.Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task Snapshot_returns_null_when_subscription_is_missing()
+    {
+        var service = CreateService(HttpStatusCode.NotFound,
+            """{"error":{"type":"invalid_request_error","code":"resource_missing","message":"No such subscription"}}""");
+
+        var snapshot = await service.GetSubscriptionSnapshotAsync("sub_missing");
+
+        snapshot.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Snapshot_reads_period_end_from_subscription_items()
+    {
+        var service = CreateService(HttpStatusCode.OK,
+            """
+            {
+              "id": "sub_test",
+              "object": "subscription",
+              "status": "active",
+              "cancel_at_period_end": true,
+              "items": {
+                "object": "list",
+                "data": [
+                  { "id": "si_1", "object": "subscription_item", "current_period_end": 1893456000 }
+                ]
+              }
+            }
+            """);
+
+        var snapshot = await service.GetSubscriptionSnapshotAsync("sub_test");
+
+        snapshot.Should().NotBeNull();
+        snapshot!.Status.Should().Be("active");
+        snapshot.CancelAtPeriodEnd.Should().BeTrue();
+        snapshot.CurrentPeriodEnd.Should().Be(DateTimeOffset.FromUnixTimeSeconds(1893456000).UtcDateTime);
+    }
+
     private static StripeService CreateService(HttpStatusCode statusCode, string body)
     {
         var httpClient = new HttpClient(new StubHandler(statusCode, body));

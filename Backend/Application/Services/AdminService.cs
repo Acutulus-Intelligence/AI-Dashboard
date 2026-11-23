@@ -163,7 +163,8 @@ public class AdminService : IAdminService
         var userSubscriptions = await _db.UserSubscriptions
             .Where(s => s.PlanId == planId &&
                 s.BillingPeriod == billingPeriod &&
-                (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active))
+                (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active) &&
+                (s.EndDate == null || s.EndDate > DateTime.UtcNow))
             .ToListAsync(ct);
 
         foreach (var subscription in userSubscriptions)
@@ -179,7 +180,8 @@ public class AdminService : IAdminService
         var companySubscriptions = await _db.CompanySubscriptions
             .Where(s => s.PlanId == planId &&
                 s.BillingPeriod == billingPeriod &&
-                (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active))
+                (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active) &&
+                (s.EndDate == null || s.EndDate > DateTime.UtcNow))
             .ToListAsync(ct);
 
         foreach (var subscription in companySubscriptions)
@@ -254,6 +256,7 @@ public class AdminService : IAdminService
         var userSubscriptions = await _db.UserSubscriptions
             .Where(s => s.PlanId == sourcePlanId &&
                 (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active) &&
+                (s.EndDate == null || s.EndDate > DateTime.UtcNow) &&
                 !s.CancelAtPeriodEnd)
             .ToListAsync(ct);
 
@@ -274,6 +277,7 @@ public class AdminService : IAdminService
         var companySubscriptions = await _db.CompanySubscriptions
             .Where(s => s.PlanId == sourcePlanId &&
                 (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active) &&
+                (s.EndDate == null || s.EndDate > DateTime.UtcNow) &&
                 !s.CancelAtPeriodEnd)
             .ToListAsync(ct);
 

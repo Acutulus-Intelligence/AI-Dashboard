@@ -15,6 +15,7 @@ public interface ISubscriptionService
     Task<bool> HasActiveSubscriptionAsync(Guid userId, CancellationToken ct = default);
     Task<int?> GetMaxDashboardsAsync(Guid userId, CancellationToken ct = default);
     Task<bool> CompanyHasActiveSubscriptionAsync(Guid companyId, CancellationToken ct = default);
+    Task<int> ReconcileSubscriptionsAsync(CancellationToken ct = default);
     Task CancelUserSubscriptionAsync(Guid userId, CancellationToken ct = default);
     Task CancelCompanySubscriptionAsync(Guid companyId, Guid actorId, CancellationToken ct = default);
     Task ReactivateUserSubscriptionAsync(Guid userId, CancellationToken ct = default);
