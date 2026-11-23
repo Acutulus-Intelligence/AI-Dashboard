@@ -25,6 +25,20 @@ jobs:
         run: npm ci
         working-directory: Frontend
 
+      # Fails the build on high/critical advisories in the installed tree.
+      # Moderate/low are still printed but do not fail.
+      - name: Audit dependencies (high/critical)
+        run: npm audit --audit-level=high
+        working-directory: Frontend
+
+      # Verifies that installed tarballs match what the npm registry published.
+      # Advisory only: xlsx is installed from cdn.sheetjs.com, which has no
+      # registry signature to verify against.
+      - name: Verify registry signatures
+        run: npm audit signatures
+        working-directory: Frontend
+        continue-on-error: true
+
       - name: Build
         run: npm run build
         working-directory: Frontend
