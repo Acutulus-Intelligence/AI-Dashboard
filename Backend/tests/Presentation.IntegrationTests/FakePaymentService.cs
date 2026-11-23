@@ -105,17 +105,37 @@ public sealed class FakePaymentService : IPaymentService
         throw new InvalidOperationException("Unknown webhook session body.");
     }
 
-    public void QueueInvoicePaid(string stripeSubscriptionId)
+    public void QueueInvoicePaid(string stripeSubscriptionId, DateTime? currentPeriodEnd = null)
     {
         var key = $"invoice-paid:{stripeSubscriptionId}";
         _subscriptionEvents[key] = new PaymentWebhookEvent(
             "invoice.paid",
             new Dictionary<string, string>(),
             stripeSubscriptionId,
-            "cus_test");
+            "cus_test",
+            CurrentPeriodEnd: currentPeriodEnd);
     }
 
-    public void QueueSubscriptionUpdated(string stripeSubscriptionId, string status)
+    /// <summary>
+    /// Simulates an invoice.paid event from an older webhook API version, where the payload has
+    /// no subscription id at all.
+    /// </summary>
+    public void QueueInvoicePaidWithoutSubscription(string customerId = "cus_test")
+    {
+        var key = $"invoice-paid-no-sub:{customerId}";
+        _subscriptionEvents[key] = new PaymentWebhookEvent(
+            "invoice.paid",
+            new Dictionary<string, string>(),
+            null,
+            customerId);
+    }
+
+    public void QueueSubscriptionUpdated(
+        string stripeSubscriptionId,
+        string status,
+        DateTime? currentPeriodEnd = null,
+        bool? cancelAtPeriodEnd = null,
+        DateTime? trialEnd = null)
     {
         var key = $"subscription-updated:{stripeSubscriptionId}";
         _subscriptionEvents[key] = new PaymentWebhookEvent(
@@ -124,7 +144,10 @@ public sealed class FakePaymentService : IPaymentService
             stripeSubscriptionId,
             "cus_test",
             null,
-            status);
+            status,
+            currentPeriodEnd,
+            trialEnd,
+            cancelAtPeriodEnd);
     }
 
     public void QueueSubscriptionDeleted(string stripeSubscriptionId)
@@ -137,10 +160,39 @@ public sealed class FakePaymentService : IPaymentService
             null);
     }
 
+    /// <summary>
+    /// A subscription created outside the app (Stripe Dashboard or API) carries no metadata.
+    /// </summary>
+    public void QueueCheckoutWithoutMetadata(string body = "checkout-no-metadata")
+    {
+        _subscriptionEvents[body] = new PaymentWebhookEvent(
+            "checkout.session.completed",
+            new Dictionary<string, string>(),
+            $"sub_external_{Guid.NewGuid():N}",
+            "cus_external");
+    }
+
     public List<(string StripeSubscriptionId, string PriceId, string ProrationBehavior)> PriceSwitches { get; } = [];
 
-    public Task CancelSubscriptionAtPeriodEndAsync(string stripeSubscriptionId, CancellationToken ct = default)
-        => Task.CompletedTask;
+    public List<string> CancelAtPeriodEndRequests { get; } = [];
+
+    /// <summary>Stripe subscriptions that no longer exist (resource_missing).</summary>
+    public HashSet<string> MissingSubscriptions { get; } = [];
+
+    /// <summary>Authoritative Stripe state used by the reconciliation sweep.</summary>
+    public ConcurrentDictionary<string, SubscriptionSnapshot> Snapshots { get; } = new();
+
+    public Task<bool> CancelSubscriptionAtPeriodEndAsync(string stripeSubscriptionId, CancellationToken ct = default)
+    {
+        CancelAtPeriodEndRequests.Add(stripeSubscriptionId);
+        return Task.FromResult(!MissingSubscriptions.Contains(stripeSubscriptionId));
+    }
+
+    public Task<SubscriptionSnapshot?> GetSubscriptionSnapshotAsync(string stripeSubscriptionId, CancellationToken ct = default)
+    {
+        Snapshots.TryGetValue(stripeSubscriptionId, out var snapshot);
+        return Task.FromResult(snapshot);
+    }
 
     public List<string> ImmediateCancelFailures { get; } = [];
 

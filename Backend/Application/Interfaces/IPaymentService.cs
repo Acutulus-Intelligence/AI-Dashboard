@@ -36,9 +36,20 @@ public interface IPaymentService
 
     Task<PaymentWebhookEvent> HandleWebhookAsync(string body, string signature);
 
-    Task CancelSubscriptionAtPeriodEndAsync(string stripeSubscriptionId, CancellationToken ct = default);
+    /// <summary>
+    /// Schedules the subscription to cancel at the end of the current period.
+    /// Returns false when Stripe no longer knows the subscription (it was already
+    /// deleted), so the caller can mark its local row as ended instead of failing.
+    /// </summary>
+    Task<bool> CancelSubscriptionAtPeriodEndAsync(string stripeSubscriptionId, CancellationToken ct = default);
 
     Task CancelSubscriptionImmediatelyAsync(string stripeSubscriptionId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Reads the current Stripe state for a subscription. Returns null when the
+    /// subscription no longer exists in Stripe.
+    /// </summary>
+    Task<SubscriptionSnapshot?> GetSubscriptionSnapshotAsync(string stripeSubscriptionId, CancellationToken ct = default);
 
     Task CancelSubscriptionWithProrationAsync(string stripeSubscriptionId, CancellationToken ct = default);
 

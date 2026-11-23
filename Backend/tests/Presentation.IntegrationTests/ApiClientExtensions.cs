@@ -377,13 +377,65 @@ public static class ApiClientExtensions
         return (subscription.Status, subscription.CancelAtPeriodEnd);
     }
 
-    public static async Task SetUserSubscriptionEndDateAsync(this ApiFactory factory, Guid userId, DateTime endDate)
+    public static async Task SetUserSubscriptionEndDateAsync(this ApiFactory factory, Guid userId, DateTime? endDate)
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var subscription = await db.UserSubscriptions.FirstAsync(s => s.UserId == userId);
         subscription.EndDate = endDate;
         await db.SaveChangesAsync();
+    }
+
+    public static async Task ClearUserSubscriptionStripeIdAsync(this ApiFactory factory, Guid userId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var subscription = await db.UserSubscriptions.FirstAsync(s => s.UserId == userId);
+        subscription.StripeSubscriptionId = null;
+        await db.SaveChangesAsync();
+    }
+
+    public static async Task<(Domain.Enums.SubscriptionStatus Status, DateTime? EndDate, bool CancelAtPeriodEnd)> GetUserSubscriptionDetailsAsync(
+        this ApiFactory factory, Guid userId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var subscription = await db.UserSubscriptions.FirstAsync(s => s.UserId == userId);
+        return (subscription.Status, subscription.EndDate, subscription.CancelAtPeriodEnd);
+    }
+
+    public static async Task SetCompanySubscriptionEndDateAsync(this ApiFactory factory, Guid companyId, DateTime endDate)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var subscription = await db.CompanySubscriptions.FirstAsync(s => s.CompanyId == companyId);
+        subscription.EndDate = endDate;
+        await db.SaveChangesAsync();
+    }
+
+    public static async Task<(Domain.Enums.SubscriptionStatus Status, DateTime? EndDate, bool CancelAtPeriodEnd)> GetCompanySubscriptionDetailsAsync(
+        this ApiFactory factory, Guid companyId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var subscription = await db.CompanySubscriptions.FirstAsync(s => s.CompanyId == companyId);
+        return (subscription.Status, subscription.EndDate, subscription.CancelAtPeriodEnd);
+    }
+
+    public static async Task ClearCompanySubscriptionStripeIdAsync(this ApiFactory factory, Guid companyId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var subscription = await db.CompanySubscriptions.FirstAsync(s => s.CompanyId == companyId);
+        subscription.StripeSubscriptionId = null;
+        await db.SaveChangesAsync();
+    }
+
+    public static async Task<int> ReconcileSubscriptionsAsync(this ApiFactory factory)
+    {
+        using var scope = factory.Services.CreateScope();
+        var subscriptionService = scope.ServiceProvider.GetRequiredService<ISubscriptionService>();
+        return await subscriptionService.ReconcileSubscriptionsAsync();
     }
 
     public static async Task SetUserSubscriptionActiveAsync(this ApiFactory factory, Guid userId, bool cancelAtPeriodEnd)

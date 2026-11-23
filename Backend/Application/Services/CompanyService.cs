@@ -938,10 +938,14 @@ public class CompanyService : ICompanyService
 
         var userCount = await _db.Users.CountAsync(u => u.CompanyId == companyId, ct);
 
+        var now = DateTime.UtcNow;
+
         var subscription = await _db.CompanySubscriptions
             .AsNoTracking()
             .Include(s => s.Plan)
-            .FirstOrDefaultAsync(s => s.CompanyId == companyId && s.Status == SubscriptionStatus.Active, ct);
+            .FirstOrDefaultAsync(s => s.CompanyId == companyId &&
+                ((s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial) &&
+                 (s.EndDate == null || s.EndDate > now)), ct);
 
         return new CompanyResponse(
             company.Id,
