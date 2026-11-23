@@ -1197,7 +1197,7 @@ namespace Infrastructure.Data.Migrations
                     b.HasOne("Domain.Models.SavedChart", "SavedChart")
                         .WithMany()
                         .HasForeignKey("SavedChartId")
-                        .OnDelete(DeleteBehavior.Restrict);
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.Navigation("Dashboard");
 

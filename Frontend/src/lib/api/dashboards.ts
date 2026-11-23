@@ -1,4 +1,11 @@
-import { apiFetch } from './client';
+import { apiFetch, ApiError } from './client';
+
+export function dashboardSaveErrorMessage(err: unknown): string {
+  if (err instanceof ApiError && err.status === 404) {
+    return 'This dashboard was deleted or transferred.';
+  }
+  return err instanceof Error ? err.message : 'Could not save dashboard.';
+}
 
 export const WIDGET_TYPE = {
   Chart: 0,
