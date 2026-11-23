@@ -11,11 +11,26 @@ public sealed class FakePaymentService : IPaymentService
     private readonly ConcurrentDictionary<string, PaymentWebhookEvent> _subscriptionEvents = new();
     private readonly ConcurrentDictionary<string, Guid> _subscriptionOwners = new();
 
+    private DateTime _eventClock = DateTime.UtcNow.AddHours(-1);
+
+    private DateTime NextEventAt() => _eventClock = _eventClock.AddSeconds(1);
+
+    private static string NewEventId() => $"evt_{Guid.NewGuid():N}";
+
     public List<int> RecordedTrialDays { get; } = [];
 
     public List<string> ProratedCancels { get; } = [];
 
     public List<string> ReactivateFailures { get; } = [];
+
+    /// <summary>Queues an arbitrary event body, for idempotency/ordering tests.</summary>
+    public void QueueEvent(string body, PaymentWebhookEvent evt) => _subscriptionEvents[body] = evt;
+
+    public static string InvoicePaidBody(string stripeSubscriptionId) => $"invoice-paid:{stripeSubscriptionId}";
+
+    public static string SubscriptionUpdatedBody(string stripeSubscriptionId) => $"subscription-updated:{stripeSubscriptionId}";
+
+    public static string SubscriptionDeletedBody(string stripeSubscriptionId) => $"subscription-deleted:{stripeSubscriptionId}";
 
     public Task<CheckoutResponse> CreateCheckoutSessionAsync(
         string customerId,
@@ -105,15 +120,24 @@ public sealed class FakePaymentService : IPaymentService
         throw new InvalidOperationException("Unknown webhook session body.");
     }
 
-    public void QueueInvoicePaid(string stripeSubscriptionId, DateTime? currentPeriodEnd = null)
+    public void QueueInvoicePaid(
+        string stripeSubscriptionId,
+        DateTime? currentPeriodEnd = null,
+        long? amountPaid = null,
+        string? billingReason = null,
+        string? eventId = null,
+        DateTime? eventCreatedAt = null)
     {
-        var key = $"invoice-paid:{stripeSubscriptionId}";
-        _subscriptionEvents[key] = new PaymentWebhookEvent(
+        _subscriptionEvents[InvoicePaidBody(stripeSubscriptionId)] = new PaymentWebhookEvent(
             "invoice.paid",
             new Dictionary<string, string>(),
             stripeSubscriptionId,
             "cus_test",
-            CurrentPeriodEnd: currentPeriodEnd);
+            CurrentPeriodEnd: currentPeriodEnd,
+            StripeEventId: eventId ?? NewEventId(),
+            EventCreatedAt: eventCreatedAt ?? NextEventAt(),
+            AmountPaid: amountPaid,
+            BillingReason: billingReason);
     }
 
     /// <summary>
@@ -127,7 +151,9 @@ public sealed class FakePaymentService : IPaymentService
             "invoice.paid",
             new Dictionary<string, string>(),
             null,
-            customerId);
+            customerId,
+            StripeEventId: NewEventId(),
+            EventCreatedAt: NextEventAt());
     }
 
     public void QueueSubscriptionUpdated(
@@ -135,10 +161,11 @@ public sealed class FakePaymentService : IPaymentService
         string status,
         DateTime? currentPeriodEnd = null,
         bool? cancelAtPeriodEnd = null,
-        DateTime? trialEnd = null)
+        DateTime? trialEnd = null,
+        string? eventId = null,
+        DateTime? eventCreatedAt = null)
     {
-        var key = $"subscription-updated:{stripeSubscriptionId}";
-        _subscriptionEvents[key] = new PaymentWebhookEvent(
+        _subscriptionEvents[SubscriptionUpdatedBody(stripeSubscriptionId)] = new PaymentWebhookEvent(
             "customer.subscription.updated",
             new Dictionary<string, string>(),
             stripeSubscriptionId,
@@ -147,17 +174,23 @@ public sealed class FakePaymentService : IPaymentService
             status,
             currentPeriodEnd,
             trialEnd,
-            cancelAtPeriodEnd);
+            cancelAtPeriodEnd,
+            eventId ?? NewEventId(),
+            eventCreatedAt ?? NextEventAt());
     }
 
-    public void QueueSubscriptionDeleted(string stripeSubscriptionId)
+    public void QueueSubscriptionDeleted(
+        string stripeSubscriptionId,
+        string? eventId = null,
+        DateTime? eventCreatedAt = null)
     {
-        var key = $"subscription-deleted:{stripeSubscriptionId}";
-        _subscriptionEvents[key] = new PaymentWebhookEvent(
+        _subscriptionEvents[SubscriptionDeletedBody(stripeSubscriptionId)] = new PaymentWebhookEvent(
             "customer.subscription.deleted",
             new Dictionary<string, string>(),
             stripeSubscriptionId,
-            null);
+            null,
+            StripeEventId: eventId ?? NewEventId(),
+            EventCreatedAt: eventCreatedAt ?? NextEventAt());
     }
 
     /// <summary>
@@ -169,7 +202,9 @@ public sealed class FakePaymentService : IPaymentService
             "checkout.session.completed",
             new Dictionary<string, string>(),
             $"sub_external_{Guid.NewGuid():N}",
-            "cus_external");
+            "cus_external",
+            StripeEventId: NewEventId(),
+            EventCreatedAt: NextEventAt());
     }
 
     public List<(string StripeSubscriptionId, string PriceId, string ProrationBehavior)> PriceSwitches { get; } = [];

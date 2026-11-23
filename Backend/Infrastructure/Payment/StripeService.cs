@@ -226,7 +226,9 @@ public class StripeService : IPaymentService
                     session.Metadata,
                     session.SubscriptionId,
                     session.CustomerId,
-                    null
+                    null,
+                    StripeEventId: stripeEvent.Id,
+                    EventCreatedAt: stripeEvent.Created
                 );
             }
 
@@ -261,12 +263,18 @@ public class StripeService : IPaymentService
                     new Dictionary<string, string>(),
                     subscriptionId,
                     invoice.CustomerId,
-                    CurrentPeriodEnd: NormalizeUnixDate(invoice.PeriodEnd)
+                    CurrentPeriodEnd: NormalizeUnixDate(invoice.PeriodEnd),
+                    StripeEventId: stripeEvent.Id,
+                    EventCreatedAt: stripeEvent.Created,
+                    AmountPaid: invoice.AmountPaid,
+                    BillingReason: invoice.BillingReason
                 );
             }
 
             case "customer.subscription.created":
             case "customer.subscription.updated":
+            case "customer.subscription.paused":
+            case "customer.subscription.resumed":
             {
                 var subscription = stripeEvent.Data.Object as Subscription;
                 if (subscription is null)
@@ -280,7 +288,9 @@ public class StripeService : IPaymentService
                     StripeStatus: subscription.Status,
                     CurrentPeriodEnd: GetCurrentPeriodEnd(subscription),
                     TrialEnd: subscription.TrialEnd,
-                    CancelAtPeriodEnd: subscription.CancelAtPeriodEnd
+                    CancelAtPeriodEnd: subscription.CancelAtPeriodEnd,
+                    StripeEventId: stripeEvent.Id,
+                    EventCreatedAt: stripeEvent.Created
                 );
             }
 
@@ -294,12 +304,20 @@ public class StripeService : IPaymentService
                     stripeEvent.Type,
                     new Dictionary<string, string>(),
                     subscription.Id,
-                    null
+                    null,
+                    StripeEventId: stripeEvent.Id,
+                    EventCreatedAt: stripeEvent.Created
                 );
             }
         }
 
-        return new PaymentWebhookEvent(stripeEvent.Type, new Dictionary<string, string>(), null, null);
+        return new PaymentWebhookEvent(
+            stripeEvent.Type,
+            new Dictionary<string, string>(),
+            null,
+            null,
+            StripeEventId: stripeEvent.Id,
+            EventCreatedAt: stripeEvent.Created);
     }
 
     public async Task<bool> CancelSubscriptionAtPeriodEndAsync(string stripeSubscriptionId, CancellationToken ct = default)

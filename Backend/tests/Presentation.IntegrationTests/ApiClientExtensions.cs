@@ -395,6 +395,25 @@ public static class ApiClientExtensions
         await db.SaveChangesAsync();
     }
 
+    public static async Task SetUserSubscriptionStatusAsync(
+        this ApiFactory factory, Guid userId, Domain.Enums.SubscriptionStatus status)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var subscription = await db.UserSubscriptions.FirstAsync(s => s.UserId == userId);
+        subscription.Status = status;
+        await db.SaveChangesAsync();
+    }
+
+    public static async Task<(Domain.Enums.SubscriptionStatus Status, DateTime? TrialEndDate)> GetUserSubscriptionTrialStateAsync(
+        this ApiFactory factory, Guid userId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var subscription = await db.UserSubscriptions.FirstAsync(s => s.UserId == userId);
+        return (subscription.Status, subscription.TrialEndDate);
+    }
+
     public static async Task<(Domain.Enums.SubscriptionStatus Status, DateTime? EndDate, bool CancelAtPeriodEnd)> GetUserSubscriptionDetailsAsync(
         this ApiFactory factory, Guid userId)
     {
@@ -429,6 +448,16 @@ public static class ApiClientExtensions
         var subscription = await db.CompanySubscriptions.FirstAsync(s => s.CompanyId == companyId);
         subscription.StripeSubscriptionId = null;
         await db.SaveChangesAsync();
+    }
+
+    public static async Task<string?> GetCompanySubscriptionStripeIdAsync(this ApiFactory factory, Guid companyId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        return await db.CompanySubscriptions
+            .Where(s => s.CompanyId == companyId)
+            .Select(s => s.StripeSubscriptionId)
+            .FirstOrDefaultAsync();
     }
 
     public static async Task<int> ReconcileSubscriptionsAsync(this ApiFactory factory)

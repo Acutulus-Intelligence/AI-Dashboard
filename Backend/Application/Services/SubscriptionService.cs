@@ -92,13 +92,14 @@ public class SubscriptionService : ISubscriptionService
             throw new InvalidOperationException("You must leave your company before switching to an individual plan.");
 
         var now = DateTime.UtcNow;
+        var cutoff = now - SubscriptionTiming.RenewalGrace;
 
-        // Only a subscription whose paid period has not ended blocks a new checkout. A stale
-        // Active/Trial row past its EndDate must not lock the customer out of re-subscribing.
+        // Only a subscription whose paid period (plus the short renewal grace) has not ended
+        // blocks a new checkout. A stale Active/Trial row must not lock the customer out.
         var hasActive = await _db.UserSubscriptions
             .AnyAsync(s => s.UserId == userId &&
                 ((s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial) &&
-                 (s.EndDate == null || s.EndDate > now)), ct);
+                 (s.EndDate == null || s.EndDate > cutoff)), ct);
 
         if (hasActive)
             throw new InvalidOperationException("You already have an active subscription.");
@@ -145,11 +146,12 @@ public class SubscriptionService : ISubscriptionService
             throw new UnauthorizedAccessException("Only the company owner can manage subscriptions.");
 
         var now = DateTime.UtcNow;
+        var cutoff = now - SubscriptionTiming.RenewalGrace;
 
         var companyHasActive = await _db.CompanySubscriptions
             .AnyAsync(s => s.CompanyId == companyId &&
                 ((s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial) &&
-                 (s.EndDate == null || s.EndDate > now)), ct);
+                 (s.EndDate == null || s.EndDate > cutoff)), ct);
 
         if (companyHasActive)
             throw new InvalidOperationException("This company already has an active subscription.");
@@ -208,12 +210,12 @@ public class SubscriptionService : ISubscriptionService
 
         if (user.CompanyId is not null)
         {
-            var now = DateTime.UtcNow;
+            var cutoff = DateTime.UtcNow - SubscriptionTiming.RenewalGrace;
 
             var companyHasActive = await _db.CompanySubscriptions
                 .AnyAsync(s => s.CompanyId == user.CompanyId &&
                     ((s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial) &&
-                     (s.EndDate == null || s.EndDate > now)), ct);
+                     (s.EndDate == null || s.EndDate > cutoff)), ct);
 
             if (companyHasActive)
                 throw new InvalidOperationException("Your company already has an active subscription.");
@@ -283,6 +285,20 @@ public class SubscriptionService : ISubscriptionService
     {
         var paymentEvent = await _paymentService.HandleWebhookAsync(body, signature);
 
+        if (paymentEvent.StripeEventId is not null)
+        {
+            var alreadyProcessed = await _db.ProcessedStripeEvents
+                .AnyAsync(e => e.Id == paymentEvent.StripeEventId, ct);
+
+            if (alreadyProcessed)
+            {
+                _logger.LogInformation(
+                    "Skipping already processed Stripe event {EventId} ({Type}).",
+                    paymentEvent.StripeEventId, paymentEvent.Type);
+                return;
+            }
+        }
+
         try
         {
             switch (paymentEvent.Type)
@@ -292,10 +308,15 @@ public class SubscriptionService : ISubscriptionService
                     break;
 
                 case "customer.subscription.created":
+                    // The subscription is created by the same checkout; make sure the row exists
+                    // and then apply Stripe's authoritative period/status to it.
                     await HandleCheckoutCompletedAsync(paymentEvent, ct);
+                    await HandleSubscriptionUpdatedAsync(paymentEvent, ct);
                     break;
 
                 case "customer.subscription.updated":
+                case "customer.subscription.paused":
+                case "customer.subscription.resumed":
                     await HandleSubscriptionUpdatedAsync(paymentEvent, ct);
                     break;
 
@@ -311,6 +332,17 @@ public class SubscriptionService : ISubscriptionService
                     await HandleSubscriptionDeletedAsync(paymentEvent, ct);
                     break;
             }
+
+            if (paymentEvent.StripeEventId is not null)
+            {
+                _db.ProcessedStripeEvents.Add(new ProcessedStripeEvent
+                {
+                    Id = paymentEvent.StripeEventId,
+                    Type = paymentEvent.Type,
+                    ProcessedAt = DateTime.UtcNow
+                });
+                await _db.SaveChangesAsync(ct);
+            }
         }
         catch (Exception ex)
         {
@@ -322,12 +354,13 @@ public class SubscriptionService : ISubscriptionService
     public async Task<int?> GetMaxDashboardsAsync(Guid userId, CancellationToken ct = default)
     {
         var now = DateTime.UtcNow;
+        var cutoff = now - SubscriptionTiming.RenewalGrace;
 
         var userSub = await _db.UserSubscriptions
             .AsNoTracking()
             .Where(s => s.UserId == userId &&
-                ((s.Status == SubscriptionStatus.Trial && (s.EndDate == null || s.EndDate > now)) ||
-                 (s.Status == SubscriptionStatus.Active && (s.EndDate == null || s.EndDate > now))))
+                ((s.Status == SubscriptionStatus.Trial && (s.EndDate == null || s.EndDate > cutoff)) ||
+                 (s.Status == SubscriptionStatus.Active && (s.EndDate == null || s.EndDate > cutoff))))
             .Select(s => new { s.Plan.MaxDashboards })
             .FirstOrDefaultAsync(ct);
 
@@ -345,8 +378,8 @@ public class SubscriptionService : ISubscriptionService
         var companySub = await _db.CompanySubscriptions
             .AsNoTracking()
             .Where(s => s.CompanyId == companyId.Value &&
-                ((s.Status == SubscriptionStatus.Trial && (s.EndDate == null || s.EndDate > now)) ||
-                 (s.Status == SubscriptionStatus.Active && (s.EndDate == null || s.EndDate > now))))
+                ((s.Status == SubscriptionStatus.Trial && (s.EndDate == null || s.EndDate > cutoff)) ||
+                 (s.Status == SubscriptionStatus.Active && (s.EndDate == null || s.EndDate > cutoff))))
             .Select(s => new { s.Plan.MaxDashboards })
             .FirstOrDefaultAsync(ct);
 
@@ -356,13 +389,15 @@ public class SubscriptionService : ISubscriptionService
     public async Task<bool> HasActiveSubscriptionAsync(Guid userId, CancellationToken ct = default)
     {
         var now = DateTime.UtcNow;
+        var cutoff = now - SubscriptionTiming.RenewalGrace;
 
         // Fallback: an Active row whose paid period has ended counts as inactive if the
         // customer.subscription.deleted webhook was missed (cancel-at-period-end relies on it).
+        // A short grace window keeps a late renewal webhook from locking the customer out.
         var userSubActive = await _db.UserSubscriptions
             .AnyAsync(s => s.UserId == userId &&
-                ((s.Status == SubscriptionStatus.Trial && (s.EndDate == null || s.EndDate > now)) ||
-                 (s.Status == SubscriptionStatus.Active && (s.EndDate == null || s.EndDate > now))), ct);
+                ((s.Status == SubscriptionStatus.Trial && (s.EndDate == null || s.EndDate > cutoff)) ||
+                 (s.Status == SubscriptionStatus.Active && (s.EndDate == null || s.EndDate > cutoff))), ct);
 
         if (userSubActive)
             return true;
@@ -374,29 +409,37 @@ public class SubscriptionService : ISubscriptionService
 
         return companyId.HasValue && await _db.CompanySubscriptions
             .AnyAsync(s => s.CompanyId == companyId.Value &&
-                ((s.Status == SubscriptionStatus.Trial && (s.EndDate == null || s.EndDate > now)) ||
-                 (s.Status == SubscriptionStatus.Active && (s.EndDate == null || s.EndDate > now))), ct);
+                ((s.Status == SubscriptionStatus.Trial && (s.EndDate == null || s.EndDate > cutoff)) ||
+                 (s.Status == SubscriptionStatus.Active && (s.EndDate == null || s.EndDate > cutoff))), ct);
     }
 
     public async Task<bool> CompanyHasActiveSubscriptionAsync(Guid companyId, CancellationToken ct = default)
     {
         var now = DateTime.UtcNow;
+        var cutoff = now - SubscriptionTiming.RenewalGrace;
 
         return await _db.CompanySubscriptions
             .AnyAsync(s => s.CompanyId == companyId &&
-                ((s.Status == SubscriptionStatus.Trial && (s.EndDate == null || s.EndDate > now)) ||
-                 (s.Status == SubscriptionStatus.Active && (s.EndDate == null || s.EndDate > now))), ct);
+                ((s.Status == SubscriptionStatus.Trial && (s.EndDate == null || s.EndDate > cutoff)) ||
+                 (s.Status == SubscriptionStatus.Active && (s.EndDate == null || s.EndDate > cutoff))), ct);
     }
 
     public async Task<int> ReconcileSubscriptionsAsync(CancellationToken ct = default)
     {
         var now = DateTime.UtcNow;
+        var graceCutoff = now - SubscriptionTiming.RenewalGrace;
+        var recoveryCutoff = now - SubscriptionTiming.ExpiryRecoveryWindow;
         var changed = 0;
 
         var endedUserSubscriptions = await _db.UserSubscriptions
-            .Where(s => (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial) &&
-                        ((s.EndDate != null && s.EndDate <= now) ||
-                         (s.EndDate == null && s.StripeSubscriptionId != null)))
+            .Where(s => ((s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial) &&
+                         ((s.EndDate != null && s.EndDate <= graceCutoff) ||
+                          (s.EndDate == null && s.StripeSubscriptionId != null)))
+                        // Recently expired rows are re-verified too, so a race that expired a live
+                        // subscription can repair itself.
+                        || (s.Status == SubscriptionStatus.Expired &&
+                            s.StripeSubscriptionId != null &&
+                            s.EndDate != null && s.EndDate >= recoveryCutoff))
             .ToListAsync(ct);
 
         foreach (var subscription in endedUserSubscriptions)
@@ -406,9 +449,12 @@ public class SubscriptionService : ISubscriptionService
         }
 
         var endedCompanySubscriptions = await _db.CompanySubscriptions
-            .Where(s => (s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial) &&
-                        ((s.EndDate != null && s.EndDate <= now) ||
-                         (s.EndDate == null && s.StripeSubscriptionId != null)))
+            .Where(s => ((s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial) &&
+                         ((s.EndDate != null && s.EndDate <= graceCutoff) ||
+                          (s.EndDate == null && s.StripeSubscriptionId != null)))
+                        || (s.Status == SubscriptionStatus.Expired &&
+                            s.StripeSubscriptionId != null &&
+                            s.EndDate != null && s.EndDate >= recoveryCutoff))
             .ToListAsync(ct);
 
         foreach (var subscription in endedCompanySubscriptions)
@@ -417,7 +463,11 @@ public class SubscriptionService : ISubscriptionService
                 changed++;
         }
 
-        if (changed > 0)
+        var prunedEvents = await _db.ProcessedStripeEvents
+            .Where(e => e.ProcessedAt < now - SubscriptionTiming.ProcessedEventRetention)
+            .ExecuteDeleteAsync(ct);
+
+        if (changed > 0 || prunedEvents > 0)
             await _db.SaveChangesAsync(ct);
 
         return changed;
@@ -562,13 +612,14 @@ public class SubscriptionService : ISubscriptionService
     public async Task<UserSubscriptionResponse?> GetCurrentUserSubscriptionAsync(Guid userId, CancellationToken ct = default)
     {
         var now = DateTime.UtcNow;
+        var cutoff = now - SubscriptionTiming.RenewalGrace;
 
         var subscription = await _db.UserSubscriptions
             .AsNoTracking()
             .Include(s => s.Plan)
             .FirstOrDefaultAsync(s => s.UserId == userId &&
                 ((s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active) &&
-                 (s.EndDate == null || s.EndDate > now)), ct);
+                 (s.EndDate == null || s.EndDate > cutoff)), ct);
 
         if (subscription is null)
             return null;
@@ -592,13 +643,14 @@ public class SubscriptionService : ISubscriptionService
     public async Task<CompanySubscriptionResponse?> GetCurrentCompanySubscriptionAsync(Guid companyId, CancellationToken ct = default)
     {
         var now = DateTime.UtcNow;
+        var cutoff = now - SubscriptionTiming.RenewalGrace;
 
         var subscription = await _db.CompanySubscriptions
             .AsNoTracking()
             .Include(s => s.Plan)
             .FirstOrDefaultAsync(s => s.CompanyId == companyId &&
                 ((s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active) &&
-                 (s.EndDate == null || s.EndDate > now)), ct);
+                 (s.EndDate == null || s.EndDate > cutoff)), ct);
 
         if (subscription is null)
             return null;
@@ -720,11 +772,12 @@ public class SubscriptionService : ISubscriptionService
     public async Task ReactivateUserSubscriptionAsync(Guid userId, CancellationToken ct = default)
     {
         var now = DateTime.UtcNow;
+        var cutoff = now - SubscriptionTiming.RenewalGrace;
 
         var subscription = await _db.UserSubscriptions
             .FirstOrDefaultAsync(s => s.UserId == userId &&
                 ((s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial) &&
-                 (s.EndDate == null || s.EndDate > now)), ct)
+                 (s.EndDate == null || s.EndDate > cutoff)), ct)
             ?? throw new InvalidOperationException("No active subscription found.");
 
         if (!subscription.CancelAtPeriodEnd)
@@ -763,11 +816,12 @@ public class SubscriptionService : ISubscriptionService
             throw new UnauthorizedAccessException("Only the company owner can manage subscriptions.");
 
         var now = DateTime.UtcNow;
+        var cutoff = now - SubscriptionTiming.RenewalGrace;
 
         var subscription = await _db.CompanySubscriptions
             .FirstOrDefaultAsync(s => s.CompanyId == companyId &&
                 ((s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial) &&
-                 (s.EndDate == null || s.EndDate > now)), ct)
+                 (s.EndDate == null || s.EndDate > cutoff)), ct)
             ?? throw new InvalidOperationException("No active subscription found.");
 
         if (!subscription.CancelAtPeriodEnd)
@@ -824,7 +878,7 @@ public class SubscriptionService : ISubscriptionService
             return 0;
 
         var remaining = (int)(trialEndDate.Value - now).TotalDays;
-        return Math.Max(1, remaining);
+        return Math.Max(0, remaining);
     }
 
     /// <summary>
@@ -867,6 +921,13 @@ public class SubscriptionService : ISubscriptionService
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
         return Convert.ToHexStringLower(bytes);
     }
+
+    /// <summary>
+    /// Stripe does not guarantee webhook ordering. Events older than the newest already applied
+    /// event for the same subscription are ignored so a late delivery cannot roll state back.
+    /// </summary>
+    private static bool IsOlderThanLastApplied(DateTime? eventCreatedAt, DateTime? lastAppliedAt)
+        => eventCreatedAt is not null && lastAppliedAt is not null && eventCreatedAt < lastAppliedAt;
 
     private async Task MarkTrialFingerprintsConsumedAsync(Guid userId, string? email, CancellationToken ct)
     {
@@ -938,6 +999,17 @@ public class SubscriptionService : ISubscriptionService
 
         if (existingUserSubscription is not null || existingCompanySubscription is not null)
         {
+            var lastAppliedAt = existingUserSubscription?.LastStripeEventAt
+                ?? existingCompanySubscription?.LastStripeEventAt;
+
+            if (IsOlderThanLastApplied(evt.EventCreatedAt, lastAppliedAt))
+            {
+                _logger.LogInformation(
+                    "Ignoring stale {Type} for subscription {SubscriptionId}.",
+                    evt.Type, stripeSubscriptionId);
+                return;
+            }
+
             // Duplicate delivery (confirm + webhook, or a retried event). The subscription row
             // already exists, but trial fingerprint tracking must still run when the first
             // delivery happened before Stripe attached a payment method.
@@ -979,6 +1051,7 @@ public class SubscriptionService : ISubscriptionService
                 existing.CancelAtPeriodEnd = false;
                 existing.StripeSubscriptionId = stripeSubscriptionId;
                 existing.TrialEndDate = trialEndDate;
+                existing.LastStripeEventAt = evt.EventCreatedAt ?? existing.LastStripeEventAt;
                 companySubRef = existing;
             }
             else
@@ -998,7 +1071,8 @@ public class SubscriptionService : ISubscriptionService
                     EndDate = endDate,
                     Status = status,
                     StripeSubscriptionId = stripeSubscriptionId,
-                    TrialEndDate = trialEndDate
+                    TrialEndDate = trialEndDate,
+                    LastStripeEventAt = evt.EventCreatedAt
                 };
                 _db.CompanySubscriptions.Add(companySubRef);
             }
@@ -1024,6 +1098,7 @@ public class SubscriptionService : ISubscriptionService
                 existing.CancelAtPeriodEnd = false;
                 existing.StripeSubscriptionId = stripeSubscriptionId;
                 existing.TrialEndDate = trialEndDate;
+                existing.LastStripeEventAt = evt.EventCreatedAt ?? existing.LastStripeEventAt;
                 userSubRef = existing;
             }
             else
@@ -1042,7 +1117,8 @@ public class SubscriptionService : ISubscriptionService
                     EndDate = endDate,
                     Status = status,
                     StripeSubscriptionId = stripeSubscriptionId,
-                    TrialEndDate = trialEndDate
+                    TrialEndDate = trialEndDate,
+                    LastStripeEventAt = evt.EventCreatedAt
                 };
                 _db.UserSubscriptions.Add(userSubRef);
             }
@@ -1231,8 +1307,20 @@ public class SubscriptionService : ISubscriptionService
 
         if (userSub is not null)
         {
+            if (IsOlderThanLastApplied(evt.EventCreatedAt, userSub.LastStripeEventAt))
+                return;
+
             if (userSub.Status is SubscriptionStatus.Canceled or SubscriptionStatus.Expired)
                 return;
+
+            // Stripe creates a 0-amount invoice when a trial starts. It must not be treated as
+            // the payment that converts the trial.
+            if (userSub.Status == SubscriptionStatus.Trial && IsFreeTrialStartInvoice(evt))
+            {
+                userSub.LastStripeEventAt = evt.EventCreatedAt ?? userSub.LastStripeEventAt;
+                await _db.SaveChangesAsync(ct);
+                return;
+            }
 
             var wasTrial = userSub.Status == SubscriptionStatus.Trial;
             if (wasTrial)
@@ -1254,6 +1342,7 @@ public class SubscriptionService : ISubscriptionService
                 await MarkTrialFingerprintsConsumedAsync(userSub.UserId, email, ct);
             }
 
+            userSub.LastStripeEventAt = evt.EventCreatedAt ?? userSub.LastStripeEventAt;
             await _db.SaveChangesAsync(ct);
             return;
         }
@@ -1263,8 +1352,19 @@ public class SubscriptionService : ISubscriptionService
 
         if (companySub is not null)
         {
+            if (IsOlderThanLastApplied(evt.EventCreatedAt, companySub.LastStripeEventAt))
+                return;
+
             if (companySub.Status is SubscriptionStatus.Canceled or SubscriptionStatus.Expired)
                 return;
+
+            // See the user-subscription branch: a 0-amount trial-start invoice is not a payment.
+            if (companySub.Status == SubscriptionStatus.Trial && IsFreeTrialStartInvoice(evt))
+            {
+                companySub.LastStripeEventAt = evt.EventCreatedAt ?? companySub.LastStripeEventAt;
+                await _db.SaveChangesAsync(ct);
+                return;
+            }
 
             var wasTrial = companySub.Status == SubscriptionStatus.Trial;
             if (wasTrial)
@@ -1294,9 +1394,18 @@ public class SubscriptionService : ISubscriptionService
                 }
             }
 
+            companySub.LastStripeEventAt = evt.EventCreatedAt ?? companySub.LastStripeEventAt;
             await _db.SaveChangesAsync(ct);
         }
     }
+
+    /// <summary>
+    /// Stripe generates a 0-amount invoice when a trial starts (`billing_reason` is
+    /// <c>subscription_create</c>). It is auto-paid, but it is not a real payment.
+    /// </summary>
+    private static bool IsFreeTrialStartInvoice(PaymentWebhookEvent evt)
+        => string.Equals(evt.BillingReason, "subscription_create", StringComparison.Ordinal)
+           && (evt.AmountPaid ?? 0) <= 0;
 
     /// <summary>
     /// Uses Stripe's own period end when the invoice carries it. Events can arrive out of order,
@@ -1355,7 +1464,11 @@ public class SubscriptionService : ISubscriptionService
 
         if (userSub is not null)
         {
+            if (IsOlderThanLastApplied(evt.EventCreatedAt, userSub.LastStripeEventAt))
+                return;
+
             await ApplyStripeStateAsync(userSub, evt, now, ct);
+            userSub.LastStripeEventAt = evt.EventCreatedAt ?? userSub.LastStripeEventAt;
             await _db.SaveChangesAsync(ct);
             return;
         }
@@ -1365,7 +1478,11 @@ public class SubscriptionService : ISubscriptionService
 
         if (companySub is not null)
         {
+            if (IsOlderThanLastApplied(evt.EventCreatedAt, companySub.LastStripeEventAt))
+                return;
+
             await ApplyStripeStateAsync(companySub, evt, now, ct);
+            companySub.LastStripeEventAt = evt.EventCreatedAt ?? companySub.LastStripeEventAt;
             await _db.SaveChangesAsync(ct);
         }
     }
@@ -1381,10 +1498,25 @@ public class SubscriptionService : ISubscriptionService
                 sub.TrialEndDate = evt.TrialEnd ?? evt.CurrentPeriodEnd ?? sub.TrialEndDate;
                 break;
 
-            case "active" when wasTrial:
-                sub.Status = SubscriptionStatus.Active;
-                sub.TrialEndDate = null;
+            case "active":
+                if (wasTrial)
+                {
+                    sub.Status = SubscriptionStatus.Active;
+                    sub.TrialEndDate = null;
+                }
+                else if (sub.Status == SubscriptionStatus.Expired)
+                {
+                    // Stripe says the subscription is live, so the local row was ended by
+                    // mistake (for example a race with the expiry sweep). Trust Stripe.
+                    sub.Status = SubscriptionStatus.Active;
+                }
                 break;
+
+            case "paused":
+                // A paused subscription is not billed; revoke access until it resumes.
+                sub.Status = SubscriptionStatus.Expired;
+                sub.CancelAtPeriodEnd = false;
+                return;
 
             case "canceled":
             case "incomplete_expired":
@@ -1428,10 +1560,25 @@ public class SubscriptionService : ISubscriptionService
                 sub.TrialEndDate = evt.TrialEnd ?? evt.CurrentPeriodEnd ?? sub.TrialEndDate;
                 break;
 
-            case "active" when wasTrial:
-                sub.Status = SubscriptionStatus.Active;
-                sub.TrialEndDate = null;
+            case "active":
+                if (wasTrial)
+                {
+                    sub.Status = SubscriptionStatus.Active;
+                    sub.TrialEndDate = null;
+                }
+                else if (sub.Status == SubscriptionStatus.Expired)
+                {
+                    // Stripe says the subscription is live, so the local row was ended by
+                    // mistake (for example a race with the expiry sweep). Trust Stripe.
+                    sub.Status = SubscriptionStatus.Active;
+                }
                 break;
+
+            case "paused":
+                // A paused subscription is not billed; revoke access until it resumes.
+                sub.Status = SubscriptionStatus.Expired;
+                sub.CancelAtPeriodEnd = false;
+                return;
 
             case "canceled":
             case "incomplete_expired":
@@ -1504,9 +1651,13 @@ public class SubscriptionService : ISubscriptionService
 
         if (userSub is not null)
         {
+            if (IsOlderThanLastApplied(evt.EventCreatedAt, userSub.LastStripeEventAt))
+                return;
+
             userSub.Status = SubscriptionStatus.Canceled;
             userSub.EndDate = now;
             userSub.CancelAtPeriodEnd = false;
+            userSub.LastStripeEventAt = evt.EventCreatedAt ?? userSub.LastStripeEventAt;
             await _db.SaveChangesAsync(ct);
             return;
         }
@@ -1516,9 +1667,13 @@ public class SubscriptionService : ISubscriptionService
 
         if (companySub is not null)
         {
+            if (IsOlderThanLastApplied(evt.EventCreatedAt, companySub.LastStripeEventAt))
+                return;
+
             companySub.Status = SubscriptionStatus.Canceled;
             companySub.EndDate = now;
             companySub.CancelAtPeriodEnd = false;
+            companySub.LastStripeEventAt = evt.EventCreatedAt ?? companySub.LastStripeEventAt;
             await _db.SaveChangesAsync(ct);
         }
     }
