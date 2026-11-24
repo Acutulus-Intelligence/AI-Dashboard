@@ -114,7 +114,10 @@ export const scatterChart: ChartDescriptor = {
               key={ds.label}
               name={ds.label}
               dataKey={ds.label}
-              data={data.labels.map((label, i) => ({ x: label, y: ds.values[i] ?? 0 }))}
+              data={data.labels.flatMap((label, i) => {
+                const y = ds.values[i];
+                return y == null ? [] : [{ x: label, y }];
+              })}
               fill={cssColorVar(ds.label)}
               fillOpacity={param(style, 'pointOpacity', 0.8)}
               shape={param(style, 'pointShape', 'circle') as 'circle'}

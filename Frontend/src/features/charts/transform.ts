@@ -1,6 +1,16 @@
 import type { ChartConfigResponse } from '../../lib/api/charts';
 import type { ChartConfig } from '@/components/ui/chart';
-import type { ChartData, ResolvedStyle } from './types';
+import type { ChartData, ChartValue, ResolvedStyle } from './types';
+
+/** Keeps missing/blank values as null so charts can show a gap instead of a fake zero. */
+export function toChartValue(value: unknown): ChartValue {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
 
 /** Turns an API chart response into the normalised shape the renderers consume. */
 export function transformResult(res: ChartConfigResponse): ChartData {
@@ -9,22 +19,18 @@ export function transformResult(res: ChartConfigResponse): ChartData {
   const labels = res.queryResult.map((row) => String(row[res.xAxis] ?? ''));
   const datasets = res.yAxis.map((axis) => ({
     label: axis,
-    values: res.queryResult.map((row) => {
-      const v = row[axis];
-      const num = typeof v === 'number' ? v : Number(v);
-      return Number.isNaN(num) ? 0 : num;
-    }),
+    values: res.queryResult.map((row) => toChartValue(row[axis])),
   }));
 
   return { labels, datasets, queryResult: res.queryResult, xAxis: res.xAxis };
 }
 
-/** Recharts wants one row per label with a key per series. */
-export function toRows(data: ChartData): Record<string, string | number>[] {
+/** Recharts wants one row per label with a key per series; null keeps gaps. */
+export function toRows(data: ChartData): Record<string, string | number | null>[] {
   return data.labels.map((label, i) => {
-    const row: Record<string, string | number> = { name: label };
+    const row: Record<string, string | number | null> = { name: label };
     for (const ds of data.datasets) {
-      row[ds.label] = ds.values[i] ?? 0;
+      row[ds.label] = ds.values[i] ?? null;
     }
     return row;
   });

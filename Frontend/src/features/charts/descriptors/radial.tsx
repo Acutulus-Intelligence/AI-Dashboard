@@ -66,7 +66,7 @@ export const radialChart: ChartDescriptor = {
       config[keys[i]] = { label, color: style.colors[i % style.colors.length] };
     });
 
-    const stackTotal = series.values.reduce((sum, v) => sum + v, 0);
+    const stackTotal = series.values.reduce<number>((sum, v) => sum + (v ?? 0), 0);
 
     const rows = stacked
       ? [

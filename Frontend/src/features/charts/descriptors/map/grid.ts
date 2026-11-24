@@ -1,8 +1,9 @@
+import type { ChartValue } from '../../types';
 import { primaryValue } from './places';
 
 interface LocatedPoint {
   label: string;
-  values: number[];
+  values: ChartValue[];
   lat: number;
   lon: number;
 }
@@ -13,7 +14,7 @@ export interface GridCell {
   west: number;
   north: number;
   east: number;
-  values: number[];
+  values: ChartValue[];
   labels: string[];
 }
 

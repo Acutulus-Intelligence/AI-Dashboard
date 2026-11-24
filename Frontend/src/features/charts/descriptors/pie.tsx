@@ -68,11 +68,11 @@ export const pieChart: ChartDescriptor = {
     if (!hasSeries(data)) return <ChartPlaceholder icon={PieIcon} label="Pie chart" />;
 
     const series = data.datasets[0];
-    const slices = data.labels.map((label, i) => ({
-      key: chartColorKey(i, label),
-      name: label,
-      value: series.values[i] ?? 0,
-    }));
+    const slices = data.labels.flatMap((label, i) => {
+      const value = series.values[i];
+      return value == null ? [] : [{ key: chartColorKey(i, label), name: label, value }];
+    });
+    if (!slices.length) return <ChartPlaceholder icon={PieIcon} label="Pie chart" />;
     const total = slices.reduce((sum, s) => sum + s.value, 0);
 
     const showTotal = style.variant === 'total';

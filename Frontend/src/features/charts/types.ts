@@ -1,10 +1,13 @@
 import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 
+/** One plotted value. Null means a real gap in the data (rendered as a break, not zero). */
+export type ChartValue = number | null;
+
 /** Normalised shape every chart renders from, produced by `transformResult`. */
 export interface ChartData {
   labels: string[];
-  datasets: { label: string; values: number[] }[];
+  datasets: { label: string; values: ChartValue[] }[];
   /** Raw SQL rows, kept so the table chart can show every column. */
   queryResult?: Record<string, unknown>[];
   /** X-axis column name from the query, used as the first export header. */

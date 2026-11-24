@@ -3,7 +3,7 @@ import type { Feature, FeatureCollection, Geometry } from 'geojson';
 import { geoJSON, latLngBounds, type Layer, type PathOptions } from 'leaflet';
 import { CircleMarker, GeoJSON, MapContainer, Rectangle, TileLayer, Tooltip, useMap } from 'react-leaflet';
 import { formatStyledValue } from '../../format';
-import { param, type ResolvedStyle } from '../../types';
+import { param, type ChartValue, type ResolvedStyle } from '../../types';
 import { binScreenGrid, type GridCell } from './grid';
 import MapLegend from './MapLegend';
 import { aggregateCountries, mapFootnote, primaryValue, type MapRow } from './places';
@@ -79,7 +79,12 @@ function escapeHtml(value: string): string {
     .replaceAll('"', '&quot;');
 }
 
-function tooltipHtml(label: string, values: number[], datasetLabels: string[], style: ResolvedStyle): string {
+function tooltipHtml(
+  label: string,
+  values: ChartValue[],
+  datasetLabels: string[],
+  style: ResolvedStyle,
+): string {
   if (datasetLabels.length <= 1) {
     return `${escapeHtml(label)}: ${escapeHtml(formatStyledValue(values[0] ?? 0, style))}`;
   }
@@ -165,7 +170,7 @@ function IntensityGrid({
   max,
   onCells,
 }: {
-  points: { label: string; values: number[]; lat: number; lon: number }[];
+  points: { label: string; values: ChartValue[]; lat: number; lon: number }[];
   style: ResolvedStyle;
   datasetLabels: string[];
   showTooltip: boolean;

@@ -161,6 +161,27 @@ public static class ChartCatalog
         },
         new()
         {
+            Id = "combo",
+            Label = "Combo",
+            Description =
+                "Bars for the primary measures with one series drawn as a line. By default the last series is the line; lineFirst draws the first series as the line instead.",
+            Variants =
+            [
+                new("default", "Bar + line", "The last series is drawn as a line."),
+                new("lineFirst", "Line first", "The first series is drawn as a line; the rest are bars.")
+            ],
+            Params =
+            [
+                CornerRadius,
+                StrokeWidth,
+                Number("dotSize", "Point size", 3, 0, 8, 1, "Zero hides the points on the line."),
+                ShowGrid, ShowXAxis, ShowYAxis, ShowTooltip,
+                Toggle("showLegend", "Legend", true),
+                ShowLabels
+            ]
+        },
+        new()
+        {
             Id = "pie",
             Label = "Pie",
             Description = "Shows each category as a share of the whole.",
@@ -210,6 +231,23 @@ public static class ChartCatalog
                 Number("startAngle", "Start angle", 90, -180, 360, 15),
                 Number("endAngle", "End angle", -270, -360, 360, 15),
                 ShowGrid, ShowLabels, ShowTooltip
+            ]
+        },
+        new()
+        {
+            Id = "kpi",
+            Label = "KPI",
+            Description =
+                "A headline number for a single measure, taken from the last row. Variants add a sparkline and the change versus the previous row.",
+            Variants =
+            [
+                new("value", "Value", "A large number and its label."),
+                new("sparkline", "Sparkline", "A large number with a small trend line."),
+                new("trend", "Trend", "A large number, the change versus the previous row, and a sparkline.")
+            ],
+            Params =
+            [
+                Number("sparklineHeight", "Sparkline height", 40, 24, 96, 4)
             ]
         },
         new()

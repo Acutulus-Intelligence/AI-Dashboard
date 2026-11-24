@@ -1,10 +1,10 @@
-import type { ChartData } from '../../types';
+import type { ChartData, ChartValue } from '../../types';
 import { COUNTRIES } from './countries';
 
 /** Rows drawn on a map. Coordinates are optional; countryId is set when the label matches. */
 export interface MapRow {
   label: string;
-  values: number[];
+  values: ChartValue[];
   lat: number | null;
   lon: number | null;
   countryId: string | null;
@@ -91,7 +91,7 @@ function readNumber(value: unknown): number | null {
   return null;
 }
 
-export function primaryValue(values: number[]): number {
+export function primaryValue(values: ChartValue[]): number {
   return values[0] ?? 0;
 }
 
@@ -104,7 +104,7 @@ export function buildMapRows(data: ChartData): { rows: MapRow[]; truncated: bool
   const rows: MapRow[] = [];
   for (let i = 0; i < limit; i++) {
     const label = data.labels[i] ?? '';
-    const values = data.datasets.map((dataset) => dataset.values[i] ?? 0);
+    const values = data.datasets.map((dataset) => dataset.values[i] ?? null);
     const source = data.queryResult?.[i];
     let lat: number | null = null;
     let lon: number | null = null;
@@ -122,8 +122,8 @@ export function buildMapRows(data: ChartData): { rows: MapRow[]; truncated: bool
   return { rows, truncated: data.labels.length > MAX_ROWS };
 }
 
-export function aggregateCountries(rows: MapRow[]): Map<string, { label: string; values: number[] }> {
-  const countries = new Map<string, { label: string; values: number[] }>();
+export function aggregateCountries(rows: MapRow[]): Map<string, { label: string; values: ChartValue[] }> {
+  const countries = new Map<string, { label: string; values: ChartValue[] }>();
   for (const row of rows) {
     if (!row.countryId) continue;
     const current = countries.get(row.countryId);
@@ -131,7 +131,7 @@ export function aggregateCountries(rows: MapRow[]): Map<string, { label: string;
       countries.set(row.countryId, { label: row.label, values: [...row.values] });
       continue;
     }
-    current.values = current.values.map((value, index) => value + (row.values[index] ?? 0));
+    current.values = current.values.map((value, index) => (value ?? 0) + (row.values[index] ?? 0));
   }
   return countries;
 }

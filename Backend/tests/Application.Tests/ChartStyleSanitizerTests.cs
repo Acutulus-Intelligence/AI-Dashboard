@@ -71,6 +71,40 @@ public class ChartStyleSanitizerTests
     }
 
     [Fact]
+    public void Kpi_keeps_only_its_own_params_and_combo_keeps_legend_params()
+    {
+        var kpiStyle = new ChartStyleConfig
+        {
+            Params = new Dictionary<string, JsonElement>
+            {
+                ["sparklineHeight"] = JsonSerializer.SerializeToElement(50),
+                ["showLegend"] = JsonSerializer.SerializeToElement(true),
+            },
+        };
+
+        var kpi = ChartStyleSanitizer.Sanitize(kpiStyle, "kpi");
+        kpi.Should().NotBeNull();
+        kpi!.Params.Should().ContainKey("sparklineHeight");
+        kpi.Params.Should().NotContainKey("showLegend");
+
+        var comboStyle = new ChartStyleConfig
+        {
+            Params = new Dictionary<string, JsonElement>
+            {
+                ["showLegend"] = JsonSerializer.SerializeToElement(true),
+                ["showLabels"] = JsonSerializer.SerializeToElement(false),
+                ["sparklineHeight"] = JsonSerializer.SerializeToElement(50),
+            },
+        };
+
+        var combo = ChartStyleSanitizer.Sanitize(comboStyle, "combo");
+        combo.Should().NotBeNull();
+        combo!.Params.Should().ContainKey("showLegend");
+        combo.Params.Should().ContainKey("showLabels");
+        combo.Params.Should().NotContainKey("sparklineHeight");
+    }
+
+    [Fact]
     public void Table_charts_cannot_keep_colours_or_value_format()
     {
         var style = new ChartStyleConfig

@@ -1,5 +1,7 @@
 import { areaChart } from './descriptors/area';
 import { barChart } from './descriptors/bar';
+import { comboChart } from './descriptors/combo';
+import { kpiChart } from './descriptors/kpi';
 import { lineChart } from './descriptors/line';
 import { mapChart } from './descriptors/map';
 import { pieChart } from './descriptors/pie';
@@ -11,11 +13,13 @@ import type { ChartDescriptor } from './types';
 
 const DESCRIPTORS: ChartDescriptor[] = [
   barChart,
+  comboChart,
   lineChart,
   areaChart,
   pieChart,
   radarChart,
   radialChart,
+  kpiChart,
   scatterChart,
   mapChart,
   tableChart,
