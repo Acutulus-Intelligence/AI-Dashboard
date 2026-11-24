@@ -31,13 +31,28 @@ export function formatStyledValue(value: unknown, style: FormatStyle): string {
         : value;
 
   const text =
-    typeof raw === 'number' && Number.isFinite(raw)
-      ? style.decimals != null
-        ? applyDecimals(raw, style.decimals, style.decimalMode ?? 'round')
-        : raw.toLocaleString()
-      : String(value ?? '');
+    typeof raw === 'number' && Number.isFinite(raw) ? formatNumber(raw, style) : String(value ?? '');
 
   return `${style.valuePrefix ?? ''}${text}${style.valueSuffix ?? ''}`;
+}
+
+/**
+ * Large values are abbreviated (42k, 1.2M) unless the user asked for fixed
+ * decimals, so axes and KPI cards stay readable at a glance.
+ */
+function formatNumber(value: number, style: FormatStyle): string {
+  if (style.decimals != null) {
+    return applyDecimals(value, style.decimals, style.decimalMode ?? 'round');
+  }
+
+  if (Math.abs(value) >= 10_000) {
+    return value.toLocaleString(undefined, {
+      notation: 'compact',
+      maximumFractionDigits: 1,
+    });
+  }
+
+  return value.toLocaleString();
 }
 
 export function tickFormatter(style: FormatStyle) {

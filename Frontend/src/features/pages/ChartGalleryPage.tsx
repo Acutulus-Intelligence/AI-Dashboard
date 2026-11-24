@@ -66,6 +66,11 @@ const WATERFALL_SAMPLE: ChartData = {
   datasets: [{ label: 'change', values: [42000, 8000, 3500, -6000, -2500] }],
 };
 
+const GAUGE_SAMPLE: ChartData = {
+  labels: ['Conversion'],
+  datasets: [{ label: 'conversion', values: [68] }],
+};
+
 export default function ChartGalleryPage() {
   return (
     <main className="bg-background min-h-screen p-6">
@@ -92,7 +97,9 @@ export default function ChartGalleryPage() {
                                 ? FUNNEL_SAMPLE
                                 : descriptor.id === 'waterfall'
                                   ? WATERFALL_SAMPLE
-                                  : SAMPLE
+                                  : descriptor.id === 'gauge'
+                                    ? GAUGE_SAMPLE
+                                    : SAMPLE
                       }
                       styleConfig={{ variant: variant.id }}
                     />

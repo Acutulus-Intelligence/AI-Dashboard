@@ -36,6 +36,13 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { executeChart, getChart, saveChart, updateChart } from '../../lib/api/charts';
@@ -80,6 +87,7 @@ import {
 } from '../charts/exportChartData';
 import { exportChartAsPng } from '../charts/exportChartImage';
 import type { ChartStyleConfig } from '../charts/types';
+import { resolveStyleCapabilities } from '../charts/types';
 import ChartStylePanel from '../components/ChartStylePanel';
 import ChartRecommendationCards from '../components/ChartRecommendationCards';
 import AddToDashboardDialog from '../components/AddToDashboardDialog';
@@ -733,6 +741,48 @@ export default function GraphCreationPage() {
     toast.message('Reverted to the version before the last AI adjustment.');
   }
 
+  /** Switches type locally without spending an AI call; keeps compatible style. */
+  function handleChartTypeChange(nextType: string) {
+    if (!result || nextType === result.chartType) return;
+
+    const descriptor = get(nextType);
+    if (!descriptor) return;
+
+    if ((nextType === 'heatmap' || nextType === 'pivot') && !result.groupBy) {
+      toast.error('This chart type needs a second dimension in the result.');
+      return;
+    }
+
+    const allowedParams = new Set(descriptor.params.map((spec) => spec.key));
+    const params = Object.fromEntries(
+      Object.entries(styleConfig.params ?? {}).filter(([key]) => allowedParams.has(key)),
+    );
+    const caps = resolveStyleCapabilities(descriptor);
+
+    const nextStyle: ChartStyleConfig = {
+      ...styleConfig,
+      variant: descriptor.variants[0]?.id,
+      params: Object.keys(params).length > 0 ? params : undefined,
+    };
+
+    if (!caps.colors) {
+      nextStyle.colors = undefined;
+      nextStyle.palette = undefined;
+    }
+
+    if (!caps.valueLabels) {
+      nextStyle.valuePrefix = undefined;
+      nextStyle.valueSuffix = undefined;
+      nextStyle.decimals = undefined;
+      nextStyle.decimalMode = undefined;
+    }
+
+    setResult({ ...result, chartType: nextType, styleConfig: nextStyle });
+    setStyleConfig(nextStyle);
+    setPreRefineSnapshot(null);
+    toast.message(`Chart type changed to ${descriptor.label}.`);
+  }
+
   function applySavedSnapshots(
     id: string,
     title: string,
@@ -1355,6 +1405,28 @@ export default function GraphCreationPage() {
                         </TooltipContent>
                       </Tooltip>
                     )}
+                    <Select value={result.chartType} onValueChange={handleChartTypeChange}>
+                      <SelectTrigger
+                        className="h-8 w-[128px] shrink-0 text-xs"
+                        aria-label="Chart type"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent align="end">
+                        {getAll()
+                          .filter(
+                            (chart) =>
+                              (chart.id !== 'heatmap' && chart.id !== 'pivot') ||
+                              Boolean(result.groupBy),
+                          )
+                          .map((chart) => (
+                            <SelectItem key={chart.id} value={chart.id}>
+                              <chart.icon className="size-4" />
+                              {chart.label}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <button
