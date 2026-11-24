@@ -48,6 +48,20 @@ public static class ChartResultNormalizer
             config.XAxis = xAxis;
         }
 
+        if (!string.IsNullOrWhiteSpace(config.GroupBy))
+        {
+            var groupBy = ResolveKey(keys, config.GroupBy);
+            if (groupBy is null)
+            {
+                notes?.Add($"groupBy '{config.GroupBy}' was not returned by the query and was cleared.");
+                config.GroupBy = null;
+            }
+            else
+            {
+                config.GroupBy = groupBy;
+            }
+        }
+
         var yAxis = new List<string>();
         foreach (var axis in config.YAxis)
         {

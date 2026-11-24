@@ -99,6 +99,25 @@ public class ChartResultNormalizerTests
     }
 
     [Fact]
+    public void Group_by_is_mapped_to_the_result_column_or_cleared()
+    {
+        var config = Config(xAxis: "category", yAxis: ["amount"]);
+        config.GroupBy = "Region";
+        var rows = new List<Dictionary<string, object?>>
+        {
+            Row(("category", "A"), ("region", "North"), ("amount", 10)),
+        };
+
+        ChartResultNormalizer.Normalize(config, rows);
+
+        config.GroupBy.Should().Be("region");
+
+        config.GroupBy = "missing";
+        ChartResultNormalizer.Normalize(config, rows);
+        config.GroupBy.Should().BeNull();
+    }
+
+    [Fact]
     public void Empty_results_leave_the_config_unchanged()
     {
         var config = Config(xAxis: "category", yAxis: ["amount"]);
