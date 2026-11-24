@@ -35,6 +35,11 @@ public static class ChartRecommender
         "delta", "change", "diff", "forandring", "förändring", "okning", "ökning", "minskning"
     ];
 
+    private static readonly string[] GaugeHints =
+    [
+        "percent", "procent", "share", "andel", "utilization", "utnyttjande", "conversion", "target"
+    ];
+
     private static readonly string[] GeoHints =
     [
         "country", "region", "province", "county", "city", "stad", "kommun", "ort",
@@ -93,6 +98,12 @@ public static class ChartRecommender
         {
             Add("kpi", "sparkline", 95,
                 "Exactly one numeric measure without categories or dates — a single headline value fits.");
+
+            if (MatchesAny(measures[0], GaugeHints))
+            {
+                Add("gauge", "default", 96,
+                    "A single percentage-like measure — a gauge shows it against its range.");
+            }
         }
 
         if (times.Count > 0 && measures.Count >= 2)
@@ -149,6 +160,8 @@ public static class ChartRecommender
         {
             Add("bar", "default", 78,
                 "A category column and a numeric measure — bars compare values across categories.");
+            Add("treemap", "default", 68,
+                "A category column and a numeric measure — a treemap compares relative sizes.");
         }
 
         if (measures.Count >= 2 && times.Count == 0 && dimensions.Count <= 1)
@@ -230,6 +243,10 @@ public static class ChartRecommender
                 null,
                 firstMeasure is null ? [] : [firstMeasure]),
 
+            "gauge" => new ChartAxisSuggestion(
+                null,
+                firstMeasure is null ? [] : [firstMeasure]),
+
             "line" or "area" => new ChartAxisSuggestion(
                 firstTime ?? firstDimension,
                 measures.Take(3).ToList()),
@@ -271,6 +288,10 @@ public static class ChartRecommender
             "bar" => new ChartAxisSuggestion(
                 firstDimension ?? firstTime ?? firstGeo,
                 measures.Take(3).ToList()),
+
+            "treemap" => new ChartAxisSuggestion(
+                firstDimension ?? firstGeo,
+                firstMeasure is null ? [] : [firstMeasure]),
 
             _ => new ChartAxisSuggestion(
                 firstDimension ?? firstTime ?? firstGeo,

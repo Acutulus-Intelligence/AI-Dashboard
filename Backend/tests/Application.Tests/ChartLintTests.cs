@@ -353,4 +353,82 @@ public class ChartLintTests
 
         config.ChartType.Should().Be("table");
     }
+
+    [Fact]
+    public void Treemap_with_negative_values_becomes_a_bar_chart()
+    {
+        var config = Config("treemap", "amount");
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["category"] = "a", ["amount"] = 10 },
+            new() { ["category"] = "b", ["amount"] = -5 },
+        };
+
+        ChartLint.Apply(config, rows, allowTypeChange: true);
+
+        config.ChartType.Should().Be("bar");
+    }
+
+    [Fact]
+    public void Treemap_with_a_single_category_becomes_a_bar_chart()
+    {
+        var config = Config("treemap", "amount");
+
+        ChartLint.Apply(config, Rows(1), allowTypeChange: true);
+
+        config.ChartType.Should().Be("bar");
+    }
+
+    [Fact]
+    public void Count_like_measures_get_whole_numbers()
+    {
+        var config = Config("bar", "order_count");
+
+        ChartLint.Apply(config, Rows(4, measures: ["order_count"]), allowTypeChange: true);
+
+        config.StyleConfig!.Decimals.Should().Be(0);
+    }
+
+    [Fact]
+    public void Percent_like_measures_get_a_suffix_when_values_are_on_a_percent_scale()
+    {
+        var config = Config("bar", "conversion_percent");
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["category"] = "a", ["conversion_percent"] = 42.5 },
+            new() { ["category"] = "b", ["conversion_percent"] = 55.2 },
+        };
+
+        ChartLint.Apply(config, rows, allowTypeChange: true);
+
+        config.StyleConfig!.ValueSuffix.Should().Be("%");
+        config.StyleConfig.Decimals.Should().Be(1);
+    }
+
+    [Fact]
+    public void Percent_like_measures_do_not_get_a_suffix_for_fraction_values()
+    {
+        var config = Config("bar", "conversion_percent");
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["category"] = "a", ["conversion_percent"] = 0.42 },
+            new() { ["category"] = "b", ["conversion_percent"] = 0.55 },
+        };
+
+        ChartLint.Apply(config, rows, allowTypeChange: true);
+
+        config.StyleConfig?.ValueSuffix.Should().BeNull();
+    }
+
+    [Fact]
+    public void Explicit_formatting_is_not_overridden_by_smart_defaults()
+    {
+        var config = Config("bar", "order_count");
+        config.StyleConfig = new ChartStyleConfig { Decimals = 2, ValueSuffix = " st" };
+
+        ChartLint.Apply(config, Rows(4, measures: ["order_count"]), allowTypeChange: true);
+
+        config.StyleConfig.Decimals.Should().Be(2);
+        config.StyleConfig.ValueSuffix.Should().Be(" st");
+    }
 }

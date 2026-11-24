@@ -271,6 +271,39 @@ public static class ChartCatalog
         },
         new()
         {
+            Id = "treemap",
+            Label = "Treemap",
+            Description =
+                "Area-based view where each category's rectangle is sized by one non-negative measure. Return one category column and one aggregated measure.",
+            Variants =
+            [
+                new("default", "Treemap", "Rectangles sized by the measure.")
+            ],
+            Params =
+            [
+                Toggle("showLabels", "Labels", true),
+                ShowTooltip
+            ]
+        },
+        new()
+        {
+            Id = "gauge",
+            Label = "Gauge",
+            Description =
+                "A single value against a fixed range. Return one numeric measure; the range is presentation, not SQL.",
+            Variants =
+            [
+                new("default", "Gauge", "Semicircle showing the value against the range.")
+            ],
+            Params =
+            [
+                Number("minValue", "Minimum", 0, -1_000_000, 1_000_000, 1),
+                Number("maxValue", "Maximum", 100, -1_000_000, 1_000_000, 1),
+                Number("thickness", "Arc thickness", 12, 4, 40, 2)
+            ]
+        },
+        new()
+        {
             Id = "pie",
             Label = "Pie",
             Description = "Shows each category as a share of the whole.",

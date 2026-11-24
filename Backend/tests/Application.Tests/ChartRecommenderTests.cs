@@ -178,6 +178,26 @@ public class ChartRecommenderTests
     }
 
     [Fact]
+    public void Percentage_measure_ranks_gauge_above_kpi()
+    {
+        var result = Recommend(("conversion_percent", "numeric", false));
+
+        result.Recommendations[0].ChartType.Should().Be("gauge");
+        result.Recommendations.Should().Contain(r => r.ChartType == "kpi");
+    }
+
+    [Fact]
+    public void Category_and_measure_offer_treemap_as_an_alternative()
+    {
+        var result = Recommend(
+            ("category", "text", false),
+            ("amount", "numeric", false));
+
+        result.Recommendations.Should().Contain(r => r.ChartType == "treemap");
+        result.Recommendations[0].ChartType.Should().Be("bar");
+    }
+
+    [Fact]
     public void Two_measures_without_a_date_rank_bar_before_scatter()
     {
         var result = Recommend(

@@ -75,6 +75,8 @@ public static class ChartGenerationSchema
                 "chartType pivot must return two categorical columns (xAxis and groupBy) plus one aggregated measure — do not pivot in SQL.",
                 "chartType funnel must return one stage column and one non-negative measure, ordered widest to narrowest.",
                 "chartType waterfall must return one category column and one signed change measure per step — do not return a running total.",
+                "chartType treemap must return one category column and one non-negative aggregated measure.",
+                "chartType gauge must return one numeric measure; the gauge range is set in style params, not SQL.",
             },
         };
     }

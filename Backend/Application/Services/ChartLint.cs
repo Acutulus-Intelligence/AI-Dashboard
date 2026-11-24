@@ -88,6 +88,16 @@ public static class ChartLint
                     "Waterfall needs at least two non-zero changes; using a table.");
                 chartType = config.ChartType;
             }
+            else if (chartType == "treemap" && (rowCount < 2 || HasNegativeMeasure(config, rows)))
+            {
+                ChangeType(
+                    config,
+                    "bar",
+                    "default",
+                    notes,
+                    "Treemap needs at least two non-negative categories; using a bar chart.");
+                chartType = config.ChartType;
+            }
             else if (chartType == "map" && !IsUsableMap(config, rows))
             {
                 ChangeType(
@@ -178,6 +188,79 @@ public static class ChartLint
             config.StyleConfig.Variant = "horizontal";
             notes?.Add("Long category labels detected; switched bars to horizontal.");
         }
+
+        ApplySmartFormatting(config, rows, notes);
+    }
+
+    private static readonly string[] CountHints =
+    [
+        "count", "counts", "antal", "quantity", "qty", "users", "orders", "visits", "sessions", "rows"
+    ];
+
+    private static readonly string[] PercentHints =
+    [
+        "percent", "percentage", "pct", "procent", "share", "andel", "rate", "ratio", "margin", "marginal",
+        "conversion", "utilization", "utnyttjande"
+    ];
+
+    /// <summary>
+    /// Deterministic display formatting: counts get whole numbers and percent
+    /// measures get a % suffix when the values look like 0–100.
+    /// </summary>
+    private static void ApplySmartFormatting(
+        AiChartConfig config,
+        IReadOnlyList<Dictionary<string, object?>> rows,
+        List<string>? notes)
+    {
+        var spec = ChartCatalog.Find(config.ChartType);
+        if (spec is null || !spec.SupportsValueFormat) return;
+
+        var measure = config.YAxis.FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(measure)) return;
+
+        config.StyleConfig ??= new ChartStyleConfig();
+
+        if (config.StyleConfig.Decimals is null && HasHint(measure, CountHints))
+        {
+            config.StyleConfig.Decimals = 0;
+            notes?.Add($"'{measure}' looks like a count; showing whole numbers.");
+        }
+
+        if (string.IsNullOrWhiteSpace(config.StyleConfig.ValueSuffix)
+            && HasHint(measure, PercentHints)
+            && MaxAbsMeasure(config, rows) > 1.5)
+        {
+            config.StyleConfig.ValueSuffix = "%";
+            config.StyleConfig.Decimals ??= 1;
+            notes?.Add($"'{measure}' looks like a percentage; adding a % suffix.");
+        }
+    }
+
+    private static bool HasHint(string name, IEnumerable<string> hints)
+    {
+        var normalized = name.Trim().ToLowerInvariant();
+        return hints.Any(hint =>
+            normalized == hint
+            || normalized.StartsWith($"{hint}_", StringComparison.Ordinal)
+            || normalized.EndsWith($"_{hint}", StringComparison.Ordinal)
+            || normalized.Contains($"_{hint}_", StringComparison.Ordinal));
+    }
+
+    private static double MaxAbsMeasure(
+        AiChartConfig config,
+        IReadOnlyList<Dictionary<string, object?>> rows)
+    {
+        var max = 0d;
+        foreach (var axis in config.YAxis)
+        {
+            foreach (var row in rows.Take(200))
+            {
+                if (ChartResultNormalizer.TryGetNumber(row.GetValueOrDefault(axis), out var value))
+                    max = Math.Max(max, Math.Abs(value));
+            }
+        }
+
+        return max;
     }
 
     private static bool HasNumericSeries(

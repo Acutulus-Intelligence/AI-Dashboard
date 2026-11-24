@@ -37,6 +37,16 @@ public class ChartCatalogTests
     }
 
     [Fact]
+    public void Treemap_and_gauge_are_registered()
+    {
+        ChartCatalog.IsKnownType("treemap").Should().BeTrue();
+        ChartCatalog.IsKnownType("gauge").Should().BeTrue();
+
+        ChartCatalog.Find("treemap")!.Params.Should().Contain(p => p.Key == "showLabels");
+        ChartCatalog.Find("gauge")!.Params.Should().Contain(p => p.Key == "maxValue");
+    }
+
+    [Fact]
     public void Top_n_is_available_on_bar_pie_and_radial()
     {
         foreach (var type in new[] { "bar", "pie", "radial" })
@@ -91,6 +101,8 @@ public class ChartCatalogTests
         catalog.Should().Contain("pivot:");
         catalog.Should().Contain("funnel:");
         catalog.Should().Contain("waterfall:");
+        catalog.Should().Contain("treemap:");
+        catalog.Should().Contain("gauge:");
         catalog.Should().Contain("showLegend");
         catalog.Should().Contain("showLabels");
     }

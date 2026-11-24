@@ -181,6 +181,38 @@ public class ChartStyleSanitizerTests
     }
 
     [Fact]
+    public void Gauge_and_treemap_params_are_kept()
+    {
+        var gauge = ChartStyleSanitizer.Sanitize(
+            new ChartStyleConfig
+            {
+                Params = new Dictionary<string, JsonElement>
+                {
+                    ["minValue"] = JsonSerializer.SerializeToElement(-10),
+                    ["maxValue"] = JsonSerializer.SerializeToElement(250),
+                    ["thickness"] = JsonSerializer.SerializeToElement(18),
+                    ["invented"] = JsonSerializer.SerializeToElement(1),
+                },
+            },
+            "gauge");
+
+        gauge!.Params!.Keys.Should().BeEquivalentTo(["minValue", "maxValue", "thickness"]);
+
+        var treemap = ChartStyleSanitizer.Sanitize(
+            new ChartStyleConfig
+            {
+                Params = new Dictionary<string, JsonElement>
+                {
+                    ["showLabels"] = JsonSerializer.SerializeToElement(false),
+                    ["showTooltip"] = JsonSerializer.SerializeToElement(true),
+                },
+            },
+            "treemap");
+
+        treemap!.Params!.Keys.Should().BeEquivalentTo(["showLabels", "showTooltip"]);
+    }
+
+    [Fact]
     public void Table_charts_cannot_keep_colours_or_value_format()
     {
         var style = new ChartStyleConfig

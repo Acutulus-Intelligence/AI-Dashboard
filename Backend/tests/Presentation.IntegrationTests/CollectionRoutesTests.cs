@@ -81,6 +81,13 @@ public sealed class CollectionRoutesTests
         fileDetailDoc.RootElement.GetProperty("columns").GetArrayLength().Should().Be(2);
         fileDetailDoc.RootElement.GetProperty("previewRows").GetArrayLength().Should().Be(3);
 
+        var recommend = await client.PostAsync(
+            $"/api/collections/{collectionId}/files/{fileId}/recommend", null);
+        recommend.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var recommendDoc = JsonDocument.Parse(await recommend.Content.ReadAsStringAsync());
+        recommendDoc.RootElement.GetProperty("recommendations").GetArrayLength().Should().BeGreaterThan(0);
+        recommendDoc.RootElement.GetProperty("profile").GetProperty("columns").GetArrayLength().Should().Be(2);
+
         var generate = await client.PostAsJsonAsync(
             $"/api/collections/{collectionId}/files/{fileId}/generate",
             new { Prompt = "Show sales by category", PrefabChartType = (string?)null, Mode = "auto" });
