@@ -1,16 +1,19 @@
 import { areaChart } from './descriptors/area';
 import { barChart } from './descriptors/bar';
 import { comboChart } from './descriptors/combo';
+import { funnelChart } from './descriptors/funnel';
 import { heatmapChart } from './descriptors/heatmap';
 import { histogramChart } from './descriptors/histogram';
 import { kpiChart } from './descriptors/kpi';
 import { lineChart } from './descriptors/line';
 import { mapChart } from './descriptors/map';
 import { pieChart } from './descriptors/pie';
+import { pivotChart } from './descriptors/pivot';
 import { radarChart } from './descriptors/radar';
 import { radialChart } from './descriptors/radial';
 import { scatterChart } from './descriptors/scatter';
 import { tableChart } from './descriptors/table';
+import { waterfallChart } from './descriptors/waterfall';
 import type { ChartDescriptor } from './types';
 
 const DESCRIPTORS: ChartDescriptor[] = [
@@ -21,6 +24,9 @@ const DESCRIPTORS: ChartDescriptor[] = [
   areaChart,
   pieChart,
   heatmapChart,
+  pivotChart,
+  funnelChart,
+  waterfallChart,
   radarChart,
   radialChart,
   kpiChart,

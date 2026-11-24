@@ -1,6 +1,7 @@
 import type { ChartData, ChartStyleConfig } from './types';
 import { downloadBlob, slugifyTitle } from './download';
 import { buildHistogram } from './histogram';
+import { buildWaterfallRows } from './waterfall';
 
 type SheetUtils = typeof import('xlsx')['utils'];
 type CellMapper = (value: ExportCell) => ExportCell;
@@ -114,9 +115,25 @@ export function buildExportTable(
     return buildTableData(data);
   }
 
-  // Heatmaps need both dimensions, not just the plotted series.
-  if (chartId === 'heatmap') {
+  // Heatmaps and pivots need both dimensions, not just the plotted series.
+  if (chartId === 'heatmap' || chartId === 'pivot') {
     return buildTableData(data);
+  }
+
+  if (chartId === 'waterfall') {
+    const series = data.datasets[0];
+    if (!series) return { header: [], rows: [] };
+
+    const rows = buildWaterfallRows(
+      data.labels,
+      series.values,
+      styleConfig?.params?.showTotals !== false,
+    );
+
+    return {
+      header: ['Step', 'Change', 'Running total'],
+      rows: rows.map((row) => [row.name, row.delta, row.total]),
+    };
   }
 
   if (chartId === 'histogram') {
@@ -146,8 +163,15 @@ export function hasExportData(
     return (data.queryResult ?? []).some((row) => row && Object.keys(row).length > 0);
   }
 
-  if (chartId === 'heatmap') {
+  if (chartId === 'heatmap' || chartId === 'pivot') {
     return (data.queryResult ?? []).some((row) => row && Object.keys(row).length > 0);
+  }
+
+  if (chartId === 'waterfall') {
+    const series = data.datasets[0];
+    return Boolean(
+      series && buildWaterfallRows(data.labels, series.values, true).length > 0,
+    );
   }
 
   if (chartId === 'histogram') {

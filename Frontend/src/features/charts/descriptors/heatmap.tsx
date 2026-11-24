@@ -1,10 +1,9 @@
 import { Fragment } from 'react';
 import { LayoutGrid } from 'lucide-react';
 import { formatStyledValue } from '../format';
-import { toChartValue } from '../transform';
+import { buildMatrix, cellKey } from '../matrix';
 import {
   param,
-  type ChartData,
   type ChartDescriptor,
   type ParamSpec,
   type ResolvedStyle,
@@ -32,56 +31,6 @@ const showLabels: ParamSpec = {
   default: false,
 };
 
-interface HeatmapMatrix {
-  xKey: string;
-  yKey: string;
-  columns: string[];
-  rows: string[];
-  cells: Map<string, number | null>;
-  maxAbs: number;
-}
-
-function resolveKey(keys: string[], name?: string | null): string | undefined {
-  if (!name) return undefined;
-  const needle = name.trim().toLowerCase();
-  return keys.find((key) => key.trim().toLowerCase() === needle);
-}
-
-function cellKey(row: string, column: string): string {
-  return `${row}\u0000${column}`;
-}
-
-function buildMatrix(data: ChartData): HeatmapMatrix | null {
-  const sample = data.queryResult?.find((row) => row && Object.keys(row).length > 0);
-  if (!sample) return null;
-
-  const keys = Object.keys(sample);
-  const measure = data.datasets[0]?.label;
-  const xKey = resolveKey(keys, data.xAxis) ?? keys.find((key) => key !== measure);
-  const yKey =
-    resolveKey(keys, data.groupBy) ?? keys.find((key) => key !== measure && key !== xKey);
-
-  if (!xKey || !yKey || !measure) return null;
-
-  const columns: string[] = [];
-  const rows: string[] = [];
-  const cells = new Map<string, number | null>();
-  let maxAbs = 0;
-
-  for (const row of data.queryResult ?? []) {
-    const column = String(row[xKey] ?? '');
-    const rowLabel = String(row[yKey] ?? '');
-    if (!columns.includes(column)) columns.push(column);
-    if (!rows.includes(rowLabel)) rows.push(rowLabel);
-
-    const value = toChartValue(row[measure]);
-    cells.set(cellKey(rowLabel, column), value);
-    if (value != null) maxAbs = Math.max(maxAbs, Math.abs(value));
-  }
-
-  return { xKey, yKey, columns, rows, cells, maxAbs };
-}
-
 function HeatmapLegend({
   label,
   color,
@@ -94,7 +43,7 @@ function HeatmapLegend({
   style: ResolvedStyle;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
+    <div className="text-muted-foreground flex flex-wrap items-center justify-between gap-2 text-[11px]">
       <span className="truncate">{label}</span>
       <span className="flex items-center gap-1">
         <span>Low</span>
@@ -120,10 +69,6 @@ export const heatmapChart: ChartDescriptor = {
   variants: [{ id: 'default', label: 'Heatmap', description: 'Cells coloured by the measure.' }],
   params: [showTooltip, showLegend, showLabels],
   render({ data, style }) {
-    if (!data.queryResult?.length) {
-      return <ChartPlaceholder icon={LayoutGrid} label="Heatmap" />;
-    }
-
     const matrix = buildMatrix(data);
     if (!matrix) return <ChartPlaceholder icon={LayoutGrid} label="Heatmap" />;
 
@@ -153,10 +98,7 @@ export const heatmapChart: ChartDescriptor = {
 
             {rows.map((row) => (
               <Fragment key={`row-${row}`}>
-                <div
-                  className="text-muted-foreground truncate text-[11px]"
-                  title={row}
-                >
+                <div className="text-muted-foreground truncate text-[11px]" title={row}>
                   {row}
                 </div>
                 {columns.map((column) => {

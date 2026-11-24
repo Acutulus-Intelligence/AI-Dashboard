@@ -56,6 +56,16 @@ const HEATMAP_SAMPLE: ChartData = {
   ),
 };
 
+const FUNNEL_SAMPLE: ChartData = {
+  labels: ['Visitors', 'Sign-ups', 'Trials', 'Paid'],
+  datasets: [{ label: 'users', values: [1000, 640, 310, 120] }],
+};
+
+const WATERFALL_SAMPLE: ChartData = {
+  labels: ['Starting MRR', 'New', 'Expansion', 'Churn', 'Downgrade'],
+  datasets: [{ label: 'change', values: [42000, 8000, 3500, -6000, -2500] }],
+};
+
 export default function ChartGalleryPage() {
   return (
     <main className="bg-background min-h-screen p-6">
@@ -76,9 +86,13 @@ export default function ChartGalleryPage() {
                           ? MAP_SAMPLE
                           : descriptor.id === 'histogram'
                             ? HISTOGRAM_SAMPLE
-                            : descriptor.id === 'heatmap'
+                            : descriptor.id === 'heatmap' || descriptor.id === 'pivot'
                               ? HEATMAP_SAMPLE
-                              : SAMPLE
+                              : descriptor.id === 'funnel'
+                                ? FUNNEL_SAMPLE
+                                : descriptor.id === 'waterfall'
+                                  ? WATERFALL_SAMPLE
+                                  : SAMPLE
                       }
                       styleConfig={{ variant: variant.id }}
                     />
