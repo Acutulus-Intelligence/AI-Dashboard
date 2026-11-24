@@ -60,9 +60,31 @@ public class AiChartPromptBuilderTests
     }
 
     [Fact]
-    public void Collection_prompt_includes_color_allowlist()
+    public void System_prompt_allows_only_legend_and_label_params()
     {
-        var schema = ChartGenerationSchema.ToJson("sales", ["category", "amount"], ["text", "numeric"], ["var(--chart-2)"]);
+        var schema = ChartGenerationSchema.ToJson(new TableSchema
+        {
+            TableName = "sales",
+            Columns =
+            [
+                new ColumnSchema { ColumnName = "category", DataType = "text", IsNullable = false },
+                new ColumnSchema { ColumnName = "amount", DataType = "numeric", IsNullable = false },
+            ],
+        });
+
+        var prompt = AiChartPromptBuilder.BuildSystemPrompt(
+            schema, DbProvider.PostgreSql, prefabChartType: "combo", currentChartJson: null, ["var(--chart-1)"]);
+
+        prompt.Should().Contain("kpi:");
+        prompt.Should().Contain("combo:");
+        prompt.Should().Contain("showLegend");
+        prompt.Should().Contain("showLabels");
+        prompt.Should().Contain("Never other param keys");
+    }
+
+    [Fact]
+    public void Collection_prompt_includes_color_allowlist()
+    {        var schema = ChartGenerationSchema.ToJson("sales", ["category", "amount"], ["text", "numeric"], ["var(--chart-2)"]);
 
         var prompt = AiChartPromptBuilder.BuildCollectionSystemPrompt(schema, null, ["var(--chart-2)"]);
 

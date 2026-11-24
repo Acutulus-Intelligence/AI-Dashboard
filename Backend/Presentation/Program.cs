@@ -157,6 +157,7 @@ builder.Services.AddScoped<IEmailSender, ResendEmailSender>();
 
 // Graph generation
 builder.Services.AddScoped<IGraphGenerationService, GraphGenerationService>();
+builder.Services.AddScoped<IChartRecommendationService, ChartRecommendationService>();
 builder.Services.AddScoped<IChartService, ChartService>();
 builder.Services.AddScoped<IChartFolderService, ChartFolderService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
@@ -314,6 +315,30 @@ if (rateLimitingEnabled)
                 "RateLimiting:InviteAccept:PermitLimit", 15);
             var windowSeconds = builder.Configuration.GetValue(
                 "RateLimiting:InviteAccept:WindowSeconds", 60);
+
+            return RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: partitionKey,
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = Math.Max(1, permitLimit),
+                    Window = TimeSpan.FromSeconds(Math.Max(1, windowSeconds)),
+                    QueueLimit = 0,
+                });
+        });
+
+        // Chart recommendations read schema metadata (no AI, no rows). Keep a
+        // per-user budget so the endpoint cannot be used to hammer a connection.
+        options.AddPolicy("recommend", httpContext =>
+        {
+            var userId = httpContext.User?.FindFirst("userId")?.Value;
+            var partitionKey = !string.IsNullOrEmpty(userId)
+                ? $"recommend:user:{userId}"
+                : $"recommend:ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+
+            var permitLimit = builder.Configuration.GetValue(
+                "RateLimiting:Recommend:PermitLimit", 120);
+            var windowSeconds = builder.Configuration.GetValue(
+                "RateLimiting:Recommend:WindowSeconds", 60);
 
             return RateLimitPartition.GetFixedWindowLimiter(
                 partitionKey: partitionKey,

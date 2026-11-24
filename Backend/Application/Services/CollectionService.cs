@@ -328,13 +328,37 @@ public class CollectionService : ICollectionService
         var allowedColors = await ResolveAccountColorsAsync(userId, ct);
         var schemaJson = ChartGenerationSchema.ToJson(dataset.TableName, columnNames, columnTypes, allowedColors);
 
+        var description = request.Prompt?.Trim();
+
         var prompt = request.Mode switch
         {
-            "prompt" => request.Prompt ?? "Show me this data in a chart.",
-            "prefab" => $"Create a {request.PrefabChartType} chart for this table.",
-            "auto" => "Choose the best visualization for this data.",
+            "prompt" => string.IsNullOrWhiteSpace(description)
+                ? "Show me this data in a chart."
+                : description,
+            "prefab" => BuildPrefabPrompt(request.PrefabChartType, description),
+            "auto" => string.IsNullOrWhiteSpace(description)
+                ? "Choose the best visualization for this data."
+                : $"Choose the best visualization for this data. {description}",
             _ => "Show me this data in a chart."
         };
+
+        if (request.Mode == "auto")
+        {
+            var recommendation = ChartRecommender.Recommend(
+                "dataset",
+                columnNames.Select((name, i) => (
+                    name,
+                    i < columnTypes.Length ? columnTypes[i] : "unknown",
+                    false)));
+            var top = recommendation.Recommendations.FirstOrDefault(r => r.ChartType != "table");
+            if (top is not null)
+            {
+                prompt +=
+                    $"\nData profile suggestion: {top.ChartType} ({top.Confidence} confidence). " +
+                    $"Reasons: {string.Join(" ", top.Reasons)} " +
+                    "Prefer this unless the data clearly contradicts it.";
+            }
+        }
 
         var (config, _) = await AiGenerationRetry.RunAsync(
             (repairHint, token) => _aiService.GenerateCollectionChartConfigAsync(
@@ -360,6 +384,11 @@ public class CollectionService : ICollectionService
 
         var result = await _dataQueryExecutor.ExecuteAsync(columnNames, columnTypes, rows, config.DataModel, ct);
 
+        ChartResultNormalizer.Normalize(config, result);
+        var allowTypeChange = request.Mode != "prefab"
+            && !ChartTypeIntent.PromptNamesChartType(request.Prompt);
+        ChartLint.Apply(config, result, allowTypeChange);
+
         _audit.Record(new AuditEntry(
             AuditAction.ChartGenerated,
             userId,
@@ -383,6 +412,12 @@ public class CollectionService : ICollectionService
             result,
             config.StyleConfig,
             config.DataModel);
+    }
+
+    private static string BuildPrefabPrompt(string? chartType, string? description)
+    {
+        var basePrompt = $"Create a {chartType} chart for this table.";
+        return string.IsNullOrWhiteSpace(description) ? basePrompt : $"{basePrompt} {description}";
     }
 
     private async Task<IReadOnlyList<string>> ResolveAccountColorsAsync(Guid userId, CancellationToken ct)

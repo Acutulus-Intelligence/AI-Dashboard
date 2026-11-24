@@ -57,14 +57,17 @@ import {
   getCollection,
   getCollectionFile,
   getCollections,
+  recommendCollectionChart,
   type CollectionFileResponse,
   type CollectionResponse,
 } from '../../services/collectionsApi';
 import {
   generateChart,
+  recommendChart,
   type AiGenerationDebug,
   type ChartBaseline,
   type ChartConfigResponse,
+  type ChartSuggestion,
 } from '../../services/graphsApi';
 import ChartRenderer from '../charts/ChartRenderer';
 import { DEFAULT_COMPANY_COLORS } from '../charts/companyColors';
@@ -78,6 +81,7 @@ import {
 import { exportChartAsPng } from '../charts/exportChartImage';
 import type { ChartStyleConfig } from '../charts/types';
 import ChartStylePanel from '../components/ChartStylePanel';
+import ChartRecommendationCards from '../components/ChartRecommendationCards';
 import AddToDashboardDialog from '../components/AddToDashboardDialog';
 import FolderSelect from '../components/FolderSelect';
 import AppShell from '../layouts/AppShell';
@@ -216,6 +220,8 @@ export default function GraphCreationPage() {
   const [prompt, setPrompt] = useState('');
   const [refinePrompt, setRefinePrompt] = useState('');
   const [prefabType, setPrefabType] = useState('');
+  const [recommendations, setRecommendations] = useState<ChartSuggestion[]>([]);
+  const [recommendationsLoading, setRecommendationsLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [refining, setRefining] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -402,6 +408,43 @@ export default function GraphCreationPage() {
       )
       .finally(() => setLoading(false));
   }, [step, sourceType, connectionId, tableName, collectionId, fileId, isEditingExisting]);
+
+  // Recommendations only need schema metadata, so they are cheap to fetch on
+  // entry and let the user pick a type before spending an AI generation.
+  useEffect(() => {
+    if (isEditingExisting || step !== 'generate') return;
+
+    const canRecommend =
+      sourceType === 'connection'
+        ? Boolean(connectionId && tableName)
+        : Boolean(collectionId && fileId);
+    if (!canRecommend) return;
+
+    let cancelled = false;
+    setRecommendations([]);
+    setRecommendationsLoading(true);
+
+    const request =
+      sourceType === 'connection'
+        ? recommendChart({ connectionId, tableName })
+        : recommendCollectionChart(collectionId, fileId);
+
+    request
+      .then((response) => {
+        if (!cancelled) setRecommendations(response.recommendations);
+      })
+      .catch(() => {
+        // Recommendations are an enhancement; generation still works without them.
+        if (!cancelled) setRecommendations([]);
+      })
+      .finally(() => {
+        if (!cancelled) setRecommendationsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [step, isEditingExisting, sourceType, connectionId, tableName, collectionId, fileId]);
 
   useEffect(() => {
     if (!connectionName && connectionId) {
@@ -624,14 +667,14 @@ export default function GraphCreationPage() {
       const res =
         sourceType === 'collection'
           ? await generateCollectionChart(collectionId, fileId, {
-              prompt: mode === 'prompt' ? prompt : undefined,
+              prompt: prompt.trim() || undefined,
               prefabChartType: mode === 'prefab' ? prefabType : undefined,
               mode,
             })
           : await generateChart({
               connectionId,
               tableName,
-              prompt: mode === 'prompt' ? prompt : undefined,
+              prompt: prompt.trim() || undefined,
               prefabChartType: mode === 'prefab' ? prefabType : undefined,
               mode,
             });
@@ -1162,6 +1205,16 @@ export default function GraphCreationPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="grid gap-6">
+                <ChartRecommendationCards
+                  recommendations={recommendations}
+                  loading={recommendationsLoading}
+                  selectedType={prefabType}
+                  onUse={(chartType) => {
+                    setMode('prefab');
+                    setPrefabType(chartType);
+                  }}
+                />
+
                 <div className="grid gap-3 sm:grid-cols-3">
                   {MODES.map((opt) => (
                     <button
@@ -1197,26 +1250,43 @@ export default function GraphCreationPage() {
                 )}
 
                 {mode === 'prefab' && (
-                  <div className="flex flex-wrap gap-2">
-                    {getAll().map((chart) => (
-                      <Button
-                        key={chart.id}
-                        type="button"
-                        size="sm"
-                        variant={prefabType === chart.id ? 'default' : 'outline'}
-                        onClick={() => setPrefabType(chart.id)}
-                      >
-                        <chart.icon />
-                        {chart.label}
-                      </Button>
-                    ))}
+                  <div className="grid gap-3">
+                    <div className="flex flex-wrap gap-2">
+                      {getAll().map((chart) => (
+                        <Button
+                          key={chart.id}
+                          type="button"
+                          size="sm"
+                          variant={prefabType === chart.id ? 'default' : 'outline'}
+                          onClick={() => setPrefabType(chart.id)}
+                        >
+                          <chart.icon />
+                          {chart.label}
+                        </Button>
+                      ))}
+                    </div>
+                    <Textarea
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                      placeholder="Optional: which data should it show? (e.g. revenue per region last year)"
+                      rows={2}
+                    />
                   </div>
                 )}
 
                 {mode === 'auto' && (
-                  <p className="text-muted-foreground text-sm">
-                    The AI will pick the best chart type, variant and styling for this table.
-                  </p>
+                  <div className="grid gap-3">
+                    <Textarea
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                      placeholder="Optional: focus the chart on specific data…"
+                      rows={2}
+                    />
+                    <p className="text-muted-foreground text-sm">
+                      The AI picks the best chart type, variant and styling. The suggestion above is
+                      used as a starting point.
+                    </p>
+                  </div>
                 )}
 
                 <Button

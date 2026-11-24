@@ -28,6 +28,9 @@ public class GenerateChartRequestValidator : AbstractValidator<GenerateChartRequ
                 .MaximumLength(2000);
         });
 
+        // Prefab/auto accept an optional data description alongside the type.
+        RuleFor(x => x.Prompt).MaximumLength(2000);
+
         When(x => x.Mode == "prefab", () =>
         {
             RuleFor(x => x.PrefabChartType)

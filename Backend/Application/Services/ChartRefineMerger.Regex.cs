@@ -26,7 +26,8 @@ public static partial class ChartRefineMerger
         + @"lila|purple|röd|red|blå|blue|grön|green|"
         + @"orange|gul|yellow|teal|cyan|violet|"
         + @"dollar|dollars|krona|kronor|kr|usd|sek|"
-        + @"procent|percent|percentage|round)\b",
+        + @"procent|percent|percentage|round|"
+        + @"legend|legends|teckenförklaring|forklaring|label|labels|etikett|etiketter)\b",
         RegexOptions.CultureInvariant)]
     private static partial Regex StyleWordRegex();
 }

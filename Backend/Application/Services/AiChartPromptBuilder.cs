@@ -89,6 +89,8 @@ Style field vocabulary — use these exact values (Swedish or English user wordi
 - Percent suffix → "valueSuffix": "%"
 - Clear prefix/suffix → set the field to "" 
 - Info text → "info": "…"
+- Legend / show legend / teckenförklaring → styleConfig.params.showLegend (boolean)
+- Value labels / data labels / etiketter / visa värden → styleConfig.params.showLabels (boolean)
 - Variant / stacked / horizontal / grouped → styleConfig.variant (catalog id only; "grouped"/"grouperad" → "default")
 - Series/column colour (e.g. make amount blue / Colour 5 for price) → styleConfig.colors ONLY (no palette). Prefer a name→colour object keyed by yAxis column names, or an array in yAxis order. Values MUST be exact allowlist strings (the var(--chart-N) or #hex token — never invent hex). Match colour words to the hue hints on the allowlist (purple/lila, red/röd, …). If the user names several colours, assign one allowlist value per series
 - Theme palette (cool / warm / default / …) → styleConfig.palette ONLY (no colors)
@@ -97,7 +99,7 @@ Style field vocabulary — use these exact values (Swedish or English user wordi
         var refineRules = isRefine
             ? $"""
 {styleVocabulary}
-- CRITICAL: Only change styleConfig (colours, palette, prefix/suffix, decimals, info, variant) when the user EXPLICITLY asks for a style/colour/label/variant change. Otherwise copy styleConfig EXACTLY from the current chart — do not invent or "improve" colours/theme
+- CRITICAL: Only change styleConfig (colours, palette, prefix/suffix, decimals, info, variant, legend/labels) when the user EXPLICITLY asks for a style/colour/label/variant change. Otherwise copy styleConfig EXACTLY from the current chart — do not invent or "improve" colours/theme
 - You may adjust data fields when asked: chartType, title, sqlQuery, axes, aggregation, groupBy
 - Style-only (decimals, prefix, suffix, info, variant, colors/palette): copy sqlQuery character-for-character from the current chart — never invent ROUND()/CAST() in SQL for display rounding; display rounding is styleConfig only
 - Chart-type switch: set chartType, pick a valid variant for the NEW type, rewrite sqlQuery/axes only when needed; keep colours/labels from the current chart unless they asked to restyle
@@ -109,7 +111,8 @@ Style field vocabulary — use these exact values (Swedish or English user wordi
   - array of allowlist values in the same order as yAxis (index 0 = yAxis[0])
 - styleConfig.colors values: ONLY exact strings from the account colour allowlist (Colour 1, Colour 2, …). Never invent hex outside that list
 - table charts: do NOT set colors, palette, valuePrefix, valueSuffix, or decimals
-- Do NOT set customColors or params — the UI controls those
+- styleConfig.params may contain ONLY showLegend and showLabels (booleans), and only when that key is listed for the chosen chartType. Never other param keys
+- Do NOT set customColors — the UI controls those
 - Prefer changing only what the request implies; copy all other fields EXACTLY from the current chart JSON
 - Never invent or request raw data rows — you only receive SQL and style metadata, never query results
 - Reply with the complete JSON object only
@@ -121,7 +124,8 @@ Style field vocabulary — use these exact values (Swedish or English user wordi
 - Theme palette → palette only; account/slice/column colours → colors only from the allowlist
 - styleConfig.colors may be a name→colour object keyed by yAxis names, or an array in yAxis order
 - table charts: do NOT set colors, palette, valuePrefix, valueSuffix, or decimals
-- Do NOT set customColors or params — the UI controls those
+- styleConfig.params may contain ONLY showLegend and showLabels (booleans), and only when that key is listed for the chosen chartType. Never other param keys
+- Do NOT set customColors — the UI controls those
 - Display formatting (rounding, $, %) belongs in styleConfig — not in SQL
 - CRITICAL: sqlQuery may ONLY use tables in allowedTables and columns in allowedColumnNames. Never invent, rename, guess, or pluralize column names. Aliases are allowed; their source columns must still be listed.
 - If the user asks for a field that is not in allowedColumnNames, pick the closest listed column and reflect that in the title — never fabricate a column
@@ -162,7 +166,8 @@ Return this exact JSON structure (no additional properties):
     ""valueSuffix"": ""optional string"",
     ""decimals"": null,
     ""decimalMode"": ""round"" | ""truncate"" | null,
-    ""info"": ""optional short info text""
+    ""info"": ""optional short info text"",
+    ""params"": null
   }
 }
 
@@ -176,7 +181,8 @@ Rules:
 - Colour mode XOR: set either palette OR colors, never both; omit the unused field
 - When setting colors, prefer { ""yAxisColumn"": ""<allowlist>"" } so each series is explicit; array form must follow yAxis order
 - styleConfig.colors must use only allowlisted values; omit colors in palette mode
-- Do not include customColors or params in styleConfig
+- styleConfig.params may contain ONLY showLegend and showLabels (booleans) when listed for the chosen chartType
+- Do not include customColors in styleConfig
 - Omit styleConfig fields you have no opinion about rather than guessing
 __REFINE_RULES__
 - The JSON must be parseable and complete
@@ -372,7 +378,8 @@ Return this exact JSON structure (no additional properties):
     ""valueSuffix"": ""optional string"",
     ""decimals"": null,
     ""decimalMode"": ""round"" | ""truncate"" | null,
-    ""info"": ""optional short info text""
+    ""info"": ""optional short info text"",
+    ""params"": null
   }
 }
 
@@ -384,7 +391,8 @@ Rules:
 - CRITICAL: Do NOT invent columns that are not in allowedColumnNames. Never rename, guess, or pluralize column names.
 - If the data needs no grouping or aggregation, emit groupBy: [], aggregations: [], filters: [].
 - styleConfig.variant must be a variant of the chartType you chose
-- Do NOT set customColors or params — the UI controls those
+- styleConfig.params may contain ONLY showLegend and showLabels (booleans) when listed for the chosen chartType
+- Do NOT set customColors — the UI controls those
 - Omit styleConfig fields you have no opinion about rather than guessing
 - The JSON must be parseable and complete
 ";
@@ -409,6 +417,12 @@ Rules:
         {
             lines.Add($"- {type.Id}: {type.Description}");
             lines.Add($"  variants: {string.Join(", ", type.Variants.Select(v => $"{v.Id} ({v.Description})"))}");
+            var aiParams = type.Params
+                .Where(p => p.Key is "showLegend" or "showLabels")
+                .Select(p => p.Key)
+                .ToList();
+            if (aiParams.Count > 0)
+                lines.Add($"  params you may set: {string.Join(", ", aiParams)} (booleans only)");
             var styleBits = new List<string>();
             if (type.SupportsColors) styleBits.Add("colors/palette");
             if (type.SupportsValueFormat) styleBits.Add("prefix/suffix/decimals");

@@ -14,10 +14,14 @@ namespace Presentation.Controllers;
 public class CollectionController : ControllerBase
 {
     private readonly ICollectionService _collectionService;
+    private readonly IChartRecommendationService _recommendationService;
 
-    public CollectionController(ICollectionService collectionService)
+    public CollectionController(
+        ICollectionService collectionService,
+        IChartRecommendationService recommendationService)
     {
         _collectionService = collectionService;
+        _recommendationService = recommendationService;
     }
 
     [HttpPost]
@@ -95,6 +99,15 @@ public class CollectionController : ControllerBase
     {
         var userId = GetUserId();
         var response = await _collectionService.GenerateChartAsync(id, fileId, userId, request, ct);
+        return Ok(response);
+    }
+
+    [HttpPost("{id:guid}/files/{fileId:guid}/recommend")]
+    [EnableRateLimiting("recommend")]
+    public async Task<IActionResult> Recommend(Guid id, Guid fileId, CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var response = await _recommendationService.RecommendForDatasetAsync(id, fileId, userId, ct);
         return Ok(response);
     }
 

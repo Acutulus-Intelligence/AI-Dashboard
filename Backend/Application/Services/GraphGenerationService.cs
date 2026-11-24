@@ -51,15 +51,36 @@ public class GraphGenerationService : IGraphGenerationService
 
         var schemaJson = ChartGenerationSchema.ToJson(schema, allowedColors);
 
+        var description = request.Prompt?.Trim();
+
         var prompt = request.Mode switch
         {
-            "prompt" => request.Prompt ?? "Show me this data in a chart.",
-            "prefab" => $"Create a {request.PrefabChartType} chart for this table.",
-            "auto" => "Choose the best visualization for this data.",
+            "prompt" => string.IsNullOrWhiteSpace(description)
+                ? "Show me this data in a chart."
+                : description,
+            "prefab" => BuildPrefabPrompt(request.PrefabChartType, description),
+            "auto" => string.IsNullOrWhiteSpace(description)
+                ? "Choose the best visualization for this data."
+                : $"Choose the best visualization for this data. {description}",
             _ => "Show me this data in a chart."
         };
 
-        // Slim baseline for the prompt — colours included; params omitted.
+        if (request.Mode == "auto")
+        {
+            var recommendation = ChartRecommender.Recommend(
+                "table",
+                schema.Columns.Select(c => (c.ColumnName, c.DataType, c.IsNullable)));
+            var top = recommendation.Recommendations.FirstOrDefault(r => r.ChartType != "table");
+            if (top is not null)
+            {
+                prompt +=
+                    $"\nData profile suggestion: {top.ChartType} ({top.Confidence} confidence). " +
+                    $"Reasons: {string.Join(" ", top.Reasons)} " +
+                    "Prefer this unless the data clearly contradicts it.";
+            }
+        }
+
+        // Slim baseline for the prompt — colours plus legend/label params included.
         // SeriesColourSlots documents yAxis index → name for named colours.
         var currentChartJson = request.CurrentChart is null
             ? null
@@ -75,7 +96,9 @@ public class GraphGenerationService : IGraphGenerationService
                 request.CurrentChart.Aggregation,
                 request.CurrentChart.GroupBy,
                 request.CurrentChart.SqlQuery,
-                StyleConfig = ChartRefineMerger.SlimStyleForAi(request.CurrentChart.StyleConfig),
+                StyleConfig = ChartRefineMerger.SlimStyleForAi(
+                    request.CurrentChart.StyleConfig,
+                    request.CurrentChart.ChartType),
             }, BaselineJsonOptions);
 
         var (aiResult, retryNotes) = await AiGenerationRetry.RunAsync(
@@ -137,6 +160,14 @@ public class GraphGenerationService : IGraphGenerationService
             aiResult,
             notes,
             ct);
+
+        // Axes are validated against the schema above; now reconcile them with
+        // the columns the query actually returned, then apply readability lint.
+        ChartResultNormalizer.Normalize(result.Config, result.Rows, notes);
+        var allowTypeChange = request.CurrentChart is null
+            && request.Mode != "prefab"
+            && !ChartTypeIntent.PromptNamesChartType(request.Prompt);
+        ChartLint.Apply(result.Config, result.Rows, allowTypeChange, notes);
 
         _audit.Record(new AuditEntry(
             AuditAction.ChartGenerated,
@@ -216,6 +247,9 @@ public class GraphGenerationService : IGraphGenerationService
             aiResult,
             notes,
             ct);
+
+        ChartResultNormalizer.Normalize(result.Config, result.Rows, notes);
+        ChartLint.Apply(result.Config, result.Rows, allowTypeChange: false, notes);
 
         _audit.Record(new AuditEntry(
             AuditAction.ChartGenerated,
@@ -364,6 +398,12 @@ public class GraphGenerationService : IGraphGenerationService
             finalConfig.StyleConfig,
             aiResult.FinishReason,
             notes);
+
+    private static string BuildPrefabPrompt(string? chartType, string? description)
+    {
+        var basePrompt = $"Create a {chartType} chart for this table.";
+        return string.IsNullOrWhiteSpace(description) ? basePrompt : $"{basePrompt} {description}";
+    }
 
     private static string Truncate(string? value, int max)
     {

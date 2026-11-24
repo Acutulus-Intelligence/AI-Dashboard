@@ -449,14 +449,29 @@ public class ChartService : IChartService
         List<Dictionary<string, object?>> rows,
         DateTimeOffset dataUpdatedAt)
     {
+        // Saved charts may predate current axis handling; reconcile the axes
+        // with the columns this execution returned without persisting changes.
+        var config = new AiChartConfig
+        {
+            ChartType = chart.ChartType,
+            Title = chart.Title,
+            XAxis = chart.XAxis,
+            YAxis = [.. chart.YAxis],
+            GroupBy = chart.GroupBy,
+            Aggregation = chart.Aggregation,
+            SqlQuery = chart.SqlQuery,
+        };
+
+        ChartResultNormalizer.Normalize(config, rows);
+
         return new ChartConfigResponse(
-            chart.ChartType,
-            chart.Title,
-            chart.XAxis,
-            [.. chart.YAxis],
-            chart.Aggregation,
-            chart.GroupBy,
-            chart.SqlQuery,
+            config.ChartType,
+            config.Title,
+            config.XAxis,
+            config.YAxis,
+            config.Aggregation,
+            config.GroupBy,
+            config.SqlQuery,
             rows,
             chart.StyleConfig,
             DataUpdatedAt: dataUpdatedAt

@@ -45,8 +45,55 @@ export interface GenerateChartRequest {
   currentChart?: ChartBaseline | null;
 }
 
+export type ChartColumnRole = 'measure' | 'dimension' | 'time' | 'geo' | 'identifier';
+
+export interface ChartProfileColumn {
+  name: string;
+  role: ChartColumnRole;
+  dataType: string;
+  nullable: boolean;
+}
+
+export interface ChartRecommendationProfile {
+  rowKind: string;
+  columns: ChartProfileColumn[];
+  measures: string[];
+  dimensions: string[];
+  times: string[];
+  geos: string[];
+}
+
+export interface ChartAxisSuggestion {
+  xAxis: string | null;
+  yAxis: string[];
+}
+
+export interface ChartSuggestion {
+  chartType: string;
+  variant: string;
+  score: number;
+  confidence: 'high' | 'medium' | 'low';
+  reasons: string[];
+  suggested: ChartAxisSuggestion;
+}
+
+export interface ChartRecommendationResponse {
+  profile: ChartRecommendationProfile;
+  recommendations: ChartSuggestion[];
+}
+
 export async function generateChart(data: GenerateChartRequest): Promise<ChartConfigResponse> {
   return apiFetch<ChartConfigResponse>('/api/graphs/generate', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function recommendChart(data: {
+  connectionId: string;
+  tableName: string;
+}): Promise<ChartRecommendationResponse> {
+  return apiFetch<ChartRecommendationResponse>('/api/graphs/recommend', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
 }
 
 export async function generateChartManual(data: GenerateChartRequest): Promise<ChartConfigResponse> {

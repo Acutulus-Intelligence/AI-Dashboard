@@ -1,5 +1,5 @@
 import { apiFetch } from '../lib/api/client';
-import type { ChartConfigResponse } from './graphsApi';
+import type { ChartConfigResponse, ChartRecommendationResponse } from './graphsApi';
 
 export type CollectionVisibility = 'Private' | 'Company' | 'Roles';
 
@@ -114,4 +114,14 @@ export async function generateCollectionChart(
     method: 'POST',
     body: JSON.stringify(data),
   });
+}
+
+export async function recommendCollectionChart(
+  id: string,
+  fileId: string,
+): Promise<ChartRecommendationResponse> {
+  return apiFetch<ChartRecommendationResponse>(
+    `/api/collections/${id}/files/${fileId}/recommend`,
+    { method: 'POST' },
+  );
 }

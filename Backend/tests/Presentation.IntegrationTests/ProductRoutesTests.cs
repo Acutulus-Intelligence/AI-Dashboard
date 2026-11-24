@@ -55,6 +55,13 @@ public sealed class ProductRoutesTests
         (await client.GetAsync($"/api/connections/{connectionId}/tables/sales")).StatusCode.Should().Be(HttpStatusCode.OK);
         (await client.GetAsync($"/api/connections/{connectionId}/tables/sales/preview?rows=5")).StatusCode.Should().Be(HttpStatusCode.OK);
 
+        var recommend = await client.PostAsJsonAsync("/api/graphs/recommend",
+            new RecommendChartRequest(connectionId, "sales"));
+        recommend.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var recommendDoc = JsonDocument.Parse(await recommend.Content.ReadAsStringAsync());
+        recommendDoc.RootElement.GetProperty("recommendations").GetArrayLength().Should().BeGreaterThan(0);
+        recommendDoc.RootElement.GetProperty("profile").GetProperty("columns").GetArrayLength().Should().BeGreaterThan(0);
+
         var generate = await client.PostAsJsonAsync("/api/graphs/generate",
             new GenerateChartRequest(connectionId, "sales", "Show sales by category", null, "prompt"));
         generate.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -81,6 +88,14 @@ public sealed class ProductRoutesTests
         var manual = await client.PostAsJsonAsync("/api/graphs/manual",
             new GenerateChartRequest(connectionId, "sales", "category", "bar", "prefab"));
         manual.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var prefabWithDescription = await client.PostAsJsonAsync("/api/graphs/generate",
+            new GenerateChartRequest(connectionId, "sales", "only paid orders", "bar", "prefab"));
+        prefabWithDescription.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var autoWithDescription = await client.PostAsJsonAsync("/api/graphs/generate",
+            new GenerateChartRequest(connectionId, "sales", "focus on the last quarter", null, "auto"));
+        autoWithDescription.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var saveChart = await client.PostAsJsonAsync("/api/charts", new SaveChartRequest(
             "Sales chart",

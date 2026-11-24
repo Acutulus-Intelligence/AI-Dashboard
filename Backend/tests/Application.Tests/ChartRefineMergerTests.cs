@@ -1,5 +1,9 @@
+using Application.DTos.Request;
 using Application.Services;
+using Domain.Charts;
+using Domain.Models;
 using FluentAssertions;
+using System.Text.Json;
 
 namespace Application.Tests;
 
@@ -122,5 +126,118 @@ public class ChartRefineMergerTests
     public void SnapColorToAllowlist_rejects_far_hex()
     {
         ChartRefineMerger.SnapColorToAllowlist("#ff00aa", Allowlist).Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("show the legend")]
+    [InlineData("visa teckenförklaring")]
+    [InlineData("add value labels")]
+    [InlineData("visa etiketter")]
+    public void RequestsStyleChange_detects_legend_and_label_phrasing(string prompt)
+    {
+        ChartRefineMerger.RequestsStyleChange(prompt).Should().BeTrue();
+    }
+
+    [Fact]
+    public void TakeAiControlledStyleFields_keeps_only_legend_and_label_params()
+    {
+        var style = new ChartStyleConfig
+        {
+            Params = new Dictionary<string, JsonElement>
+            {
+                ["showLegend"] = JsonSerializer.SerializeToElement(true),
+                ["showLabels"] = JsonSerializer.SerializeToElement(false),
+                ["showGrid"] = JsonSerializer.SerializeToElement(true),
+                ["sparklineHeight"] = JsonSerializer.SerializeToElement(50),
+            },
+        };
+
+        var result = ChartRefineMerger.TakeAiControlledStyleFields(style, "bar");
+
+        result.Should().NotBeNull();
+        result!.Params.Should().NotBeNull();
+        result.Params!.Keys.Should().BeEquivalentTo(["showLegend", "showLabels"]);
+    }
+
+    [Fact]
+    public void Table_drops_ai_params()
+    {
+        var style = new ChartStyleConfig
+        {
+            Params = new Dictionary<string, JsonElement>
+            {
+                ["showLegend"] = JsonSerializer.SerializeToElement(true),
+            },
+        };
+
+        ChartRefineMerger.TakeAiControlledStyleFields(style, "table").Should().BeNull();
+    }
+
+    [Fact]
+    public void Refine_without_a_label_request_preserves_baseline_params()
+    {
+        var baseline = new ChartBaseline(
+            "Sales", "bar", "category", ["amount", "quantity"], "sum", "category",
+            "SELECT category, amount, quantity FROM sales",
+            new ChartStyleConfig
+            {
+                Params = new Dictionary<string, JsonElement>
+                {
+                    ["showLegend"] = JsonSerializer.SerializeToElement(false),
+                },
+            });
+        var ai = new AiChartConfig
+        {
+            ChartType = "bar",
+            Title = "Sales",
+            XAxis = "category",
+            YAxis = ["amount", "quantity"],
+            StyleConfig = new ChartStyleConfig
+            {
+                Params = new Dictionary<string, JsonElement>
+                {
+                    ["showLabels"] = JsonSerializer.SerializeToElement(true),
+                },
+            },
+        };
+
+        var result = ChartRefineMerger.Apply(baseline, ai, "order by amount", Allowlist);
+
+        result.StyleConfig!.Params.Should().ContainKey("showLegend");
+        result.StyleConfig.Params.Should().NotContainKey("showLabels");
+    }
+
+    [Fact]
+    public void Refine_with_a_label_request_merges_ai_params()
+    {
+        var baseline = new ChartBaseline(
+            "Sales", "bar", "category", ["amount", "quantity"], "sum", "category",
+            "SELECT category, amount, quantity FROM sales",
+            new ChartStyleConfig
+            {
+                Params = new Dictionary<string, JsonElement>
+                {
+                    ["showLegend"] = JsonSerializer.SerializeToElement(false),
+                },
+            });
+        var ai = new AiChartConfig
+        {
+            ChartType = "bar",
+            Title = "Sales",
+            XAxis = "category",
+            YAxis = ["amount", "quantity"],
+            StyleConfig = new ChartStyleConfig
+            {
+                Params = new Dictionary<string, JsonElement>
+                {
+                    ["showLabels"] = JsonSerializer.SerializeToElement(true),
+                },
+            },
+        };
+
+        var result = ChartRefineMerger.Apply(baseline, ai, "show value labels", Allowlist);
+
+        result.StyleConfig!.Params.Should().ContainKey("showLegend");
+        result.StyleConfig.Params.Should().ContainKey("showLabels");
     }
 }
