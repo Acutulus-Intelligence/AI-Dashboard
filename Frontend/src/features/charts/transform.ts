@@ -14,7 +14,15 @@ export function toChartValue(value: unknown): ChartValue {
 
 /** Turns an API chart response into the normalised shape the renderers consume. */
 export function transformResult(res: ChartConfigResponse): ChartData {
-  if (!res.queryResult?.length) return { labels: [], datasets: [], queryResult: [], xAxis: res.xAxis };
+  if (!res.queryResult?.length) {
+    return {
+      labels: [],
+      datasets: [],
+      queryResult: [],
+      xAxis: res.xAxis,
+      groupBy: res.groupBy,
+    };
+  }
 
   const labels = res.queryResult.map((row) => String(row[res.xAxis] ?? ''));
   const datasets = res.yAxis.map((axis) => ({
@@ -22,7 +30,7 @@ export function transformResult(res: ChartConfigResponse): ChartData {
     values: res.queryResult.map((row) => toChartValue(row[axis])),
   }));
 
-  return { labels, datasets, queryResult: res.queryResult, xAxis: res.xAxis };
+  return { labels, datasets, queryResult: res.queryResult, xAxis: res.xAxis, groupBy: res.groupBy };
 }
 
 /** Recharts wants one row per label with a key per series; null keeps gaps. */

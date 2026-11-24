@@ -1,5 +1,6 @@
 import type { ChartData, ChartStyleConfig } from './types';
 import { downloadBlob, slugifyTitle } from './download';
+import { buildHistogram } from './histogram';
 
 type SheetUtils = typeof import('xlsx')['utils'];
 type CellMapper = (value: ExportCell) => ExportCell;
@@ -112,6 +113,25 @@ export function buildExportTable(
   if (chartId === 'table' && styleConfig?.variant !== 'summary') {
     return buildTableData(data);
   }
+
+  // Heatmaps need both dimensions, not just the plotted series.
+  if (chartId === 'heatmap') {
+    return buildTableData(data);
+  }
+
+  if (chartId === 'histogram') {
+    const series = data.datasets[0];
+    if (!series) return { header: [], rows: [] };
+
+    const rawBins = styleConfig?.params?.bins;
+    const bins = buildHistogram(series.values, typeof rawBins === 'number' ? rawBins : 12);
+
+    return {
+      header: [data.xAxis?.trim() || 'Value', 'Count'],
+      rows: bins.map((bin) => [bin.label, bin.count]),
+    };
+  }
+
   const includeAllDatasets = chartId !== 'pie' && chartId !== 'radial';
   return buildSeriesData(data, includeAllDatasets);
 }
@@ -125,6 +145,15 @@ export function hasExportData(
   if (chartId === 'table' && styleConfig?.variant !== 'summary') {
     return (data.queryResult ?? []).some((row) => row && Object.keys(row).length > 0);
   }
+
+  if (chartId === 'heatmap') {
+    return (data.queryResult ?? []).some((row) => row && Object.keys(row).length > 0);
+  }
+
+  if (chartId === 'histogram') {
+    return data.datasets.some((dataset) => dataset.values.some((value) => value != null));
+  }
+
   return data.labels.length > 0 && data.datasets.length > 0;
 }
 

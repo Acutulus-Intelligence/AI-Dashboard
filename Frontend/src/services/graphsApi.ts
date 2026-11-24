@@ -66,6 +66,7 @@ export interface ChartRecommendationProfile {
 export interface ChartAxisSuggestion {
   xAxis: string | null;
   yAxis: string[];
+  groupBy?: string | null;
 }
 
 export interface ChartSuggestion {

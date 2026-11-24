@@ -7,7 +7,7 @@ import { chartColorKey } from '../colorKey';
 import { param, type ChartDescriptor, type ParamSpec } from '../types';
 import ChartPlaceholder from './ChartPlaceholder';
 import StyledChartTooltip from './StyledChartTooltip';
-import { hasSeries, showGrid, showLabels, showTooltip } from './params';
+import { hasSeries, showGrid, showLabels, showTooltip, topN } from './params';
 
 const startAngle: ParamSpec = {
   kind: 'number',
@@ -51,7 +51,7 @@ export const radialChart: ChartDescriptor = {
     { id: 'labelled', label: 'With labels', description: 'Category names drawn on the rings.' },
     { id: 'stacked', label: 'Stacked', description: 'Categories share one ring.' },
   ],
-  params: [barSize, startAngle, endAngle, showGrid, showLabels, showTooltip],
+  params: [barSize, startAngle, endAngle, showGrid, showLabels, showTooltip, topN],
   render({ data, style }) {
     if (!hasSeries(data)) return <ChartPlaceholder icon={Gauge} label="Radial chart" />;
 

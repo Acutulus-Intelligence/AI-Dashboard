@@ -22,6 +22,7 @@ import {
   showTooltip,
   showXAxis,
   showYAxis,
+  topN,
 } from './params';
 
 export const barChart: ChartDescriptor = {
@@ -44,6 +45,7 @@ export const barChart: ChartDescriptor = {
     showTooltip,
     showLegend,
     showLabels,
+    topN,
   ],
   render({ data, style }) {
     if (!hasSeries(data)) return <ChartPlaceholder icon={BarChart3} label="Bar chart" />;

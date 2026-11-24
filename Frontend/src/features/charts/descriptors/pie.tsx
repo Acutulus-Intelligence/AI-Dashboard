@@ -18,7 +18,7 @@ import {
 } from '../types';
 import ChartPlaceholder from './ChartPlaceholder';
 import StyledChartTooltip from './StyledChartTooltip';
-import { hasSeries, showLabels, showLegend, showTooltip } from './params';
+import { hasSeries, showLabels, showLegend, showTooltip, topN } from './params';
 
 const innerRadius: ParamSpec = {
   kind: 'number',
@@ -63,7 +63,7 @@ export const pieChart: ChartDescriptor = {
     { id: 'donut', label: 'Donut', description: 'Hollow centre.' },
     { id: 'total', label: 'Donut with total', description: 'Donut showing the sum in the middle.' },
   ],
-  params: [innerRadius, padAngle, showLabels, showTooltip, showLegend],
+  params: [innerRadius, padAngle, showLabels, showTooltip, showLegend, topN],
   render({ data, style }) {
     if (!hasSeries(data)) return <ChartPlaceholder icon={PieIcon} label="Pie chart" />;
 

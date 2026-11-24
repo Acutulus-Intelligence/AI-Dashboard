@@ -28,6 +28,34 @@ const SAMPLE: ChartData = {
   ],
 };
 
+const HISTOGRAM_SAMPLE: ChartData = {
+  labels: [],
+  datasets: [
+    {
+      label: 'order value',
+      values: [12, 18, 18, 24, 25, 31, 33, 33, 33, 41, 44, 47, 52, 58, 61, 66, 74, 83, 91, 105],
+    },
+  ],
+};
+
+const HEATMAP_SAMPLE: ChartData = {
+  labels: [],
+  datasets: [{ label: 'orders', values: [] }],
+  xAxis: 'month',
+  groupBy: 'channel',
+  queryResult: ['Jan', 'Feb', 'Mar', 'Apr'].flatMap((month) =>
+    [
+      { channel: 'Web', orders: 12 },
+      { channel: 'App', orders: 9 },
+      { channel: 'Store', orders: 5 },
+    ].map((row, index) => ({
+      month,
+      channel: row.channel,
+      orders: row.orders + index * 2 + month.length,
+    })),
+  ),
+};
+
 export default function ChartGalleryPage() {
   return (
     <main className="bg-background min-h-screen p-6">
@@ -43,7 +71,15 @@ export default function ChartGalleryPage() {
                   <div className="h-56">
                     <ChartRenderer
                       chartId={descriptor.id}
-                      data={descriptor.id === 'map' ? MAP_SAMPLE : SAMPLE}
+                      data={
+                        descriptor.id === 'map'
+                          ? MAP_SAMPLE
+                          : descriptor.id === 'histogram'
+                            ? HISTOGRAM_SAMPLE
+                            : descriptor.id === 'heatmap'
+                              ? HEATMAP_SAMPLE
+                              : SAMPLE
+                      }
                       styleConfig={{ variant: variant.id }}
                     />
                   </div>

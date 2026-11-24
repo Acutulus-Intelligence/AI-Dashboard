@@ -42,6 +42,17 @@ export const showLabels: ParamSpec = {
   default: false,
 };
 
+export const topN: ParamSpec = {
+  kind: 'number',
+  key: 'topN',
+  label: 'Top categories',
+  default: 0,
+  min: 0,
+  max: 100,
+  step: 1,
+  help: '0 shows every category; the rest are grouped into Other.',
+};
+
 export const strokeWidth: ParamSpec = {
   kind: 'number',
   key: 'strokeWidth',

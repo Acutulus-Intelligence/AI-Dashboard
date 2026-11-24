@@ -12,6 +12,8 @@ export interface ChartData {
   queryResult?: Record<string, unknown>[];
   /** X-axis column name from the query, used as the first export header. */
   xAxis?: string;
+  /** Second grouping column (used by heatmap). */
+  groupBy?: string | null;
 }
 
 /**
