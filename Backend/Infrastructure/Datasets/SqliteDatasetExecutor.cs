@@ -1,4 +1,5 @@
 using Application.Interfaces;
+using Application.Services;
 using Infrastructure.ExternalDb;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
@@ -27,6 +28,9 @@ public class SqliteDatasetExecutor : IDatasetQueryExecutor
         string sql,
         CancellationToken ct = default)
     {
+        if (!SqliteSelectGuard.IsSelectOnly(sql, out var selectError))
+            throw new InvalidOperationException($"Query rejected: {selectError}");
+
         await using var conn = new SqliteConnection("Data Source=:memory:");
         await conn.OpenAsync(ct);
 

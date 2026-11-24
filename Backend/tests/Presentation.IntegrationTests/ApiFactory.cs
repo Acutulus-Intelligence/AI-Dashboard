@@ -30,6 +30,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     public FakePaymentService FakePayments { get; } = new();
     public FakeAiService FakeAi { get; } = new();
     public FakeEmailSender FakeEmails { get; } = new();
+    public FakeAuditTrail FakeAudit { get; } = new();
 
     public string ExternalHost => "127.0.0.1";
     public int ExternalPort => _externalDb.GetMappedPublicPort(5432);
@@ -89,12 +90,16 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
                 ["ExternalDb:PreviewMaxRows"] = "10",
                 ["ExternalDb:QueryMaxRows"] = "10000",
                 ["ExternalDb:QueryTimeoutSeconds"] = "30",
+                ["ExternalDb:AllowPrivateHosts"] = "true",
+                ["ExternalDb:RequireTls"] = "false",
                 ["RateLimiting:Enabled"] = "true",
                 ["RateLimiting:Login:PermitLimit"] = "10000",
                 ["RateLimiting:Invite:PermitLimit"] = "10000",
                 ["RateLimiting:InviteAccept:PermitLimit"] = "10000",
                 ["RateLimiting:ChartExecute:PermitLimit"] = "10000",
                 ["RateLimiting:ChartRefresh:PermitLimit"] = "10000",
+                ["RateLimiting:AiGenerate:PermitLimit"] = "10000",
+                ["RateLimiting:AiGenerate:WindowSeconds"] = "60",
                 ["ChartCache:Enabled"] = "true",
                 ["ChartCache:RedisEnabled"] = "false",
                 ["ChartCache:RedisConnectionString"] = "",
@@ -112,6 +117,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
             services.RemoveAll<IEmailSender>();
             services.AddSingleton<IEmailSender>(FakeEmails);
+
+            services.RemoveAll<IAuditTrail>();
+            services.AddSingleton<IAuditTrail>(FakeAudit);
         });
     }
 

@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Application.Interfaces;
+using Application.Services;
 using Domain.Enums;
 using gudusoft.gsqlparser;
 
@@ -21,7 +22,13 @@ public partial class SqlValidator : ISqlValidator
         "sleep", "benchmark", "load_file", "sys_eval", "sys_exec"
     ];
 
-    public bool IsSelectOnly(string sql, out string? errorMessage)
+    public bool IsSelectOnly(string sql, out string? errorMessage) =>
+        IsSelectOnlyCore(sql, provider: null, out errorMessage);
+
+    public bool IsSelectOnly(string sql, DbProvider dbProvider, out string? errorMessage) =>
+        IsSelectOnlyCore(sql, dbProvider, out errorMessage);
+
+    private static bool IsSelectOnlyCore(string sql, DbProvider? provider, out string? errorMessage)
     {
         if (string.IsNullOrWhiteSpace(sql))
         {
@@ -29,22 +36,29 @@ public partial class SqlValidator : ISqlValidator
             return false;
         }
 
-        if (ContainsBlockedFunction(sql))
+        // MySQL executes version comments as real SQL, so a comment could hide a
+        // write from the parser. Reject the construct outright.
+        if (MySqlExecutableCommentPattern().IsMatch(sql))
+        {
+            errorMessage = "Query contains an executable comment.";
+            return false;
+        }
+
+        var masked = SqlMasking.MaskLiteralsAndComments(sql, provider);
+
+        if (ContainsBlockedFunction(masked))
         {
             errorMessage = "Query contains a blocked function.";
             return false;
         }
 
-        if (ContainsIntoClause(sql))
-        {
-            errorMessage = "Query contains a forbidden INTO clause.";
-            return false;
-        }
-
-        if (!TryParseAsSelectOnly(sql, out errorMessage))
+        if (ContainsForbiddenConstruct(masked, out errorMessage))
             return false;
 
-        if (ContainsForbiddenKeyword(sql))
+        if (!TryParseAsSelectOnly(sql, provider, out errorMessage))
+            return false;
+
+        if (ContainsForbiddenKeyword(masked))
         {
             errorMessage = "Query contains forbidden SQL statements.";
             return false;
@@ -54,9 +68,20 @@ public partial class SqlValidator : ISqlValidator
         return true;
     }
 
-    private static bool TryParseAsSelectOnly(string sql, out string? errorMessage)
+    private static bool TryParseAsSelectOnly(
+        string sql,
+        DbProvider? provider,
+        out string? errorMessage)
     {
-        foreach (var vendor in new[] { EDbVendor.dbvpostgresql, EDbVendor.dbvmysql, EDbVendor.dbvmssql })
+        var vendors = provider switch
+        {
+            DbProvider.PostgreSql => new[] { EDbVendor.dbvpostgresql },
+            DbProvider.MySql => new[] { EDbVendor.dbvmysql },
+            DbProvider.SqlServer => new[] { EDbVendor.dbvmssql },
+            _ => new[] { EDbVendor.dbvpostgresql, EDbVendor.dbvmysql, EDbVendor.dbvmssql }
+        };
+
+        foreach (var vendor in vendors)
         {
             var parser = new TGSqlParser(vendor)
             {
@@ -91,28 +116,62 @@ public partial class SqlValidator : ISqlValidator
         return false;
     }
 
-    private static bool ContainsBlockedFunction(string sql)
+    private static bool ContainsForbiddenConstruct(string maskedSql, out string? errorMessage)
     {
-        var cleaned = RemoveComments(sql);
+        if (IntoPattern().IsMatch(maskedSql))
+        {
+            errorMessage = "Query contains a forbidden INTO clause.";
+            return true;
+        }
+
+        if (ExternalRowsetPattern().IsMatch(maskedSql))
+        {
+            errorMessage = "Query contains a forbidden external rowset function.";
+            return true;
+        }
+
+        if (WaitForPattern().IsMatch(maskedSql))
+        {
+            errorMessage = "Query contains a forbidden WAITFOR clause.";
+            return true;
+        }
+
+        if (ForUpdatePattern().IsMatch(maskedSql))
+        {
+            errorMessage = "Query contains a forbidden locking clause.";
+            return true;
+        }
+
+        if (LockInShareModePattern().IsMatch(maskedSql))
+        {
+            errorMessage = "Query contains a forbidden locking clause.";
+            return true;
+        }
+
+        if (ProcedureAnalysePattern().IsMatch(maskedSql))
+        {
+            errorMessage = "Query contains a forbidden PROCEDURE clause.";
+            return true;
+        }
+
+        errorMessage = null;
+        return false;
+    }
+
+    private static bool ContainsBlockedFunction(string maskedSql)
+    {
         foreach (var functionName in BlockedFunctions)
         {
-            if (BlockedFunctionPattern(functionName).IsMatch(cleaned))
+            if (BlockedFunctionPattern(functionName).IsMatch(maskedSql))
                 return true;
         }
 
         return false;
     }
 
-    private static bool ContainsIntoClause(string sql)
+    private static bool ContainsForbiddenKeyword(string maskedSql)
     {
-        var cleaned = RemoveComments(sql);
-        return IntoPattern().IsMatch(cleaned);
-    }
-
-    private static bool ContainsForbiddenKeyword(string sql)
-    {
-        var cleaned = RemoveComments(sql);
-        var matches = KeywordPattern().Matches(cleaned);
+        var matches = KeywordPattern().Matches(maskedSql);
 
         foreach (Match match in matches)
         {
@@ -124,17 +183,29 @@ public partial class SqlValidator : ISqlValidator
         return false;
     }
 
-    private static string RemoveComments(string sql)
-    {
-        var singleLineComments = Regex.Replace(sql, "--.*?(\r?\n|$)", " ");
-        return Regex.Replace(singleLineComments, @"/\*.*?\*/", " ", RegexOptions.Singleline);
-    }
-
     [GeneratedRegex(@"\b[A-Za-z_]\w*\b")]
     private static partial Regex KeywordPattern();
 
-    [GeneratedRegex(@"\bINTO\s+(OUTFILE|DUMPFILE|TABLE)\b", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\bINTO\b", RegexOptions.IgnoreCase)]
     private static partial Regex IntoPattern();
+
+    [GeneratedRegex(@"\b(OPENROWSET|OPENQUERY|OPENDATASOURCE)\s*\(", RegexOptions.IgnoreCase)]
+    private static partial Regex ExternalRowsetPattern();
+
+    [GeneratedRegex(@"\bWAITFOR\b", RegexOptions.IgnoreCase)]
+    private static partial Regex WaitForPattern();
+
+    [GeneratedRegex(@"\bFOR\s+UPDATE\b", RegexOptions.IgnoreCase)]
+    private static partial Regex ForUpdatePattern();
+
+    [GeneratedRegex(@"\bLOCK\s+IN\s+SHARE\s+MODE\b", RegexOptions.IgnoreCase)]
+    private static partial Regex LockInShareModePattern();
+
+    [GeneratedRegex(@"\bPROCEDURE\s+ANALYSE\b", RegexOptions.IgnoreCase)]
+    private static partial Regex ProcedureAnalysePattern();
+
+    [GeneratedRegex(@"/\*!")]
+    private static partial Regex MySqlExecutableCommentPattern();
 
     private static Regex BlockedFunctionPattern(string functionName) =>
         new($@"\b{Regex.Escape(functionName)}\s*\(", RegexOptions.IgnoreCase | RegexOptions.Compiled);

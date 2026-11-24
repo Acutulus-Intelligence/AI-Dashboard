@@ -13,31 +13,36 @@ public class QueryExecutor : IQueryExecutor
     private readonly ISqlValidator _validator;
     private readonly ExternalDbSettings _settings;
     private readonly IConnectionAccessService _access;
+    private readonly ConnectionHostGuard _hostGuard;
 
     public QueryExecutor(
         AppDbContext db,
         IEncryptionService encryption,
         ISqlValidator validator,
         IOptions<ExternalDbSettings> settings,
-        IConnectionAccessService access)
+        IConnectionAccessService access,
+        ConnectionHostGuard hostGuard)
     {
         _db = db;
         _encryption = encryption;
         _validator = validator;
         _settings = settings.Value;
         _access = access;
+        _hostGuard = hostGuard;
     }
 
     public async Task<List<Dictionary<string, object?>>> ExecuteAsync(Guid connectionId, Guid userId, string sql, CancellationToken ct = default)
     {
-        if (!_validator.IsSelectOnly(sql, out var errorMessage))
-            throw new InvalidOperationException($"Query rejected: {errorMessage}");
-
         var connection = await _access.FindViewableAsync(connectionId, userId, ct)
             ?? throw new KeyNotFoundException("Connection not found.");
 
         var connectionString = _encryption.Decrypt(connection.EncryptedConnectionString);
         var provider = connection.DbProvider;
+
+        if (!_validator.IsSelectOnly(sql, provider, out var errorMessage))
+            throw new InvalidOperationException($"Query rejected: {errorMessage}");
+
+        await _hostGuard.EnsureSafeAsync(provider, connectionString, ct);
 
         // Release the EF connection before opening an external PostgreSQL connection.
         // When both target the same server, Npgsql pooling otherwise throws

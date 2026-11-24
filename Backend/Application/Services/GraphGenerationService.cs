@@ -17,6 +17,7 @@ public class GraphGenerationService : IGraphGenerationService
     private readonly ISqlValidator _sqlValidator;
     private readonly IQueryExecutor _queryExecutor;
     private readonly IConnectionAccessService _access;
+    private readonly IAuditTrail _audit;
 
     private static readonly JsonSerializerOptions BaselineJsonOptions = new()
     {
@@ -30,7 +31,8 @@ public class GraphGenerationService : IGraphGenerationService
         IAiService aiService,
         ISqlValidator sqlValidator,
         IQueryExecutor queryExecutor,
-        IConnectionAccessService access)
+        IConnectionAccessService access,
+        IAuditTrail audit)
     {
         _db = db;
         _schemaInspector = schemaInspector;
@@ -38,6 +40,7 @@ public class GraphGenerationService : IGraphGenerationService
         _sqlValidator = sqlValidator;
         _queryExecutor = queryExecutor;
         _access = access;
+        _audit = audit;
     }
 
     public async Task<ChartConfigResponse> GenerateAsync(GenerateChartRequest request, Guid userId, CancellationToken ct = default)
@@ -93,7 +96,7 @@ public class GraphGenerationService : IGraphGenerationService
                     return "Chart config is missing required fields (chartType, sqlQuery).";
                 }
 
-                if (TryAcceptSql(generated, schema, request.CurrentChart, notes: null, out var retryHint, out _))
+                if (TryAcceptSql(generated, schema, dbProvider, request.CurrentChart, notes: null, out var retryHint, out _))
                     return null;
 
                 return retryHint ?? "SQL failed schema grounding.";
@@ -110,7 +113,7 @@ public class GraphGenerationService : IGraphGenerationService
                 $"Raw: {Truncate(aiResult.RawJson, 400)}");
         }
 
-        if (!TryAcceptSql(config, schema, request.CurrentChart, notes, out var sqlError, out var accepted))
+        if (!TryAcceptSql(config, schema, dbProvider, request.CurrentChart, notes, out var sqlError, out var accepted))
         {
             throw new InvalidOperationException(
                 $"AI generated an invalid query: {sqlError}. " +
@@ -134,6 +137,17 @@ public class GraphGenerationService : IGraphGenerationService
             aiResult,
             notes,
             ct);
+
+        _audit.Record(new AuditEntry(
+            AuditAction.ChartGenerated,
+            userId,
+            request.ConnectionId,
+            null,
+            null,
+            result.Config.ChartType,
+            result.Config.SqlQuery,
+            result.Rows.Count,
+            "success"));
 
         return new ChartConfigResponse(
             result.Config.ChartType,
@@ -169,7 +183,7 @@ public class GraphGenerationService : IGraphGenerationService
                 if (string.IsNullOrWhiteSpace(generated.ChartType) || string.IsNullOrWhiteSpace(generated.SqlQuery))
                     return "Chart config is missing required fields (chartType, sqlQuery).";
 
-                return TryAcceptSql(generated, schema, baseline: null, notes: null, out var retryHint, out _)
+                return TryAcceptSql(generated, schema, dbProvider, baseline: null, notes: null, out var retryHint, out _)
                     ? null
                     : retryHint ?? "SQL failed schema grounding.";
             },
@@ -178,7 +192,7 @@ public class GraphGenerationService : IGraphGenerationService
         var notes = new List<string>(retryNotes) { "Manual generate path." };
         var config = FinalizeGeneratedConfig(aiResult.Config, baseline: null, prompt, allowedColors, notes);
 
-        if (!TryAcceptSql(config, schema, baseline: null, notes, out var sqlError, out var accepted))
+        if (!TryAcceptSql(config, schema, dbProvider, baseline: null, notes, out var sqlError, out var accepted))
         {
             throw new InvalidOperationException(
                 $"AI generated an invalid query: {sqlError}. " +
@@ -202,6 +216,17 @@ public class GraphGenerationService : IGraphGenerationService
             aiResult,
             notes,
             ct);
+
+        _audit.Record(new AuditEntry(
+            AuditAction.ChartGenerated,
+            userId,
+            request.ConnectionId,
+            null,
+            null,
+            result.Config.ChartType,
+            result.Config.SqlQuery,
+            result.Rows.Count,
+            "success"));
 
         return new ChartConfigResponse(
             result.Config.ChartType,
@@ -268,13 +293,14 @@ public class GraphGenerationService : IGraphGenerationService
     private bool TryAcceptSql(
         AiChartConfig config,
         TableSchema schema,
+        DbProvider dbProvider,
         ChartBaseline? baseline,
         List<string>? notes,
         out string? retryHint,
         out AiChartConfig accepted)
     {
         accepted = config;
-        retryHint = GeneratedChartGrounding.ValidateSqlChart(config, schema, _sqlValidator);
+        retryHint = GeneratedChartGrounding.ValidateSqlChart(config, schema, _sqlValidator, dbProvider);
         if (retryHint is null)
             return true;
 
@@ -294,7 +320,7 @@ public class GraphGenerationService : IGraphGenerationService
                 SqlQuery = baseline.SqlQuery,
             };
 
-            if (GeneratedChartGrounding.ValidateSqlChart(baselineConfig, schema, _sqlValidator) is null)
+            if (GeneratedChartGrounding.ValidateSqlChart(baselineConfig, schema, _sqlValidator, dbProvider) is null)
             {
                 notes?.Add(
                     $"AI SQL failed schema grounding ({retryHint}); kept baseline query fields. Rejected SQL: {Truncate(config.SqlQuery, 240)}");
@@ -389,7 +415,7 @@ public class GraphGenerationService : IGraphGenerationService
                 ct);
 
             config = FinalizeGeneratedConfig(repaired.Config, baseline, prompt, allowedColors, notes);
-            if (!TryAcceptSql(config, schema, baseline, notes, out var sqlError, out var accepted))
+            if (!TryAcceptSql(config, schema, dbProvider, baseline, notes, out var sqlError, out var accepted))
             {
                 throw new InvalidOperationException(
                     $"AI generated an invalid query after execution repair: {sqlError}. " +

@@ -21,6 +21,7 @@ public class CollectionService : ICollectionService
     private readonly IDatasetFileParser[] _parsers;
     private readonly DatasetSettings _settings;
     private readonly IChartCacheInvalidator _chartCacheInvalidator;
+    private readonly IAuditTrail _audit;
 
     public CollectionService(
         IApplicationDbContext db,
@@ -29,7 +30,8 @@ public class CollectionService : ICollectionService
         ICollectionAccessService access,
         IEnumerable<IDatasetFileParser> parsers,
         IOptions<DatasetSettings> settings,
-        IChartCacheInvalidator chartCacheInvalidator)
+        IChartCacheInvalidator chartCacheInvalidator,
+        IAuditTrail audit)
     {
         _db = db;
         _aiService = aiService;
@@ -38,6 +40,7 @@ public class CollectionService : ICollectionService
         _parsers = parsers.ToArray();
         _settings = settings.Value;
         _chartCacheInvalidator = chartCacheInvalidator;
+        _audit = audit;
     }
 
     public async Task<CollectionResponse> CreateAsync(Guid userId, CreateCollectionRequest request, CancellationToken ct = default)
@@ -356,6 +359,18 @@ public class CollectionService : ICollectionService
             config.ChartType);
 
         var result = await _dataQueryExecutor.ExecuteAsync(columnNames, columnTypes, rows, config.DataModel, ct);
+
+        _audit.Record(new AuditEntry(
+            AuditAction.ChartGenerated,
+            userId,
+            null,
+            fileId,
+            null,
+            config.ChartType,
+            config.SqlQuery,
+            result.Count,
+            "success",
+            "dataset"));
 
         return new ChartConfigResponse(
             config.ChartType,

@@ -170,6 +170,9 @@ export async function exportChartDataAsExcel(
 
   const { utils, writeFile } = await import('xlsx');
   const book = utils.book_new();
+  // SheetJS writes plain strings as text cells (t: 's'), so they cannot execute
+  // as formulas. Prefixing with an apostrophe would become part of the visible
+  // cell value, so only the CSV path needs formula escaping.
   utils.book_append_sheet(book, toWorksheet(table, (value) => value, utils), 'Data');
   writeFile(book, `${slugifyTitle(title) || 'chart'}.xlsx`);
 }

@@ -164,6 +164,7 @@ export default function ConnectionsPage() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [connectionStringRevealed, setConnectionStringRevealed] = useState(false);
+  const [replaceConnectionString, setReplaceConnectionString] = useState(false);
   const realConnectionStringRef = useRef('');
   const [validateState, setValidateState] = useState<{ ok: boolean; text: string } | null>(null);
   const [validating, setValidating] = useState(false);
@@ -178,6 +179,8 @@ export default function ConnectionsPage() {
   const displayConnectionString = connectionStringRevealed
     ? form.connectionString
     : maskConnectionString(form.connectionString);
+
+  const keepingExistingConnection = editingId !== null && !replaceConnectionString;
 
   const getRawConnectionString = () => {
     const raw = resolveConnectionString(form.connectionString, realConnectionStringRef.current);
@@ -361,6 +364,7 @@ export default function ConnectionsPage() {
       const created = await createConnection(payload);
       setShowForm(false);
       setForm(emptyForm());
+      setReplaceConnectionString(false);
       realConnectionStringRef.current = '';
       setConnectionStringRevealed(false);
       setValidateState(null);
@@ -381,7 +385,8 @@ export default function ConnectionsPage() {
   const handleEdit = async () => {
     if (!editingId) return;
     setFormError('');
-    if (!(await ensureValidated())) {
+    const keepExistingPassword = keepingExistingConnection;
+    if (!keepExistingPassword && !(await ensureValidated())) {
       setFormError('Detect and validate the connection string before saving.');
       return;
     }
@@ -390,12 +395,14 @@ export default function ConnectionsPage() {
       const payload: UpdateConnectionRequest = {
         name: form.name,
         dbProvider: form.dbProvider,
-        connectionString: getRawConnectionString(),
+        connectionString: keepExistingPassword ? '' : getRawConnectionString(),
         visibility: isCompany ? form.visibility : 'Private',
         allowedRoleIds: form.visibility === 'Roles' ? form.allowedRoleIds : [],
+        keepExistingPassword,
       };
       await updateConnection(editingId, payload);
       setEditingId(null);
+      setReplaceConnectionString(false);
       setForm(emptyForm());
       realConnectionStringRef.current = '';
       setConnectionStringRevealed(false);
@@ -413,6 +420,7 @@ export default function ConnectionsPage() {
     setEditingId(null);
     setForm(emptyForm());
     setFormError('');
+    setReplaceConnectionString(false);
     realConnectionStringRef.current = '';
     setConnectionStringRevealed(false);
     setValidateState(null);
@@ -425,13 +433,14 @@ export default function ConnectionsPage() {
       setForm({
         name: config.name,
         dbProvider: config.dbProvider,
-        connectionString: config.connectionString,
+        connectionString: config.maskedConnectionString,
         visibility: config.visibility,
         allowedRoleIds: config.allowedRoleIds,
       });
       setEditingId(conn.id);
+      setReplaceConnectionString(false);
       setConnectionStringRevealed(false);
-      realConnectionStringRef.current = config.connectionString;
+      realConnectionStringRef.current = '';
       setValidateState(null);
       setShowForm(false);
       setFormError('');
@@ -446,6 +455,7 @@ export default function ConnectionsPage() {
     setShowForm(false);
     setForm(emptyForm());
     setFormError('');
+    setReplaceConnectionString(false);
     realConnectionStringRef.current = '';
     setConnectionStringRevealed(false);
     setValidateState(null);
@@ -596,6 +606,7 @@ export default function ConnectionsPage() {
               />
               <select
                 value={form.dbProvider}
+                disabled={keepingExistingConnection}
                 onChange={(e) => setForm({ ...form, dbProvider: e.target.value })}
                 className="border-input bg-background focus:border-ring rounded-lg border px-4 py-2.5 text-sm outline-hidden"
               >
@@ -622,39 +633,66 @@ export default function ConnectionsPage() {
                   placeholder="postgres://user:pass@host:5432/dbname\nor Server=host,1433;Database=db;User Id=user;Password=pass"
                   value={displayConnectionString}
                   onChange={(e) => handleConnectionStringChange(e.target.value)}
+                  readOnly={keepingExistingConnection}
                   className="border-input bg-background focus:border-ring font-mono w-full rounded-lg border px-3 py-2.5 text-sm outline-hidden"
                 />
               </div>
-              <div className="mt-1.5 flex items-start justify-between gap-2">
-                <p className="text-muted-foreground text-sm">
-                  Paste the full connection string. Your password stays hidden until you reveal it.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setConnectionStringRevealed((v) => !v)}
-                  aria-label={connectionStringRevealed ? 'Hide password' : 'Show password'}
-                  className="text-muted-foreground hover:text-foreground inline-flex shrink-0 cursor-pointer items-center gap-1.5 text-sm"
-                >
-                  {connectionStringRevealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                  {connectionStringRevealed ? 'Hide password' : 'Show password'}
-                </button>
-              </div>
-              {validateState && (
-                <p className={cn('mt-1.5 text-sm', validateState.ok ? 'text-green-600' : 'text-red-500')}>
-                  {validateState.text}
-                </p>
+              {keepingExistingConnection ? (
+                <>
+                  <p className="text-muted-foreground mt-1.5 text-sm">
+                    The stored password is hidden. Keep this to preserve the current connection, or
+                    replace the connection string to change credentials.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="mt-2"
+                    onClick={() => {
+                      setReplaceConnectionString(true);
+                      setConnectionStringRevealed(false);
+                      setValidateState(null);
+                      realConnectionStringRef.current = '';
+                      setForm((prev) => ({ ...prev, connectionString: '' }));
+                    }}
+                  >
+                    Replace connection string
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <div className="mt-1.5 flex items-start justify-between gap-2">
+                    <p className="text-muted-foreground text-sm">
+                      Paste the full connection string. Your password stays hidden until you reveal it.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setConnectionStringRevealed((v) => !v)}
+                      aria-label={connectionStringRevealed ? 'Hide password' : 'Show password'}
+                      className="text-muted-foreground hover:text-foreground inline-flex shrink-0 cursor-pointer items-center gap-1.5 text-sm"
+                    >
+                      {connectionStringRevealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                      {connectionStringRevealed ? 'Hide password' : 'Show password'}
+                    </button>
+                  </div>
+                  {validateState && (
+                    <p className={cn('mt-1.5 text-sm', validateState.ok ? 'text-green-600' : 'text-red-500')}>
+                      {validateState.text}
+                    </p>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="mt-2"
+                    onClick={() => void handleValidate()}
+                    disabled={validating || !form.connectionString.trim()}
+                  >
+                    <ClipboardPaste />
+                    {validating ? 'Checking…' : 'Detect provider & validate'}
+                  </Button>
+                </>
               )}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="mt-2"
-                onClick={() => void handleValidate()}
-                disabled={validating || !form.connectionString.trim()}
-              >
-                <ClipboardPaste />
-                {validating ? 'Checking…' : 'Detect provider & validate'}
-              </Button>
             </div>
           </div>
 

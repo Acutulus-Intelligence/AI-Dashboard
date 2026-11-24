@@ -38,6 +38,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Presentation.IntegrationTests" />
+    <InternalsVisibleTo Include="Infrastructure.Tests" />
   </ItemGroup>
 
 </Project>

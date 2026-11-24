@@ -54,7 +54,16 @@ public sealed class RedisChartResultCache : IChartResultCache, IChartCacheInvali
         var key = BuildKey(userId, chartId);
 
         if (_memory.TryGetValue(key, out CachedChartResult? local) && local is not null)
-            return local;
+        {
+            if (IsExpired(local))
+            {
+                RemoveLocal(key);
+            }
+            else
+            {
+                return local;
+            }
+        }
 
         var database = GetDatabase();
         if (database is null)
@@ -75,6 +84,16 @@ public sealed class RedisChartResultCache : IChartResultCache, IChartCacheInvali
             {
                 _logger.LogWarning(
                     "Discarding chart cache entry whose payload does not match user {UserId} and chart {ChartId}.",
+                    userId,
+                    chartId);
+                await TryDeleteAsync(database, key);
+                return null;
+            }
+
+            if (IsExpired(result))
+            {
+                _logger.LogDebug(
+                    "Discarding expired chart cache entry for user {UserId} and chart {ChartId}.",
                     userId,
                     chartId);
                 await TryDeleteAsync(database, key);
@@ -293,6 +312,10 @@ public sealed class RedisChartResultCache : IChartResultCache, IChartCacheInvali
         => $"{_settings.InstanceName}chart-result:v1:{userId:N}:";
 
     private IDatabase? GetDatabase() => _redisProvider.Connection?.GetDatabase();
+
+    private bool IsExpired(CachedChartResult result) =>
+        _settings.MaxEntryAgeMinutes > 0
+        && result.DataUpdatedAt < DateTimeOffset.UtcNow.AddMinutes(-_settings.MaxEntryAgeMinutes);
 
     private async Task TryDeleteAsync(IDatabase database, string key)
     {

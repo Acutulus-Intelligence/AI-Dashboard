@@ -2,6 +2,7 @@ using Application.DTos.Request;
 using Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Presentation.Middleware;
 
 namespace Presentation.Controllers;
@@ -20,6 +21,7 @@ public class GraphController : ControllerBase
     }
 
     [HttpPost("generate")]
+    [EnableRateLimiting("ai-generate")]
     public async Task<IActionResult> Generate([FromBody] GenerateChartRequest request, CancellationToken ct)
     {
         var userId = GetUserId();
@@ -28,6 +30,7 @@ public class GraphController : ControllerBase
     }
 
     [HttpPost("manual")]
+    [EnableRateLimiting("ai-generate")]
     public async Task<IActionResult> Manual([FromBody] GenerateChartRequest request, CancellationToken ct)
     {
         var userId = GetUserId();

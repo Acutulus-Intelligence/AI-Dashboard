@@ -1,5 +1,6 @@
 using Application.Common.Exceptions;
 using Application.Common.Mapping;
+using Application.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -38,12 +39,30 @@ public class GlobalExceptionMiddleware
         {
             var traceId = Activity.Current?.Id ?? context.TraceIdentifier;
 
-            _logger.LogError(ex,
-                "Unhandled exception {Method} {Path} TraceId={TraceId} User={UserId}",
-                context.Request.Method,
-                context.Request.Path,
-                traceId,
-                context.User?.FindFirst("userId")?.Value ?? "anonymous");
+            if (_env.IsDevelopment())
+            {
+                _logger.LogError(ex,
+                    "Unhandled exception {Method} {Path} TraceId={TraceId} User={UserId}",
+                    context.Request.Method,
+                    context.Request.Path,
+                    traceId,
+                    context.User?.FindFirst("userId")?.Value ?? "anonymous");
+            }
+            else
+            {
+                // Exception messages can contain SQL with literal values. Keep the
+                // statement shape and stack for diagnosis, but redact the payload.
+                _logger.LogError(
+                    "Unhandled exception {Method} {Path} TraceId={TraceId} User={UserId} " +
+                    "Type={ExceptionType} Message={Message} Stack={Stack}",
+                    context.Request.Method,
+                    context.Request.Path,
+                    traceId,
+                    context.User?.FindFirst("userId")?.Value ?? "anonymous",
+                    ex.GetType().FullName,
+                    SqlRedactor.Redact(ex.Message),
+                    ex.StackTrace);
+            }
 
             await WriteResponse(context, ex, traceId);
         }

@@ -13,22 +13,26 @@ public class SchemaInspector : ISchemaInspector
     private readonly IEncryptionService _encryption;
     private readonly ExternalDbSettings _settings;
     private readonly IConnectionAccessService _access;
+    private readonly ConnectionHostGuard _hostGuard;
 
     public SchemaInspector(
         AppDbContext db,
         IEncryptionService encryption,
         IOptions<ExternalDbSettings> settings,
-        IConnectionAccessService access)
+        IConnectionAccessService access,
+        ConnectionHostGuard hostGuard)
     {
         _db = db;
         _encryption = encryption;
         _settings = settings.Value;
         _access = access;
+        _hostGuard = hostGuard;
     }
 
     public async Task<List<TableSchema>> GetSchemaAsync(Guid connectionId, Guid userId, CancellationToken ct = default)
     {
         var (provider, connectionString) = await GetConnectionAsync(connectionId, userId, ct);
+        await _hostGuard.EnsureSafeAsync(provider, connectionString, ct);
         var tables = new List<TableSchema>();
 
         using var conn = CreateConnection(provider, connectionString);
@@ -55,6 +59,7 @@ public class SchemaInspector : ISchemaInspector
     public async Task<TableSchema> GetTableSchemaAsync(Guid connectionId, Guid userId, string tableName, CancellationToken ct = default)
     {
         var (provider, connectionString) = await GetConnectionAsync(connectionId, userId, ct);
+        await _hostGuard.EnsureSafeAsync(provider, connectionString, ct);
 
         using var conn = CreateConnection(provider, connectionString);
         await conn.OpenAsync(ct);
@@ -72,6 +77,7 @@ public class SchemaInspector : ISchemaInspector
     {
         var clampedLimit = Math.Clamp(rowLimit, 1, _settings.PreviewMaxRows);
         var (provider, connectionString) = await GetConnectionAsync(connectionId, userId, ct);
+        await _hostGuard.EnsureSafeAsync(provider, connectionString, ct);
 
         using var conn = CreateConnection(provider, connectionString);
         await conn.OpenAsync(ct);

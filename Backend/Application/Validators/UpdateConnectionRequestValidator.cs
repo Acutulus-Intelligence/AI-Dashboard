@@ -16,8 +16,12 @@ public class UpdateConnectionRequestValidator : AbstractValidator<UpdateConnecti
             .IsInEnum();
 
         RuleFor(x => x.ConnectionString)
-            .NotEmpty()
             .MaximumLength(4000);
+
+        RuleFor(x => x.ConnectionString)
+            .NotEmpty()
+            .When(x => !x.KeepExistingPassword)
+            .WithMessage("Enter a connection string or keep the existing one.");
 
         RuleFor(x => x.Visibility)
             .IsInEnum();

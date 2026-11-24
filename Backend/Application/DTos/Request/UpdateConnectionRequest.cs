@@ -7,5 +7,6 @@ public sealed record UpdateConnectionRequest(
     DbProvider DbProvider,
     string ConnectionString,
     ConnectionVisibility Visibility = ConnectionVisibility.Company,
-    List<Guid>? AllowedRoleIds = null
+    List<Guid>? AllowedRoleIds = null,
+    bool KeepExistingPassword = false
 );

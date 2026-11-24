@@ -2,6 +2,7 @@ using Application.DTos.Request;
 using Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Presentation.Middleware;
 
 namespace Presentation.Controllers;
@@ -88,6 +89,7 @@ public class CollectionController : ControllerBase
     }
 
     [HttpPost("{id:guid}/files/{fileId:guid}/generate")]
+    [EnableRateLimiting("ai-generate")]
     public async Task<IActionResult> Generate(
         Guid id, Guid fileId, [FromBody] GenerateCollectionChartRequest request, CancellationToken ct)
     {

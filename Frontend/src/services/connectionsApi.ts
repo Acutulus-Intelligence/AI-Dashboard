@@ -40,12 +40,18 @@ export interface UpdateConnectionRequest {
   connectionString: string;
   visibility: ConnectionVisibility;
   allowedRoleIds?: string[];
+  keepExistingPassword?: boolean;
 }
 
 export interface ConnectionConfigResponse {
   name: string;
   dbProvider: string;
-  connectionString: string;
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  passwordSet: boolean;
+  maskedConnectionString: string;
   visibility: ConnectionVisibility;
   allowedRoleIds: string[];
 }

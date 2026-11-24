@@ -16,6 +16,7 @@ using Infrastructure.Caching;
 using Infrastructure.Data;
 using Infrastructure.Ai;
 using Infrastructure.Ai.Services;
+using Infrastructure.Audit;
 using Infrastructure.Encryption;
 using Infrastructure.Email;
 using Infrastructure.ExternalDb;
@@ -137,10 +138,14 @@ builder.Services.AddScoped<ISchemaInspector, SchemaInspector>();
 builder.Services.AddSingleton<ISqlValidator, SqlValidator>();
 builder.Services.AddScoped<IQueryExecutor, QueryExecutor>();
 builder.Services.AddScoped<IConnectionAccessService, ConnectionAccessService>();
+builder.Services.AddSingleton<ConnectionHostGuard>();
 
 // AI service
 builder.Services.Configure<AiSettings>(builder.Configuration.GetSection("Ai"));
 builder.Services.AddHttpClient<IAiService, OpenRouterService>();
+
+// Audit trail (structured log sink; persistent storage can be added behind the interface)
+builder.Services.AddSingleton<IAuditTrail, AuditTrail>();
 
 // Email delivery (Resend)
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection(EmailSettings.SectionName));
@@ -379,6 +384,31 @@ if (rateLimitingEnabled)
                     AutoReplenishment = true,
                 });
         });
+
+        // AI generation is expensive and a single request can trigger several
+        // provider calls (repair attempt plus execution repair). Partition per
+        // user so one account cannot exhaust the shared provider budget.
+        options.AddPolicy("ai-generate", httpContext =>
+        {
+            var userId = httpContext.User?.FindFirst("userId")?.Value;
+            var partitionKey = !string.IsNullOrEmpty(userId)
+                ? $"ai-generate:user:{userId}"
+                : $"ai-generate:ip:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+
+            var permitLimit = builder.Configuration.GetValue(
+                "RateLimiting:AiGenerate:PermitLimit", 10);
+            var windowSeconds = builder.Configuration.GetValue(
+                "RateLimiting:AiGenerate:WindowSeconds", 60);
+
+            return RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: partitionKey,
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = Math.Max(1, permitLimit),
+                    Window = TimeSpan.FromSeconds(Math.Max(1, windowSeconds)),
+                    QueueLimit = 0,
+                });
+        });
     });
 }
 
@@ -399,8 +429,39 @@ app.UseMiddleware<GlobalExceptionMiddleware>();
 
 app.Use(async (context, next) =>
 {
+    var headers = context.Response.Headers;
+
     // Keep invite/recovery tokens and other URLs out of the Referer header (S3).
-    context.Response.Headers["Referrer-Policy"] = "no-referrer";
+    headers["Referrer-Policy"] = "no-referrer";
+    headers["X-Content-Type-Options"] = "nosniff";
+    headers["X-Frame-Options"] = "DENY";
+    headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()";
+
+    // Scalar's API reference uses inline scripts; keep the strict policy for the
+    // product API and leave the development docs UI functional.
+    var isDevelopmentDocs =
+        app.Environment.IsDevelopment()
+        && (context.Request.Path.StartsWithSegments("/scalar")
+            || context.Request.Path.StartsWithSegments("/openapi"));
+
+    if (!isDevelopmentDocs)
+    {
+        headers["Content-Security-Policy"] =
+            "default-src 'self'; " +
+            "script-src 'self'; " +
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+            "img-src 'self' data: blob:; " +
+            "font-src 'self' data: https://fonts.gstatic.com; " +
+            "connect-src 'self'; " +
+            "object-src 'none'; " +
+            "base-uri 'self'; " +
+            "frame-ancestors 'none'; " +
+            "form-action 'self'";
+    }
+
+    if (!app.Environment.IsDevelopment())
+        headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
+
     await next();
 });
 

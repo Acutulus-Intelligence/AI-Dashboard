@@ -18,7 +18,8 @@ public class AiSettings
     public double Temperature { get; set; } = 0.1;
 
     /// <summary>
-    /// When true, log the extracted model JSON at Information level.
+    /// When true, logs the extracted model JSON (including SQL) at Information
+    /// level. Keep this off in production; SQL can contain sensitive values.
     /// </summary>
-    public bool LogResponses { get; set; } = true;
+    public bool LogResponses { get; set; } = false;
 }

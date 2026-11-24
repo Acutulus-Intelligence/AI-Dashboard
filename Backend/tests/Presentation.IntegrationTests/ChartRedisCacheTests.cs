@@ -206,6 +206,57 @@ public sealed class ChartRedisCacheTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Redis_cache_discards_entries_older_than_max_age()
+    {
+        var settings = new ChartCacheSettings
+        {
+            Enabled = true,
+            RedisEnabled = true,
+            RedisConnectionString = _redis.GetConnectionString(),
+            InstanceName = $"test-{Guid.NewGuid():N}:",
+            L1TtlSeconds = 60,
+            EntryTtlDays = 30,
+            MaxEntryAgeMinutes = 60,
+            EncryptPayloads = true,
+        };
+        var options = Options.Create(settings);
+        var encryption = new AesEncryptionService(Options.Create(new EncryptionSettings
+        {
+            Key = "chart-cache-test-encryption-key-32b!",
+        }));
+
+        using var provider = new RedisConnectionProvider(
+            options, NullLogger<RedisConnectionProvider>.Instance);
+        using var writerL1 = new MemoryCache(new MemoryCacheOptions());
+        using var readerL1 = new MemoryCache(new MemoryCacheOptions());
+
+        var writer = new RedisChartResultCache(
+            writerL1, provider, encryption, options,
+            NullLogger<RedisChartResultCache>.Instance);
+        var reader = new RedisChartResultCache(
+            readerL1, provider, encryption, options,
+            NullLogger<RedisChartResultCache>.Instance);
+
+        var userId = Guid.NewGuid();
+        var chartId = Guid.NewGuid();
+        var oldTimestamp = DateTimeOffset.UtcNow.AddHours(-2);
+        var entry = new CachedChartResult(
+            userId,
+            chartId,
+            [new Dictionary<string, object?> { ["amount"] = 7 }],
+            DateTime.UtcNow.AddHours(-2),
+            oldTimestamp);
+
+        await writer.SetAsync(userId, chartId, entry);
+
+        (await reader.GetAsync(userId, chartId)).Should().BeNull();
+        (await writer.GetAsync(userId, chartId)).Should().BeNull();
+
+        var key = $"{settings.InstanceName}chart-result:v1:{userId:N}:{chartId:N}";
+        (await provider.Connection!.GetDatabase().KeyExistsAsync(key)).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Redis_cache_removes_corrupt_entries()
     {
         var settings = new ChartCacheSettings

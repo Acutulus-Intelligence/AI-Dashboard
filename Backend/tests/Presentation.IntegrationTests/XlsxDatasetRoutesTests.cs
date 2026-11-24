@@ -1,8 +1,11 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Application.Interfaces;
 using ClosedXML.Excel;
 using FluentAssertions;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
 
 namespace Presentation.IntegrationTests;
 
@@ -83,6 +86,9 @@ public sealed class XlsxDatasetRoutesTests
         using var genDoc = JsonDocument.Parse(await generate.Content.ReadAsStringAsync());
         genDoc.RootElement.GetProperty("queryResult").GetArrayLength().Should().Be(2);
 
+        _factory.FakeAudit.Entries.Should().Contain(e =>
+            e.Action == AuditAction.ChartGenerated && e.DatasetId == fileId);
+
         var saveChart = await client.PostAsJsonAsync("/api/charts", new
         {
             Title = "XLSX sales chart",
@@ -118,5 +124,33 @@ public sealed class XlsxDatasetRoutesTests
 
         var delete = await client.DeleteAsync($"/api/collections/{collectionId}");
         delete.StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task Xlsx_upload_rejects_workbook_over_configured_row_limit()
+    {
+        using var limitedFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureAppConfiguration((_, config) =>
+            {
+                config.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Datasets:MaxRows"] = "2",
+                });
+            });
+        });
+
+        var client = limitedFactory.CreateClient(new() { AllowAutoRedirect = false });
+        var email = $"dsxlimit_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        await _factory.SeedActiveSubscriptionAsync(email);
+
+        var collectionId = await CreateCollectionAsync(client, "Limited uploads");
+
+        using var upload = await client.PostAsync(
+            $"/api/collections/{collectionId}/files",
+            Upload("sales.xlsx", BuildSalesWorkbook()));
+
+        upload.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 }
