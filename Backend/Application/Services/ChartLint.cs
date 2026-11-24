@@ -31,6 +31,7 @@ public static class ChartLint
         config.ChartType = chartType;
 
         var rowCount = rows.Count;
+        var pieShaped = false;
 
         if (chartType != "table" && !HasNumericSeries(config, rows))
         {
@@ -47,15 +48,47 @@ public static class ChartLint
 
         if (allowTypeChange)
         {
-            if (chartType is "pie" or "radial" && rowCount > MaxPieSlices)
+            if (chartType == "heatmap" && !IsUsableHeatmap(config, rows))
             {
                 ChangeType(
                     config,
                     "bar",
                     "default",
                     notes,
-                    $"{chartType} had {rowCount} slices (more than {MaxPieSlices}); using a bar chart.");
+                    "Heatmap needs two categorical columns with multiple values; using a bar chart.");
                 chartType = config.ChartType;
+            }
+            else if (chartType == "map" && !IsUsableMap(config, rows))
+            {
+                ChangeType(
+                    config,
+                    "bar",
+                    "default",
+                    notes,
+                    "The map had no place or coordinate column; using a bar chart.");
+                chartType = config.ChartType;
+            }
+            else if (chartType is "pie" or "radial" && rowCount > MaxPieSlices)
+            {
+                if (FindParam(config.ChartType, "topN") is { Kind: ChartParamKind.Number })
+                {
+                    if (SetNumberParamIfAbsent(config, "topN", MaxPieSlices))
+                    {
+                        pieShaped = true;
+                        notes?.Add(
+                            $"{chartType} had {rowCount} slices; keeping the top {MaxPieSlices} and grouping the rest into '{ChartResultShaper.OtherLabel}'.");
+                    }
+                }
+                else
+                {
+                    ChangeType(
+                        config,
+                        "bar",
+                        "default",
+                        notes,
+                        $"{chartType} had {rowCount} slices (more than {MaxPieSlices}); using a bar chart.");
+                    chartType = config.ChartType;
+                }
             }
             else if (chartType is "line" or "area" && rowCount is > 0 and < 3)
             {
@@ -94,7 +127,8 @@ public static class ChartLint
             SetParamIfAbsent(config, "showLegend", true);
         }
 
-        if (chartType is "pie" or "radial" && rowCount is >= 2 and <= MaxPieSlices)
+        if (chartType is "pie" or "radial"
+            && (pieShaped || rowCount is >= 2 and <= MaxPieSlices))
         {
             SetParamIfAbsent(config, "showLegend", true);
         }
@@ -137,6 +171,79 @@ public static class ChartLint
             return;
 
         config.StyleConfig.Params[key] = JsonSerializer.SerializeToElement(value);
+    }
+
+    private static ChartParamSpec? FindParam(string chartType, string key) =>
+        ChartCatalog.Find(chartType)?.Params.FirstOrDefault(p =>
+            p.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
+
+    private static bool SetNumberParamIfAbsent(AiChartConfig config, string key, int value)
+    {
+        var param = FindParam(config.ChartType, key);
+        if (param is null || param.Kind != ChartParamKind.Number) return false;
+
+        config.StyleConfig ??= new ChartStyleConfig();
+        config.StyleConfig.Params ??= new Dictionary<string, JsonElement>();
+
+        if (config.StyleConfig.Params.Keys.Any(k => k.Equals(key, StringComparison.OrdinalIgnoreCase)))
+            return false;
+
+        config.StyleConfig.Params[param.Key] = JsonSerializer.SerializeToElement(value);
+        return true;
+    }
+
+    private static bool IsUsableHeatmap(
+        AiChartConfig config,
+        IReadOnlyList<Dictionary<string, object?>> rows)
+    {
+        if (rows.Count == 0) return false;
+        if (string.IsNullOrWhiteSpace(config.XAxis) || string.IsNullOrWhiteSpace(config.GroupBy))
+            return false;
+        if (!rows[0].ContainsKey(config.XAxis) || !rows[0].ContainsKey(config.GroupBy))
+            return false;
+        if (config.XAxis.Equals(config.GroupBy, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return DistinctValues(config.XAxis, rows) >= 2
+            && DistinctValues(config.GroupBy, rows) >= 2;
+    }
+
+    private static bool IsUsableMap(
+        AiChartConfig config,
+        IReadOnlyList<Dictionary<string, object?>> rows)
+    {
+        if (rows.Count == 0) return true;
+        if (rows[0].Keys.Any(IsCoordinateColumn)) return true;
+        if (string.IsNullOrWhiteSpace(config.XAxis)) return true;
+
+        // Country/region names are valid place labels; a numeric category axis
+        // is the common failure mode when no geo column exists.
+        return !ChartResultNormalizer.IsNumericColumn(rows, config.XAxis);
+    }
+
+    private static bool IsCoordinateColumn(string key)
+    {
+        var normalized = key.Trim().ToLowerInvariant().Replace(' ', '_').Replace('-', '_');
+        return normalized is "lat" or "latitude" or "lon" or "lng" or "longitude"
+            || normalized.EndsWith("_lat", StringComparison.Ordinal)
+            || normalized.EndsWith("_latitude", StringComparison.Ordinal)
+            || normalized.EndsWith("_lon", StringComparison.Ordinal)
+            || normalized.EndsWith("_lng", StringComparison.Ordinal)
+            || normalized.EndsWith("_longitude", StringComparison.Ordinal);
+    }
+
+    private static int DistinctValues(
+        string column,
+        IReadOnlyList<Dictionary<string, object?>> rows)
+    {
+        var values = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var row in rows.Take(200))
+        {
+            if (row.TryGetValue(column, out var value))
+                values.Add(value?.ToString() ?? string.Empty);
+        }
+
+        return values.Count;
     }
 
     private static int LongestLabel(AiChartConfig config, IReadOnlyList<Dictionary<string, object?>> rows)

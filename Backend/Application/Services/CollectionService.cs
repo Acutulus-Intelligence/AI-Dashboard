@@ -388,6 +388,7 @@ public class CollectionService : ICollectionService
         var allowTypeChange = request.Mode != "prefab"
             && !ChartTypeIntent.PromptNamesChartType(request.Prompt);
         ChartLint.Apply(config, result, allowTypeChange);
+        var shapedRows = ChartResultShaper.Shape(config, result);
 
         _audit.Record(new AuditEntry(
             AuditAction.ChartGenerated,
@@ -397,7 +398,7 @@ public class CollectionService : ICollectionService
             null,
             config.ChartType,
             config.SqlQuery,
-            result.Count,
+            shapedRows.Count,
             "success",
             "dataset"));
 
@@ -409,7 +410,7 @@ public class CollectionService : ICollectionService
             config.Aggregation,
             config.GroupBy,
             string.Empty,
-            result,
+            shapedRows,
             config.StyleConfig,
             config.DataModel);
     }

@@ -109,7 +109,7 @@ public class GeneratedChartGroundingTests
     {
         var config = new AiChartConfig
         {
-            ChartType = "heatmap",
+            ChartType = "sunburst",
             XAxis = "category",
             YAxis = ["amount"],
             SqlQuery = "SELECT category, amount FROM sales",
@@ -117,7 +117,7 @@ public class GeneratedChartGroundingTests
 
         var error = GeneratedChartGrounding.ValidateSqlChart(config, SalesSchema, new SelectOnlyValidator(), DbProvider.PostgreSql);
 
-        error.Should().Contain("heatmap");
+        error.Should().Contain("sunburst");
         error.Should().Contain("map");
     }
 

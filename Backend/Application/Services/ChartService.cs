@@ -463,6 +463,7 @@ public class ChartService : IChartService
         };
 
         ChartResultNormalizer.Normalize(config, rows);
+        var shapedRows = ChartResultShaper.Shape(config, rows);
 
         return new ChartConfigResponse(
             config.ChartType,
@@ -472,7 +473,7 @@ public class ChartService : IChartService
             config.Aggregation,
             config.GroupBy,
             config.SqlQuery,
-            rows,
+            shapedRows,
             chart.StyleConfig,
             DataUpdatedAt: dataUpdatedAt
         );

@@ -29,7 +29,10 @@ public sealed record ChartSuggestion(
     ChartAxisSuggestion Suggested);
 
 /// <summary>Column names the generator should prefer for this chart type.</summary>
-public sealed record ChartAxisSuggestion(string? XAxis, IReadOnlyList<string> YAxis);
+public sealed record ChartAxisSuggestion(
+    string? XAxis,
+    IReadOnlyList<string> YAxis,
+    string? GroupBy = null);
 
 public sealed record ChartRecommendationResponse(
     ChartRecommendationProfile Profile,

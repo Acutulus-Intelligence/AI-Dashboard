@@ -70,6 +70,8 @@ public static class ChartGenerationSchema
                 "styleConfig.variant must be a catalog variant of the chosen chartType.",
                 "Do not set styleConfig.params except showLegend and showLabels (booleans); never set customColors.",
                 "chartType map is only for places. Never invent latitude or longitude columns; include them only when they are listed in allowedColumnNames. Map variants are choropleth, markers, and grid.",
+                "chartType histogram must return the raw numeric values in the measure column — do not aggregate or GROUP BY.",
+                "chartType heatmap must return two categorical columns (xAxis and groupBy) plus one aggregated measure — do not pivot in SQL.",
             },
         };
     }

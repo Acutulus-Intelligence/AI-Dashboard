@@ -144,6 +144,19 @@ public class ChartRecommenderTests
     }
 
     [Fact]
+    public void Two_categories_and_one_measure_rank_heatmap_first()
+    {
+        var result = Recommend(
+            ("channel", "text", false),
+            ("segment", "text", false),
+            ("amount", "numeric", false));
+
+        result.Recommendations[0].ChartType.Should().Be("heatmap");
+        result.Recommendations[0].Suggested.XAxis.Should().Be("channel");
+        result.Recommendations[0].Suggested.GroupBy.Should().Be("segment");
+    }
+
+    [Fact]
     public void Two_measures_without_a_date_rank_bar_before_scatter()
     {
         var result = Recommend(

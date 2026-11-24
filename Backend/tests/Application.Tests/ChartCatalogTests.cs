@@ -15,6 +15,26 @@ public class ChartCatalogTests
     }
 
     [Fact]
+    public void Histogram_and_heatmap_are_registered()
+    {
+        ChartCatalog.IsKnownType("histogram").Should().BeTrue();
+        ChartCatalog.IsKnownType("heatmap").Should().BeTrue();
+        ChartCatalog.Find("histogram")!.Params.Should().Contain(p => p.Key == "bins");
+        ChartCatalog.Find("heatmap")!.Params.Should().Contain(p => p.Key == "showLabels");
+    }
+
+    [Fact]
+    public void Top_n_is_available_on_bar_pie_and_radial()
+    {
+        foreach (var type in new[] { "bar", "pie", "radial" })
+        {
+            ChartCatalog.Find(type)!.Params.Should().Contain(
+                p => p.Key == "topN" && p.Kind == ChartParamKind.Number,
+                type);
+        }
+    }
+
+    [Fact]
     public void Every_type_has_unique_variants_and_params()
     {
         foreach (var type in ChartCatalog.Types)
@@ -53,6 +73,8 @@ public class ChartCatalogTests
 
         catalog.Should().Contain("kpi:");
         catalog.Should().Contain("combo:");
+        catalog.Should().Contain("histogram:");
+        catalog.Should().Contain("heatmap:");
         catalog.Should().Contain("showLegend");
         catalog.Should().Contain("showLabels");
     }

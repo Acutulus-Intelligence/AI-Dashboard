@@ -78,14 +78,34 @@ public class ChartLintTests
     }
 
     [Fact]
-    public void Pie_with_more_than_eight_slices_becomes_a_bar_chart()
+    public void Pie_with_more_than_eight_slices_keeps_the_top_eight_and_groups_the_rest()
     {
         var config = Config("pie", "amount");
+        var notes = new List<string>();
+
+        ChartLint.Apply(config, Rows(12), allowTypeChange: true, notes);
+
+        config.ChartType.Should().Be("pie");
+        config.StyleConfig!.Params!["topN"].GetInt32().Should().Be(8);
+        notes.Should().Contain(n => n.Contains("Other"));
+    }
+
+    [Fact]
+    public void Pie_respects_an_explicit_top_n()
+    {
+        var config = Config("pie", "amount");
+        config.StyleConfig = new ChartStyleConfig
+        {
+            Params = new Dictionary<string, JsonElement>
+            {
+                ["topN"] = JsonSerializer.SerializeToElement(5),
+            },
+        };
 
         ChartLint.Apply(config, Rows(12), allowTypeChange: true);
 
-        config.ChartType.Should().Be("bar");
-        config.StyleConfig!.Variant.Should().Be("default");
+        config.ChartType.Should().Be("pie");
+        config.StyleConfig.Params!["topN"].GetInt32().Should().Be(5);
     }
 
     [Fact]
@@ -166,5 +186,90 @@ public class ChartLintTests
         ChartLint.Apply(config, Rows(3, measures: ["amount", "quantity"]), allowTypeChange: true);
 
         config.StyleConfig?.Params.Should().BeNull();
+    }
+
+    [Fact]
+    public void Heatmap_with_two_dimensions_is_kept()
+    {
+        var config = new AiChartConfig
+        {
+            ChartType = "heatmap",
+            XAxis = "region",
+            GroupBy = "month",
+            YAxis = ["amount"],
+            SqlQuery = "SELECT 1",
+        };
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["region"] = "North", ["month"] = "Jan", ["amount"] = 10 },
+            new() { ["region"] = "South", ["month"] = "Jan", ["amount"] = 20 },
+            new() { ["region"] = "North", ["month"] = "Feb", ["amount"] = 30 },
+        };
+
+        ChartLint.Apply(config, rows, allowTypeChange: true);
+
+        config.ChartType.Should().Be("heatmap");
+    }
+
+    [Fact]
+    public void Heatmap_without_a_second_dimension_becomes_a_bar_chart()
+    {
+        var config = new AiChartConfig
+        {
+            ChartType = "heatmap",
+            XAxis = "category",
+            YAxis = ["amount"],
+            SqlQuery = "SELECT 1",
+        };
+
+        ChartLint.Apply(config, Rows(5), allowTypeChange: true);
+
+        config.ChartType.Should().Be("bar");
+    }
+
+    [Fact]
+    public void Map_with_a_numeric_axis_and_no_coordinates_becomes_a_bar_chart()
+    {
+        var config = Config("map", "amount");
+        config.XAxis = "amount";
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["amount"] = 10 },
+            new() { ["amount"] = 20 },
+        };
+
+        ChartLint.Apply(config, rows, allowTypeChange: true);
+
+        config.ChartType.Should().Be("bar");
+    }
+
+    [Fact]
+    public void Map_with_place_names_is_kept()
+    {
+        var config = Config("map", "amount");
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["category"] = "Sweden", ["amount"] = 10 },
+            new() { ["category"] = "Norway", ["amount"] = 20 },
+        };
+
+        ChartLint.Apply(config, rows, allowTypeChange: true);
+
+        config.ChartType.Should().Be("map");
+    }
+
+    [Fact]
+    public void Map_with_coordinates_is_kept()
+    {
+        var config = Config("map", "amount");
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["latitude"] = 59.3, ["longitude"] = 18.1, ["amount"] = 10 },
+            new() { ["latitude"] = 60.4, ["longitude"] = 5.3, ["amount"] = 20 },
+        };
+
+        ChartLint.Apply(config, rows, allowTypeChange: true);
+
+        config.ChartType.Should().Be("map");
     }
 }

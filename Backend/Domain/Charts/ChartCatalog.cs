@@ -89,6 +89,9 @@ public static class ChartCatalog
     private static readonly ChartParamSpec ShowXAxis = Toggle("showXAxis", "X axis", true);
     private static readonly ChartParamSpec ShowYAxis = Toggle("showYAxis", "Y axis", true);
     private static readonly ChartParamSpec ShowLabels = Toggle("showLabels", "Value labels", false);
+    private static readonly ChartParamSpec TopN = Number(
+        "topN", "Top categories", 0, 0, 100, 1,
+        "0 shows every category; otherwise the rest are grouped into Other.");
     private static readonly ChartParamSpec StrokeWidth = Number("strokeWidth", "Line thickness", 2, 1, 6, 1);
     private static readonly ChartParamSpec FillOpacity = Number("fillOpacity", "Fill opacity", 0.25, 0, 1, 0.05);
     private static readonly ChartParamSpec CornerRadius = Number("cornerRadius", "Corner radius", 4, 0, 16, 1);
@@ -121,7 +124,7 @@ public static class ChartCatalog
             ],
             Params =
             [
-                CornerRadius, ShowGrid, ShowXAxis, ShowYAxis, ShowTooltip, ShowLegend, ShowLabels
+                CornerRadius, ShowGrid, ShowXAxis, ShowYAxis, ShowTooltip, ShowLegend, ShowLabels, TopN
             ]
         },
         new()
@@ -182,6 +185,39 @@ public static class ChartCatalog
         },
         new()
         {
+            Id = "histogram",
+            Label = "Histogram",
+            Description =
+                "Distribution of one numeric column split into equal-width bins. Return the raw numeric values (one row per observation) in the measure column; do not aggregate or group in SQL.",
+            Variants =
+            [
+                new("default", "Histogram", "Bars show how many values fall in each range.")
+            ],
+            Params =
+            [
+                Number("bins", "Bins", 12, 5, 60, 1),
+                CornerRadius, ShowGrid, ShowXAxis, ShowYAxis, ShowTooltip
+            ]
+        },
+        new()
+        {
+            Id = "heatmap",
+            Label = "Heatmap",
+            Description =
+                "A matrix of one measure across two categorical columns. xAxis is the column and groupBy is the row (or vice versa). Return both dimensions and one aggregated measure; do not pivot in SQL.",
+            Variants =
+            [
+                new("default", "Heatmap", "Cells coloured by the measure.")
+            ],
+            Params =
+            [
+                ShowTooltip,
+                Toggle("showLegend", "Legend", true),
+                Toggle("showLabels", "Value labels", false)
+            ]
+        },
+        new()
+        {
             Id = "pie",
             Label = "Pie",
             Description = "Shows each category as a share of the whole.",
@@ -195,7 +231,7 @@ public static class ChartCatalog
             [
                 Number("innerRadius", "Hole size", 0, 0, 80, 5, "Percent of the radius left empty in the middle."),
                 Number("padAngle", "Slice gap", 0, 0, 8, 1),
-                ShowLabels, ShowTooltip, ShowLegend
+                ShowLabels, ShowTooltip, ShowLegend, TopN
             ]
         },
         new()
@@ -230,7 +266,7 @@ public static class ChartCatalog
                 Number("barSize", "Ring thickness", 14, 4, 40, 2),
                 Number("startAngle", "Start angle", 90, -180, 360, 15),
                 Number("endAngle", "End angle", -270, -360, 360, 15),
-                ShowGrid, ShowLabels, ShowTooltip
+                ShowGrid, ShowLabels, ShowTooltip, TopN
             ]
         },
         new()

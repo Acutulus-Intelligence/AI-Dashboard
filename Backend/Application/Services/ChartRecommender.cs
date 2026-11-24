@@ -113,6 +113,12 @@ public static class ChartRecommender
                     : "A low-cardinality category with one measure — a donut shows the split.");
         }
 
+        if (dimensions.Count >= 2 && measures.Count == 1)
+        {
+            Add("heatmap", "default", 80,
+                "Two categorical columns and one measure — a heatmap shows their combination.");
+        }
+
         if (dimensions.Count >= 1 && measures.Count >= 1)
         {
             Add("bar", "default", 78,
@@ -185,6 +191,8 @@ public static class ChartRecommender
         var firstMeasure = measures.FirstOrDefault();
         var firstCategory = dimensions.FirstOrDefault(d => !IsLatitude(d) && !IsLongitude(d));
         var firstDimension = firstCategory ?? dimensions.FirstOrDefault();
+        var secondDimension = dimensions.FirstOrDefault(d =>
+            !d.Equals(firstDimension, StringComparison.OrdinalIgnoreCase));
         var firstTime = times.FirstOrDefault();
         var firstGeo = hasCoordinates
             ? geos.FirstOrDefault(IsLatitude)
@@ -211,6 +219,11 @@ public static class ChartRecommender
             "pie" or "radial" => new ChartAxisSuggestion(
                 firstDimension,
                 firstMeasure is null ? [] : [firstMeasure]),
+
+            "heatmap" => new ChartAxisSuggestion(
+                firstDimension,
+                firstMeasure is null ? [] : [firstMeasure],
+                secondDimension),
 
             "scatter" => new ChartAxisSuggestion(
                 firstMeasure,

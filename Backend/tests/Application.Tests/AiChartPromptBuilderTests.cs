@@ -33,7 +33,9 @@ public class AiChartPromptBuilderTests
         prompt.Should().Contain("params");
         prompt.Should().Contain("\"map\"");
         prompt.Should().Contain("choropleth");
-        prompt.Should().NotContain("heatmap");
+        prompt.Should().Contain("histogram");
+        prompt.Should().Contain("heatmap");
+        prompt.Should().NotContain("sunburst");
     }
 
     [Fact]
@@ -54,8 +56,8 @@ public class AiChartPromptBuilderTests
         mapPrompt.Should().Contain("The user prefers the chart type: map.");
 
         var unknownPrompt = AiChartPromptBuilder.BuildSystemPrompt(
-            schema, DbProvider.PostgreSql, prefabChartType: "heatmap", currentChartJson: null, ["var(--chart-1)"]);
-        unknownPrompt.Should().NotContain("heatmap");
+            schema, DbProvider.PostgreSql, prefabChartType: "sunburst", currentChartJson: null, ["var(--chart-1)"]);
+        unknownPrompt.Should().NotContain("sunburst");
         unknownPrompt.Should().Contain("Choose the best chart type based on the data.");
     }
 
@@ -93,7 +95,7 @@ public class AiChartPromptBuilderTests
         prompt.Should().Contain("dataModel");
         prompt.Should().Contain("params");
         prompt.Should().Contain("choropleth");
-        prompt.Should().NotContain("heatmap");
+        prompt.Should().NotContain("sunburst");
     }
 
     [Fact]

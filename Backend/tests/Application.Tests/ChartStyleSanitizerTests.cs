@@ -105,6 +105,48 @@ public class ChartStyleSanitizerTests
     }
 
     [Fact]
+    public void Top_n_and_bin_counts_are_clamped_to_catalog_limits()
+    {
+        var bar = ChartStyleSanitizer.Sanitize(
+            new ChartStyleConfig
+            {
+                Params = new Dictionary<string, JsonElement>
+                {
+                    ["topN"] = JsonSerializer.SerializeToElement(500),
+                },
+            },
+            "bar");
+        bar!.Params!["topN"].GetInt32().Should().Be(100);
+
+        var histogram = ChartStyleSanitizer.Sanitize(
+            new ChartStyleConfig
+            {
+                Params = new Dictionary<string, JsonElement>
+                {
+                    ["bins"] = JsonSerializer.SerializeToElement(500),
+                },
+            },
+            "histogram");
+        histogram!.Params!["bins"].GetInt32().Should().Be(60);
+    }
+
+    [Fact]
+    public void Top_n_is_dropped_for_types_that_do_not_support_it()
+    {
+        var result = ChartStyleSanitizer.Sanitize(
+            new ChartStyleConfig
+            {
+                Params = new Dictionary<string, JsonElement>
+                {
+                    ["topN"] = JsonSerializer.SerializeToElement(10),
+                },
+            },
+            "line");
+
+        result?.Params.Should().BeNull();
+    }
+
+    [Fact]
     public void Table_charts_cannot_keep_colours_or_value_format()
     {
         var style = new ChartStyleConfig

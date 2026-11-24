@@ -168,6 +168,7 @@ public class GraphGenerationService : IGraphGenerationService
             && request.Mode != "prefab"
             && !ChartTypeIntent.PromptNamesChartType(request.Prompt);
         ChartLint.Apply(result.Config, result.Rows, allowTypeChange, notes);
+        var shapedRows = ChartResultShaper.Shape(result.Config, result.Rows, notes);
 
         _audit.Record(new AuditEntry(
             AuditAction.ChartGenerated,
@@ -177,7 +178,7 @@ public class GraphGenerationService : IGraphGenerationService
             null,
             result.Config.ChartType,
             result.Config.SqlQuery,
-            result.Rows.Count,
+            shapedRows.Count,
             "success"));
 
         return new ChartConfigResponse(
@@ -188,7 +189,7 @@ public class GraphGenerationService : IGraphGenerationService
             result.Config.Aggregation,
             result.Config.GroupBy,
             result.Config.SqlQuery,
-            result.Rows,
+            shapedRows,
             result.Config.StyleConfig,
             AiDebug: BuildDebug(result.AiResult, result.Config, notes)
         );
@@ -250,6 +251,7 @@ public class GraphGenerationService : IGraphGenerationService
 
         ChartResultNormalizer.Normalize(result.Config, result.Rows, notes);
         ChartLint.Apply(result.Config, result.Rows, allowTypeChange: false, notes);
+        var shapedRows = ChartResultShaper.Shape(result.Config, result.Rows, notes);
 
         _audit.Record(new AuditEntry(
             AuditAction.ChartGenerated,
@@ -259,7 +261,7 @@ public class GraphGenerationService : IGraphGenerationService
             null,
             result.Config.ChartType,
             result.Config.SqlQuery,
-            result.Rows.Count,
+            shapedRows.Count,
             "success"));
 
         return new ChartConfigResponse(
@@ -270,7 +272,7 @@ public class GraphGenerationService : IGraphGenerationService
             result.Config.Aggregation,
             result.Config.GroupBy,
             result.Config.SqlQuery,
-            result.Rows,
+            shapedRows,
             result.Config.StyleConfig,
             AiDebug: BuildDebug(result.AiResult, result.Config, notes)
         );

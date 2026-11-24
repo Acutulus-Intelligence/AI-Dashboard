@@ -127,12 +127,26 @@ public static class ChartResultNormalizer
     public static bool IsNumericColumn(IReadOnlyList<Dictionary<string, object?>> rows, string key) =>
         rows.Take(SampleSize).Any(r => r.TryGetValue(key, out var value) && IsNumber(value));
 
-    private static bool IsNumber(object? value) => value switch
+    private static bool IsNumber(object? value) => TryGetNumber(value, out _);
+
+    /// <summary>Numeric result value as a double, for sorting and aggregation.</summary>
+    public static bool TryGetNumber(object? value, out double number)
     {
-        sbyte or byte or short or ushort or int or uint or long or ulong => true,
-        float or double or decimal => true,
-        string text when !string.IsNullOrWhiteSpace(text) =>
-            decimal.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out _),
-        _ => false,
-    };
+        switch (value)
+        {
+            case sbyte or byte or short or ushort or int or uint or long or ulong
+                or float or double or decimal:
+                number = Convert.ToDouble(value, CultureInfo.InvariantCulture);
+                return !double.IsNaN(number) && !double.IsInfinity(number);
+
+            case string text when !string.IsNullOrWhiteSpace(text)
+                && decimal.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed):
+                number = (double)parsed;
+                return true;
+
+            default:
+                number = 0;
+                return false;
+        }
+    }
 }

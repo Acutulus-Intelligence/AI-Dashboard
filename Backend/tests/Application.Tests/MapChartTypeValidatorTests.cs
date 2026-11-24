@@ -14,7 +14,7 @@ public class MapChartTypeValidatorTests
         validator.Validate(new GenerateChartRequest(Guid.NewGuid(), "sales", null, "map", "prefab"))
             .IsValid.Should().BeTrue();
 
-        var unknown = validator.Validate(new GenerateChartRequest(Guid.NewGuid(), "sales", null, "heatmap", "prefab"));
+        var unknown = validator.Validate(new GenerateChartRequest(Guid.NewGuid(), "sales", null, "sunburst", "prefab"));
         unknown.IsValid.Should().BeFalse();
         unknown.Errors.Should().Contain(error =>
             error.PropertyName == "PrefabChartType" && error.ErrorMessage.Contains("map"));
@@ -31,7 +31,7 @@ public class MapChartTypeValidatorTests
         validator.Validate(new GenerateCollectionChartRequest("show sales", null, "auto"))
             .IsValid.Should().BeTrue();
 
-        validator.Validate(new GenerateCollectionChartRequest(null, "heatmap", "prefab"))
+        validator.Validate(new GenerateCollectionChartRequest(null, "sunburst", "prefab"))
             .IsValid.Should().BeFalse();
     }
 }
