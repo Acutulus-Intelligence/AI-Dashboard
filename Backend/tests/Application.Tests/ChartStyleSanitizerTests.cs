@@ -147,6 +147,40 @@ public class ChartStyleSanitizerTests
     }
 
     [Fact]
+    public void Pivot_and_waterfall_params_are_kept_and_pivot_drops_colours()
+    {
+        var pivot = ChartStyleSanitizer.Sanitize(
+            new ChartStyleConfig
+            {
+                Colors = ["var(--chart-1)"],
+                Params = new Dictionary<string, JsonElement>
+                {
+                    ["showTotals"] = JsonSerializer.SerializeToElement(true),
+                    ["maxRows"] = JsonSerializer.SerializeToElement(1000),
+                },
+            },
+            "pivot");
+
+        pivot.Should().NotBeNull();
+        pivot!.Colors.Should().BeNull();
+        pivot.Params.Should().ContainKey("showTotals");
+        pivot.Params!["maxRows"].GetInt32().Should().Be(500);
+
+        var waterfall = ChartStyleSanitizer.Sanitize(
+            new ChartStyleConfig
+            {
+                Params = new Dictionary<string, JsonElement>
+                {
+                    ["showTotals"] = JsonSerializer.SerializeToElement(false),
+                    ["showLabels"] = JsonSerializer.SerializeToElement(true),
+                },
+            },
+            "waterfall");
+
+        waterfall!.Params!.Keys.Should().BeEquivalentTo(["showTotals", "showLabels"]);
+    }
+
+    [Fact]
     public void Table_charts_cannot_keep_colours_or_value_format()
     {
         var style = new ChartStyleConfig

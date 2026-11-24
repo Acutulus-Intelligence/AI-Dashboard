@@ -58,6 +58,36 @@ public static class ChartLint
                     "Heatmap needs two categorical columns with multiple values; using a bar chart.");
                 chartType = config.ChartType;
             }
+            else if (chartType == "pivot" && !IsUsablePivot(config, rows))
+            {
+                ChangeType(
+                    config,
+                    "bar",
+                    "default",
+                    notes,
+                    "Pivot needs two different categorical columns; using a bar chart.");
+                chartType = config.ChartType;
+            }
+            else if (chartType == "funnel" && (rowCount < 2 || HasNegativeMeasure(config, rows)))
+            {
+                ChangeType(
+                    config,
+                    "bar",
+                    "default",
+                    notes,
+                    "Funnel needs at least two non-negative stages; using a bar chart.");
+                chartType = config.ChartType;
+            }
+            else if (chartType == "waterfall" && (rowCount < 2 || AllMeasureValuesAreZero(config, rows)))
+            {
+                ChangeType(
+                    config,
+                    "table",
+                    "raw",
+                    notes,
+                    "Waterfall needs at least two non-zero changes; using a table.");
+                chartType = config.ChartType;
+            }
             else if (chartType == "map" && !IsUsableMap(config, rows))
             {
                 ChangeType(
@@ -206,6 +236,59 @@ public static class ChartLint
 
         return DistinctValues(config.XAxis, rows) >= 2
             && DistinctValues(config.GroupBy, rows) >= 2;
+    }
+
+    private static bool IsUsablePivot(
+        AiChartConfig config,
+        IReadOnlyList<Dictionary<string, object?>> rows)
+    {
+        if (rows.Count == 0) return false;
+        if (string.IsNullOrWhiteSpace(config.XAxis) || string.IsNullOrWhiteSpace(config.GroupBy))
+            return false;
+        if (!rows[0].ContainsKey(config.XAxis) || !rows[0].ContainsKey(config.GroupBy))
+            return false;
+
+        return !config.XAxis.Equals(config.GroupBy, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasNegativeMeasure(
+        AiChartConfig config,
+        IReadOnlyList<Dictionary<string, object?>> rows)
+    {
+        foreach (var axis in config.YAxis)
+        {
+            foreach (var row in rows.Take(200))
+            {
+                if (ChartResultNormalizer.TryGetNumber(row.GetValueOrDefault(axis), out var value)
+                    && value < 0)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool AllMeasureValuesAreZero(
+        AiChartConfig config,
+        IReadOnlyList<Dictionary<string, object?>> rows)
+    {
+        var sawValue = false;
+
+        foreach (var axis in config.YAxis)
+        {
+            foreach (var row in rows.Take(200))
+            {
+                if (!ChartResultNormalizer.TryGetNumber(row.GetValueOrDefault(axis), out var value))
+                    continue;
+
+                sawValue = true;
+                if (value != 0) return false;
+            }
+        }
+
+        return sawValue;
     }
 
     private static bool IsUsableMap(

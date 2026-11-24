@@ -72,6 +72,9 @@ public static class ChartGenerationSchema
                 "chartType map is only for places. Never invent latitude or longitude columns; include them only when they are listed in allowedColumnNames. Map variants are choropleth, markers, and grid.",
                 "chartType histogram must return the raw numeric values in the measure column — do not aggregate or GROUP BY.",
                 "chartType heatmap must return two categorical columns (xAxis and groupBy) plus one aggregated measure — do not pivot in SQL.",
+                "chartType pivot must return two categorical columns (xAxis and groupBy) plus one aggregated measure — do not pivot in SQL.",
+                "chartType funnel must return one stage column and one non-negative measure, ordered widest to narrowest.",
+                "chartType waterfall must return one category column and one signed change measure per step — do not return a running total.",
             },
         };
     }

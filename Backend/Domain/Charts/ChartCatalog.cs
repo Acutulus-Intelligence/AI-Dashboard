@@ -218,6 +218,59 @@ public static class ChartCatalog
         },
         new()
         {
+            Id = "pivot",
+            Label = "Pivot",
+            Description =
+                "A cross-tab table of one measure by two categorical columns. xAxis is the row and groupBy is the column (or vice versa). Return both dimensions and one aggregated measure; do not pivot in SQL.",
+            SupportsColors = false,
+            Variants =
+            [
+                new("default", "Pivot table", "Rows and columns with the measure in each cell.")
+            ],
+            Params =
+            [
+                Toggle("showTotals", "Totals", true),
+                Toggle("compact", "Compact cells", false),
+                Toggle("stickyHeader", "Sticky header", true),
+                Number("maxRows", "Row limit", 100, 5, 500, 5)
+            ]
+        },
+        new()
+        {
+            Id = "funnel",
+            Label = "Funnel",
+            Description =
+                "Stages of one process where each step is a subset of the previous. Return one stage column and one non-negative measure, ordered from widest to narrowest with ORDER BY.",
+            Variants =
+            [
+                new("default", "Funnel", "Stages narrow towards the bottom.")
+            ],
+            Params =
+            [
+                Toggle("showLabels", "Stage labels", true),
+                Toggle("showPercent", "Percent of first stage", true),
+                ShowTooltip
+            ]
+        },
+        new()
+        {
+            Id = "waterfall",
+            Label = "Waterfall",
+            Description =
+                "Cumulative effect of signed changes across ordered categories. Return one category column and one signed change measure per step; do not pre-aggregate into a running total.",
+            Variants =
+            [
+                new("default", "Waterfall", "Bars show each change and the running total.")
+            ],
+            Params =
+            [
+                ShowGrid, ShowTooltip,
+                Toggle("showLabels", "Change labels", false),
+                Toggle("showTotals", "Total bar", true)
+            ]
+        },
+        new()
+        {
             Id = "pie",
             Label = "Pie",
             Description = "Shows each category as a share of the whole.",

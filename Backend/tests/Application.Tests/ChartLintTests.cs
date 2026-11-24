@@ -272,4 +272,85 @@ public class ChartLintTests
 
         config.ChartType.Should().Be("map");
     }
+
+    [Fact]
+    public void Pivot_with_two_dimensions_is_kept()
+    {
+        var config = Config("pivot", "amount");
+        config.GroupBy = "month";
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["category"] = "North", ["month"] = "Jan", ["amount"] = 10 },
+            new() { ["category"] = "South", ["month"] = "Feb", ["amount"] = 20 },
+        };
+
+        ChartLint.Apply(config, rows, allowTypeChange: true);
+
+        config.ChartType.Should().Be("pivot");
+    }
+
+    [Fact]
+    public void Pivot_without_a_second_dimension_becomes_a_bar_chart()
+    {
+        var config = Config("pivot", "amount");
+
+        ChartLint.Apply(config, Rows(5), allowTypeChange: true);
+
+        config.ChartType.Should().Be("bar");
+    }
+
+    [Fact]
+    public void Funnel_with_positive_stages_is_kept()
+    {
+        var config = Config("funnel", "amount");
+
+        ChartLint.Apply(config, Rows(4), allowTypeChange: true);
+
+        config.ChartType.Should().Be("funnel");
+    }
+
+    [Fact]
+    public void Funnel_with_negative_values_becomes_a_bar_chart()
+    {
+        var config = Config("funnel", "amount");
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["category"] = "a", ["amount"] = 10 },
+            new() { ["category"] = "b", ["amount"] = -5 },
+        };
+
+        ChartLint.Apply(config, rows, allowTypeChange: true);
+
+        config.ChartType.Should().Be("bar");
+    }
+
+    [Fact]
+    public void Waterfall_with_signed_changes_is_kept()
+    {
+        var config = Config("waterfall", "amount");
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["category"] = "a", ["amount"] = 10 },
+            new() { ["category"] = "b", ["amount"] = -5 },
+        };
+
+        ChartLint.Apply(config, rows, allowTypeChange: true);
+
+        config.ChartType.Should().Be("waterfall");
+    }
+
+    [Fact]
+    public void Waterfall_with_only_zero_changes_becomes_a_table()
+    {
+        var config = Config("waterfall", "amount");
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["category"] = "a", ["amount"] = 0 },
+            new() { ["category"] = "b", ["amount"] = 0 },
+        };
+
+        ChartLint.Apply(config, rows, allowTypeChange: true);
+
+        config.ChartType.Should().Be("table");
+    }
 }

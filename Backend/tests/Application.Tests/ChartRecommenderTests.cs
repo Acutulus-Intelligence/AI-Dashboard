@@ -154,6 +154,27 @@ public class ChartRecommenderTests
         result.Recommendations[0].ChartType.Should().Be("heatmap");
         result.Recommendations[0].Suggested.XAxis.Should().Be("channel");
         result.Recommendations[0].Suggested.GroupBy.Should().Be("segment");
+        result.Recommendations.Should().Contain(r => r.ChartType == "pivot");
+    }
+
+    [Fact]
+    public void Stage_column_ranks_funnel_first()
+    {
+        var result = Recommend(
+            ("stage", "text", false),
+            ("users", "numeric", false));
+
+        result.Recommendations[0].ChartType.Should().Be("funnel");
+    }
+
+    [Fact]
+    public void Delta_measure_ranks_waterfall_first()
+    {
+        var result = Recommend(
+            ("category", "text", false),
+            ("monthly_change", "numeric", false));
+
+        result.Recommendations[0].ChartType.Should().Be("waterfall");
     }
 
     [Fact]

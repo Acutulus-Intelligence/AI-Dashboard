@@ -25,6 +25,16 @@ public static class ChartRecommender
         "share", "percent", "procent", "andel", "rate", "ratio", "quota", "kvot"
     ];
 
+    private static readonly string[] FunnelHints =
+    [
+        "funnel", "stage", "step", "pipeline", "phase", "steg", "fas", "tratt"
+    ];
+
+    private static readonly string[] DeltaHints =
+    [
+        "delta", "change", "diff", "forandring", "förändring", "okning", "ökning", "minskning"
+    ];
+
     private static readonly string[] GeoHints =
     [
         "country", "region", "province", "county", "city", "stad", "kommun", "ort",
@@ -105,7 +115,7 @@ public static class ChartRecommender
                     : "A geographic column was detected; a numeric measure can be shaded per place.");
         }
 
-        if (dimensions.Count >= 1 && measures.Count == 1 && lowCardinality)
+        if (dimensions.Count == 1 && measures.Count == 1 && lowCardinality)
         {
             Add("pie", "donut", shareMeasure ? 82 : 76,
                 shareMeasure
@@ -117,6 +127,22 @@ public static class ChartRecommender
         {
             Add("heatmap", "default", 80,
                 "Two categorical columns and one measure — a heatmap shows their combination.");
+            Add("pivot", "default", 74,
+                "Two categorical columns and one measure — a pivot shows the exact values.");
+        }
+
+        var funnelDimension = dimensions.FirstOrDefault(d => MatchesAny(d, FunnelHints));
+        if (funnelDimension is not null && measures.Count >= 1)
+        {
+            Add("funnel", "default", 84,
+                $"'{funnelDimension}' looks like a process stage — a funnel shows stage drop-off.");
+        }
+
+        var deltaMeasure = measures.FirstOrDefault(m => MatchesAny(m, DeltaHints));
+        if (deltaMeasure is not null && dimensions.Count >= 1)
+        {
+            Add("waterfall", "default", 82,
+                $"'{deltaMeasure}' looks like a signed change — a waterfall shows the running total.");
         }
 
         if (dimensions.Count >= 1 && measures.Count >= 1)
@@ -224,6 +250,15 @@ public static class ChartRecommender
                 firstDimension,
                 firstMeasure is null ? [] : [firstMeasure],
                 secondDimension),
+
+            "pivot" => new ChartAxisSuggestion(
+                firstDimension,
+                firstMeasure is null ? [] : [firstMeasure],
+                secondDimension),
+
+            "funnel" or "waterfall" => new ChartAxisSuggestion(
+                firstDimension,
+                firstMeasure is null ? [] : [firstMeasure]),
 
             "scatter" => new ChartAxisSuggestion(
                 firstMeasure,

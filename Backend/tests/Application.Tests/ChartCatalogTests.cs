@@ -24,6 +24,19 @@ public class ChartCatalogTests
     }
 
     [Fact]
+    public void Pivot_funnel_and_waterfall_are_registered()
+    {
+        ChartCatalog.IsKnownType("pivot").Should().BeTrue();
+        ChartCatalog.IsKnownType("funnel").Should().BeTrue();
+        ChartCatalog.IsKnownType("waterfall").Should().BeTrue();
+
+        ChartCatalog.Find("pivot")!.SupportsColors.Should().BeFalse();
+        ChartCatalog.Find("pivot")!.Params.Should().Contain(p => p.Key == "showTotals");
+        ChartCatalog.Find("funnel")!.Params.Should().Contain(p => p.Key == "showPercent");
+        ChartCatalog.Find("waterfall")!.Params.Should().Contain(p => p.Key == "showTotals");
+    }
+
+    [Fact]
     public void Top_n_is_available_on_bar_pie_and_radial()
     {
         foreach (var type in new[] { "bar", "pie", "radial" })
@@ -75,6 +88,9 @@ public class ChartCatalogTests
         catalog.Should().Contain("combo:");
         catalog.Should().Contain("histogram:");
         catalog.Should().Contain("heatmap:");
+        catalog.Should().Contain("pivot:");
+        catalog.Should().Contain("funnel:");
+        catalog.Should().Contain("waterfall:");
         catalog.Should().Contain("showLegend");
         catalog.Should().Contain("showLabels");
     }
