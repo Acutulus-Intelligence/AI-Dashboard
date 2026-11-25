@@ -38,6 +38,7 @@ public static partial class ChartRefineMerger
             Aggregation = !string.IsNullOrWhiteSpace(ai.Aggregation) ? ai.Aggregation : baseline.Aggregation,
             GroupBy = ai.GroupBy ?? baseline.GroupBy,
             SqlQuery = !string.IsNullOrWhiteSpace(ai.SqlQuery) ? ai.SqlQuery : baseline.SqlQuery,
+            DataModel = ai.DataModel ?? baseline.DataModel,
             StyleConfig = mergedStyle,
         };
     }

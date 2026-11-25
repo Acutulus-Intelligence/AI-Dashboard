@@ -150,7 +150,8 @@ public class ChartService : IChartService
             chart.XAxis, [.. chart.YAxis], chart.Aggregation,
             chart.GroupBy, chart.SqlQuery,
             chart.ConnectionId, chart.DatasetId, chart.TableName, chart.CreatedAt,
-            chart.StyleConfig, FolderId: chart.FolderId
+            chart.StyleConfig, FolderId: chart.FolderId,
+            CollectionId: await ResolveCollectionIdAsync(chart, ct)
         );
     }
 
@@ -194,7 +195,8 @@ public class ChartService : IChartService
             chart.XAxis, [.. chart.YAxis], chart.Aggregation,
             chart.GroupBy, chart.SqlQuery,
             chart.ConnectionId, chart.DatasetId, chart.TableName, chart.CreatedAt,
-            chart.StyleConfig, FolderId: chart.FolderId
+            chart.StyleConfig, FolderId: chart.FolderId,
+            CollectionId: await ResolveCollectionIdAsync(chart, ct)
         );
     }
 
@@ -442,6 +444,17 @@ public class ChartService : IChartService
                 chart.Id);
             return null;
         }
+    }
+
+    private async Task<Guid?> ResolveCollectionIdAsync(SavedChart chart, CancellationToken ct)
+    {
+        if (chart.DatasetId is null) return null;
+
+        return await _db.SavedDatasets
+            .AsNoTracking()
+            .Where(d => d.Id == chart.DatasetId.Value)
+            .Select(d => (Guid?)d.CollectionId)
+            .FirstOrDefaultAsync(ct);
     }
 
     private static ChartConfigResponse BuildResponse(

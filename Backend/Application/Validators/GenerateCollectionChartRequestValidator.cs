@@ -30,5 +30,22 @@ public class GenerateCollectionChartRequestValidator : AbstractValidator<Generat
                 .Must(ChartCatalog.IsKnownType)
                 .WithMessage(_ => $"PrefabChartType must be one of: {string.Join(", ", ChartCatalog.TypeIds)}.");
         });
+
+        When(x => x.CurrentChart is not null, () =>
+        {
+            RuleFor(x => x.CurrentChart!.Title)
+                .NotEmpty()
+                .MaximumLength(200);
+
+            RuleFor(x => x.CurrentChart!.ChartType)
+                .NotEmpty()
+                .MaximumLength(100);
+
+            RuleFor(x => x.CurrentChart!.XAxis)
+                .MaximumLength(200);
+
+            RuleFor(x => x.CurrentChart!.YAxis)
+                .NotEmpty();
+        });
     }
 }

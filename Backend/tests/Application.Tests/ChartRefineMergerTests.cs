@@ -240,4 +240,67 @@ public class ChartRefineMergerTests
         result.StyleConfig!.Params.Should().ContainKey("showLegend");
         result.StyleConfig.Params.Should().ContainKey("showLabels");
     }
+
+    [Fact]
+    public void Refine_preserves_the_baseline_data_model_when_the_ai_omits_it()
+    {
+        var dataModel = new DataQueryModel
+        {
+            Filters = [],
+            GroupBy = ["category"],
+            Aggregations = [new DataAggregation { Column = "amount", Function = "sum" }],
+            OrderBy = [],
+            Limit = 10,
+        };
+        var baseline = new ChartBaseline(
+            "Sales", "bar", "category", ["amount"], "sum", "category", "",
+            DataModel: dataModel);
+        var ai = new AiChartConfig
+        {
+            ChartType = "bar",
+            Title = "Sales",
+            XAxis = "category",
+            YAxis = ["amount"],
+        };
+
+        var result = ChartRefineMerger.Apply(baseline, ai, "make the title clearer", Allowlist);
+
+        result.DataModel.Should().BeSameAs(dataModel);
+    }
+
+    [Fact]
+    public void Refine_uses_the_ai_data_model_when_it_returns_one()
+    {
+        var baselineModel = new DataQueryModel
+        {
+            Filters = [],
+            GroupBy = ["category"],
+            Aggregations = [new DataAggregation { Column = "amount", Function = "sum" }],
+            OrderBy = [],
+            Limit = 10,
+        };
+        var aiModel = new DataQueryModel
+        {
+            Filters = [],
+            GroupBy = ["category"],
+            Aggregations = [new DataAggregation { Column = "amount", Function = "avg" }],
+            OrderBy = [],
+            Limit = 5,
+        };
+        var baseline = new ChartBaseline(
+            "Sales", "bar", "category", ["amount"], "sum", "category", "",
+            DataModel: baselineModel);
+        var ai = new AiChartConfig
+        {
+            ChartType = "bar",
+            Title = "Sales",
+            XAxis = "category",
+            YAxis = ["amount"],
+            DataModel = aiModel,
+        };
+
+        var result = ChartRefineMerger.Apply(baseline, ai, "use the average", Allowlist);
+
+        result.DataModel.Should().BeSameAs(aiModel);
+    }
 }

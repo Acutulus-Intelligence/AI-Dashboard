@@ -46,28 +46,34 @@ public sealed class FakeAiService : IAiService
         string schemaJson,
         string prompt,
         string? prefabChartType = null,
+        string? currentChartJson = null,
         IReadOnlyList<string>? allowedColors = null,
         string? repairHint = null,
         CancellationToken ct = default)
     {
         var chartType = string.IsNullOrWhiteSpace(prefabChartType) ? "bar" : prefabChartType;
+        var isRefine = !string.IsNullOrWhiteSpace(currentChartJson);
+
+        // On refine, omit the data model so the service must merge the baseline.
         return Task.FromResult(new AiChartConfig
         {
             ChartType = chartType,
-            Title = "Sales by category",
+            Title = isRefine ? "Sales by category (refined)" : "Sales by category",
             XAxis = "category",
             YAxis = ["amount"],
             Aggregation = "sum",
             GroupBy = "category",
             SqlQuery = string.Empty,
-            DataModel = new DataQueryModel
-            {
-                Filters = [],
-                GroupBy = ["category"],
-                Aggregations = [new DataAggregation { Column = "amount", Function = "sum" }],
-                OrderBy = [new DataOrderBy { Column = "amount", Direction = "desc" }],
-                Limit = 10,
-            },
+            DataModel = isRefine
+                ? null
+                : new DataQueryModel
+                {
+                    Filters = [],
+                    GroupBy = ["category"],
+                    Aggregations = [new DataAggregation { Column = "amount", Function = "sum" }],
+                    OrderBy = [new DataOrderBy { Column = "amount", Direction = "desc" }],
+                    Limit = 10,
+                },
         });
     }
 }

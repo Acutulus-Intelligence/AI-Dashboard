@@ -43,6 +43,12 @@ public class CollectionService : ICollectionService
         _audit = audit;
     }
 
+    private static readonly JsonSerializerOptions BaselineJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+    };
+
     public async Task<CollectionResponse> CreateAsync(Guid userId, CreateCollectionRequest request, CancellationToken ct = default)
     {
         if (!await _access.HasCollectionManagePermissionAsync(userId, ct))
@@ -328,6 +334,26 @@ public class CollectionService : ICollectionService
         var allowedColors = await ResolveAccountColorsAsync(userId, ct);
         var schemaJson = ChartGenerationSchema.ToJson(dataset.TableName, columnNames, columnTypes, allowedColors);
 
+        // Slim baseline for the prompt — never includes query result rows.
+        var currentChartJson = request.CurrentChart is null
+            ? null
+            : JsonSerializer.Serialize(new
+            {
+                request.CurrentChart.Title,
+                request.CurrentChart.ChartType,
+                request.CurrentChart.XAxis,
+                request.CurrentChart.YAxis,
+                SeriesColourSlots = request.CurrentChart.YAxis
+                    .Select((name, i) => $"{i}={name}")
+                    .ToList(),
+                request.CurrentChart.Aggregation,
+                request.CurrentChart.GroupBy,
+                request.CurrentChart.DataModel,
+                StyleConfig = ChartRefineMerger.SlimStyleForAi(
+                    request.CurrentChart.StyleConfig,
+                    request.CurrentChart.ChartType),
+            }, BaselineJsonOptions);
+
         var description = request.Prompt?.Trim();
 
         var prompt = request.Mode switch
@@ -362,14 +388,33 @@ public class CollectionService : ICollectionService
 
         var (config, _) = await AiGenerationRetry.RunAsync(
             (repairHint, token) => _aiService.GenerateCollectionChartConfigAsync(
-                schemaJson, prompt, request.PrefabChartType, allowedColors, repairHint, token),
+                schemaJson, prompt, request.PrefabChartType, currentChartJson, allowedColors,
+                repairHint, token),
             generated =>
             {
                 if (generated.DataModel is null)
-                    return "AI returned no data model for this data.";
+                {
+                    // Style-only refine: the baseline data model is merged below.
+                    return request.CurrentChart?.DataModel is not null
+                        ? null
+                        : "AI returned no data model for this data.";
+                }
+
                 return DataQueryModelGrounding.Validate(generated.DataModel, columnNames, generated);
             },
             ct);
+
+        if (request.CurrentChart is not null)
+        {
+            config = ChartRefineMerger.Apply(request.CurrentChart, config, prompt, allowedColors);
+            config.StyleConfig = ChartStyleSanitizer.Sanitize(config.StyleConfig, config.ChartType);
+        }
+        else
+        {
+            config.StyleConfig = ChartStyleSanitizer.Sanitize(
+                ChartRefineMerger.TakeAiControlledStyleFields(config.StyleConfig, config.ChartType, allowedColors),
+                config.ChartType);
+        }
 
         if (config.DataModel is null)
             throw new InvalidOperationException("AI returned no data model for this data.");
@@ -378,14 +423,11 @@ public class CollectionService : ICollectionService
         if (groundingError is not null)
             throw new InvalidOperationException(groundingError);
 
-        config.StyleConfig = ChartStyleSanitizer.Sanitize(
-            ChartRefineMerger.TakeAiControlledStyleFields(config.StyleConfig, config.ChartType, allowedColors),
-            config.ChartType);
-
         var result = await _dataQueryExecutor.ExecuteAsync(columnNames, columnTypes, rows, config.DataModel, ct);
 
         ChartResultNormalizer.Normalize(config, result);
-        var allowTypeChange = request.Mode != "prefab"
+        var allowTypeChange = request.CurrentChart is null
+            && request.Mode != "prefab"
             && !ChartTypeIntent.PromptNamesChartType(request.Prompt);
         ChartLint.Apply(config, result, allowTypeChange);
         var shapedRows = ChartResultShaper.Shape(config, result);

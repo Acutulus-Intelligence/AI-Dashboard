@@ -95,6 +95,39 @@ public sealed class CollectionRoutesTests
         using var genDoc = JsonDocument.Parse(await generate.Content.ReadAsStringAsync());
         genDoc.RootElement.GetProperty("queryResult").GetArrayLength().Should().Be(2);
 
+        var refine = await client.PostAsJsonAsync(
+            $"/api/collections/{collectionId}/files/{fileId}/generate",
+            new
+            {
+                Prompt = "Make the title clearer",
+                PrefabChartType = (string?)null,
+                Mode = "prompt",
+                CurrentChart = new
+                {
+                    Title = "Sales by category",
+                    ChartType = "bar",
+                    XAxis = "category",
+                    YAxis = new[] { "amount" },
+                    Aggregation = "sum",
+                    GroupBy = "category",
+                    SqlQuery = "",
+                    DataModel = new
+                    {
+                        Filters = Array.Empty<object>(),
+                        GroupBy = new[] { "category" },
+                        Aggregations = new[] { new { Column = "amount", Function = "sum" } },
+                        OrderBy = Array.Empty<object>(),
+                        Limit = 10,
+                    },
+                },
+            });
+        refine.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var refineDoc = JsonDocument.Parse(await refine.Content.ReadAsStringAsync());
+        refineDoc.RootElement.GetProperty("title").GetString()
+            .Should().Be("Sales by category (refined)");
+        refineDoc.RootElement.GetProperty("dataModel").ValueKind
+            .Should().NotBe(JsonValueKind.Null);
+
         var saveChart = await client.PostAsJsonAsync("/api/charts", new
         {
             Title = "Collection sales chart",

@@ -19,5 +19,6 @@ public sealed record UpdateCollectionRequest(
 public sealed record GenerateCollectionChartRequest(
     string? Prompt,
     string? PrefabChartType,
-    string Mode
+    string Mode,
+    ChartBaseline? CurrentChart = null
 );

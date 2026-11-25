@@ -85,6 +85,21 @@ public class AiChartPromptBuilderTests
     }
 
     [Fact]
+    public void Collection_refine_prompt_copies_the_data_model()
+    {
+        var system = AiChartPromptBuilder.BuildCollectionSystemPrompt(
+            "{}", null, null, currentChartJson: """{"chartType":"bar"}""");
+        system.Should().Contain("This is a refinement of the existing chart JSON");
+
+        var prompt = AiChartPromptBuilder.BuildCollectionRefineUserPrompt(
+            "Make the title clearer",
+            """{"chartType":"bar","dataModel":{}}""");
+        prompt.Should().Contain("copy dataModel");
+        prompt.Should().Contain("<current_chart>");
+        prompt.Should().Contain("Make the title clearer");
+    }
+
+    [Fact]
     public void Collection_prompt_includes_color_allowlist()
     {        var schema = ChartGenerationSchema.ToJson("sales", ["category", "amount"], ["text", "numeric"], ["var(--chart-2)"]);
 
