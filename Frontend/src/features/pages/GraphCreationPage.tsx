@@ -148,6 +148,7 @@ function toBaseline(
     groupBy: result.groupBy,
     sqlQuery: result.sqlQuery,
     styleConfig: cloneStyle(style),
+    dataModel: result.dataModel ?? null,
   };
 }
 
@@ -310,6 +311,7 @@ export default function GraphCreationPage() {
         setTableName(detail.tableName ?? '');
         if (detail.datasetId) {
           setSourceType('collection');
+          setCollectionId(detail.collectionId ?? '');
           setFileId(detail.datasetId);
         }
         setSavedChartId(detail.id);
@@ -700,22 +702,33 @@ export default function GraphCreationPage() {
   }
 
   async function handleRefine() {
-    if (!result || !connectionId || !tableName || !refinePrompt.trim()) return;
+    if (!result || !refinePrompt.trim()) return;
+    if (sourceType === 'connection' && (!connectionId || !tableName)) return;
+    if (sourceType === 'collection' && (!collectionId || !fileId)) return;
+
     const snapshot = {
       result: cloneResult(result),
       styleConfig: cloneStyle(styleConfig),
       title: editableTitle,
     };
+    const baseline = toBaseline(result, styleConfig, editableTitle);
     setRefining(true);
     setError('');
     try {
-      const res = await generateChart({
-        connectionId,
-        tableName,
-        prompt: refinePrompt.trim(),
-        mode: 'prompt',
-        currentChart: toBaseline(result, styleConfig, editableTitle),
-      });
+      const res =
+        sourceType === 'collection'
+          ? await generateCollectionChart(collectionId, fileId, {
+              prompt: refinePrompt.trim(),
+              mode: 'prompt',
+              currentChart: baseline,
+            })
+          : await generateChart({
+              connectionId,
+              tableName,
+              prompt: refinePrompt.trim(),
+              mode: 'prompt',
+              currentChart: baseline,
+            });
       setPreRefineSnapshot(snapshot);
       const style = normalizeColorExclusive(res.styleConfig ?? {});
       setResult({ ...res, styleConfig: style });
@@ -1510,7 +1523,14 @@ export default function GraphCreationPage() {
                         type="button"
                         variant="secondary"
                         className="w-fit"
-                        disabled={refining || generating || !refinePrompt.trim() || !connectionId || !tableName}
+                        disabled={
+                          refining ||
+                          generating ||
+                          !refinePrompt.trim() ||
+                          (sourceType === 'collection'
+                            ? !collectionId || !fileId
+                            : !connectionId || !tableName)
+                        }
                         onClick={() => void handleRefine()}
                       >
                         {refining ? <Loader2 className="animate-spin" /> : <Sparkles />}

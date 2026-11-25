@@ -34,6 +34,7 @@ export interface ChartBaseline {
   groupBy: string | null;
   sqlQuery: string;
   styleConfig?: ChartStyleConfig | null;
+  dataModel?: DataQueryModel | null;
 }
 
 export interface GenerateChartRequest {

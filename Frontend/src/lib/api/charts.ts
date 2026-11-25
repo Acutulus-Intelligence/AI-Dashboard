@@ -76,6 +76,7 @@ export interface ChartDetailResponse {
   styleConfig?: ChartStyleConfig | null;
   dataModel?: DataQueryModel | null;
   folderId: string | null;
+  collectionId?: string | null;
 }
 
 export interface ChartConfigResponse {
