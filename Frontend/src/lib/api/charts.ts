@@ -50,6 +50,7 @@ export interface UpdateChartRequest {
   groupBy: string | null;
   sqlQuery: string;
   styleConfig?: ChartStyleConfig | null;
+  dataModel?: DataQueryModel | null;
 }
 
 export interface ChartResponse {
@@ -150,6 +151,16 @@ export function updateChart(id: string, data: UpdateChartRequest): Promise<Chart
   return apiFetch<ChartDetailResponse>(`/api/charts/${id}`, {
     method: 'PUT',
     body: JSON.stringify(data),
+  });
+}
+
+export function updateChartStyle(
+  id: string,
+  styleConfig: ChartStyleConfig | null,
+): Promise<ChartDetailResponse> {
+  return apiFetch<ChartDetailResponse>(`/api/charts/${id}/style`, {
+    method: 'PUT',
+    body: JSON.stringify({ styleConfig }),
   });
 }
 

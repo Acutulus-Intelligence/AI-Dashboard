@@ -6,6 +6,7 @@ import {
   ChartLegendContent,
 } from '@/components/ui/chart';
 import ChartHoverTooltip from '../ChartHoverTooltip';
+import { canShowPointLabels, resolveCartesianMargins, xAxisLayout, yAxisWidth } from '../axis';
 import { tickFormatter } from '../format';
 import { cssColorVar } from '../colorKey';
 import { toChartConfig, toRows } from '../transform';
@@ -13,7 +14,6 @@ import { param, type ChartDescriptor, type ParamSpec } from '../types';
 import ChartPlaceholder from './ChartPlaceholder';
 import StyledChartTooltip from './StyledChartTooltip';
 import {
-  CARTESIAN_MARGIN,
   curve,
   hasSeries,
   showGrid,
@@ -59,7 +59,7 @@ export const lineChart: ChartDescriptor = {
     showLegend,
     showLabels,
   ],
-  render({ data, style }) {
+  render({ data, style, layout }) {
     if (!hasSeries(data)) return <ChartPlaceholder icon={LineIcon} label="Line chart" />;
 
     const rows = toRows(data);
@@ -67,10 +67,15 @@ export const lineChart: ChartDescriptor = {
     const width = param(style, 'strokeWidth', 2);
     const dot = param(style, 'dotSize', 0);
     const type = style.variant === 'step' ? 'step' : param(style, 'curve', 'monotone');
+    const compact = layout?.compact ?? false;
+    const xAxis = xAxisLayout(data.labels, compact);
+    const yWidth = yAxisWidth(data, style, compact);
+    const showValues = param(style, 'showLabels', false) && canShowPointLabels(data, compact);
+    const margin = resolveCartesianMargins(data, style, { valueLabels: showValues });
 
     return (
       <ChartContainer config={config} className="h-full w-full aspect-auto">
-        <LineChart accessibilityLayer data={rows} margin={CARTESIAN_MARGIN}>
+        <LineChart accessibilityLayer data={rows} margin={margin}>
           {param(style, 'showGrid', true) && <CartesianGrid vertical={false} />}
           <XAxis
             dataKey="name"
@@ -78,19 +83,26 @@ export const lineChart: ChartDescriptor = {
             tickLine={false}
             axisLine={false}
             tickMargin={8}
+            height={xAxis.height}
+            interval={xAxis.interval}
+            angle={xAxis.angle}
+            textAnchor={xAxis.textAnchor}
+            tickFormatter={xAxis.tickFormatter}
           />
           <YAxis
             hide={!param(style, 'showYAxis', true)}
             tickLine={false}
             axisLine={false}
-            width={48}
+            width={yWidth}
             tickFormatter={tickFormatter(style)}
           />
 
           {param(style, 'showTooltip', true) && (
             <ChartHoverTooltip cursor={false} content={<StyledChartTooltip style={style} />} />
           )}
-          {param(style, 'showLegend', false) && <ChartLegend content={<ChartLegendContent />} />}
+          {param(style, 'showLegend', false) && !compact && (
+            <ChartLegend content={<ChartLegendContent />} />
+          )}
 
           {data.datasets.map((ds) => (
             <Line
@@ -103,7 +115,7 @@ export const lineChart: ChartDescriptor = {
               dot={dot > 0 ? { r: dot } : false}
               activeDot={{ r: Math.max(dot, 4) }}
             >
-              {param(style, 'showLabels', false) && (
+              {showValues && (
                 <LabelList
                   position="top"
                   offset={10}

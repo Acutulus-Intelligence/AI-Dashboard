@@ -150,7 +150,7 @@ public class ChartService : IChartService
             chart.XAxis, [.. chart.YAxis], chart.Aggregation,
             chart.GroupBy, chart.SqlQuery,
             chart.ConnectionId, chart.DatasetId, chart.TableName, chart.CreatedAt,
-            chart.StyleConfig, FolderId: chart.FolderId,
+            chart.StyleConfig, DataModel: chart.DataModel, FolderId: chart.FolderId,
             CollectionId: await ResolveCollectionIdAsync(chart, ct)
         );
     }
@@ -173,6 +173,8 @@ public class ChartService : IChartService
         chart.Aggregation = request.Aggregation;
         chart.GroupBy = request.GroupBy;
         chart.SqlQuery = request.SqlQuery;
+        if (request.DataModel is not null)
+            chart.DataModel = request.DataModel;
         chart.StyleConfig = ChartStyleSanitizer.Sanitize(request.StyleConfig, request.ChartType);
         chart.UpdatedAt = DateTime.UtcNow;
 
@@ -195,7 +197,41 @@ public class ChartService : IChartService
             chart.XAxis, [.. chart.YAxis], chart.Aggregation,
             chart.GroupBy, chart.SqlQuery,
             chart.ConnectionId, chart.DatasetId, chart.TableName, chart.CreatedAt,
-            chart.StyleConfig, FolderId: chart.FolderId,
+            chart.StyleConfig, DataModel: chart.DataModel, FolderId: chart.FolderId,
+            CollectionId: await ResolveCollectionIdAsync(chart, ct)
+        );
+    }
+
+    public async Task<ChartDetailResponse> UpdateChartStyleAsync(
+        Guid id, Guid userId, UpdateChartStyleRequest request, CancellationToken ct = default)
+    {
+        var chart = await _db.SavedCharts
+            .FirstOrDefaultAsync(sc => sc.Id == id && sc.UserId == userId, ct)
+            ?? throw new KeyNotFoundException("Chart not found.");
+
+        chart.StyleConfig = ChartStyleSanitizer.Sanitize(request.StyleConfig, chart.ChartType);
+        chart.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync(ct);
+        await _chartCache.InvalidateAsync(userId, id, ct);
+
+        _audit.Record(new AuditEntry(
+            AuditAction.ChartUpdated,
+            userId,
+            chart.ConnectionId,
+            chart.DatasetId,
+            chart.Id,
+            chart.ChartType,
+            chart.SqlQuery,
+            null,
+            "success"));
+
+        return new ChartDetailResponse(
+            chart.Id, chart.Title, chart.ChartType,
+            chart.XAxis, [.. chart.YAxis], chart.Aggregation,
+            chart.GroupBy, chart.SqlQuery,
+            chart.ConnectionId, chart.DatasetId, chart.TableName, chart.CreatedAt,
+            chart.StyleConfig, DataModel: chart.DataModel, FolderId: chart.FolderId,
             CollectionId: await ResolveCollectionIdAsync(chart, ct)
         );
     }
@@ -473,6 +509,7 @@ public class ChartService : IChartService
             GroupBy = chart.GroupBy,
             Aggregation = chart.Aggregation,
             SqlQuery = chart.SqlQuery,
+            DataModel = chart.DataModel,
         };
 
         ChartResultNormalizer.Normalize(config, rows);
@@ -488,6 +525,7 @@ public class ChartService : IChartService
             config.SqlQuery,
             shapedRows,
             chart.StyleConfig,
+            DataModel: chart.DataModel,
             DataUpdatedAt: dataUpdatedAt
         );
     }

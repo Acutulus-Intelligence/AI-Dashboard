@@ -47,9 +47,9 @@ public class ChartCatalogTests
     }
 
     [Fact]
-    public void Top_n_is_available_on_bar_pie_and_radial()
+    public void Top_n_is_available_on_bar_pie_radial_and_treemap()
     {
-        foreach (var type in new[] { "bar", "pie", "radial" })
+        foreach (var type in new[] { "bar", "pie", "radial", "treemap" })
         {
             ChartCatalog.Find(type)!.Params.Should().Contain(
                 p => p.Key == "topN" && p.Kind == ChartParamKind.Number,

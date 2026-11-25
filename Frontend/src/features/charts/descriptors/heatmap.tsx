@@ -68,13 +68,14 @@ export const heatmapChart: ChartDescriptor = {
   minSize: { w: 4, h: 3 },
   variants: [{ id: 'default', label: 'Heatmap', description: 'Cells coloured by the measure.' }],
   params: [showTooltip, showLegend, showLabels],
-  render({ data, style }) {
+  render({ data, style, layout }) {
     const matrix = buildMatrix(data);
     if (!matrix) return <ChartPlaceholder icon={LayoutGrid} label="Heatmap" />;
 
     const { xKey, yKey, columns, rows, cells, maxAbs } = matrix;
     const labels = param(style, 'showLabels', false);
     const tooltips = param(style, 'showTooltip', true);
+    const compact = layout?.compact ?? false;
 
     return (
       <div className="flex h-full min-h-0 flex-col gap-2 p-1">
@@ -139,7 +140,7 @@ export const heatmapChart: ChartDescriptor = {
           </div>
         </div>
 
-        {param(style, 'showLegend', true) && (
+        {param(style, 'showLegend', true) && !compact && (
           <HeatmapLegend
             label={`${yKey} × ${xKey}`}
             color={style.colors[0]}

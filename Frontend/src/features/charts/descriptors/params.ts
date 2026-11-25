@@ -95,6 +95,18 @@ export const cornerRadius: ParamSpec = {
   step: 1,
 };
 
+export const colorBy: ParamSpec = {
+  kind: 'select',
+  key: 'colorBy',
+  label: 'Color by',
+  default: 'series',
+  options: [
+    { value: 'series', label: 'Series' },
+    { value: 'category', label: 'Category' },
+  ],
+  help: 'Category gives each bar its own colour. Best when there is one series.',
+};
+
 export const CARTESIAN_MARGIN = { top: 12, right: 12, left: 4, bottom: 4 };
 
 export function hasSeries(data: ChartData) {

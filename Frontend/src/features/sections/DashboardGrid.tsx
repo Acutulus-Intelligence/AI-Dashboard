@@ -5,6 +5,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Download, FileQuestion, FileSpreadsheet, FileText, GripHorizontal, Info, MoreHorizontal, Pencil, PlusCircle, RefreshCw, Trash2, X, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import ChartRenderer from '../charts/ChartRenderer';
+import ChartQuickStylePopover from '../components/ChartQuickStylePopover';
 import DashboardRefreshBar, { type RefreshChartOption } from '../components/DashboardRefreshBar';
 import { useAuth } from '../store/useAuth';
 import { useDashboardPolling, DASHBOARD_REFRESH_INTERVAL_MS, type DashboardRefreshOutcome } from '../../hooks/useDashboardPolling';
@@ -28,7 +29,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { getDashboard, saveWidgets, updateDashboardSettings, updateWidgetRefreshSetting, WIDGET_TYPE, TEXT_VARIANT, TEXT_ALIGN_H, TEXT_ALIGN_V, normalizeTextVariant, normalizeTextHorizontalAlign, normalizeTextVerticalAlign, dashboardSaveErrorMessage, type TextVariant, type TextHorizontalAlign, type TextVerticalAlign, type DashboardWidgetItem } from '../../lib/api/dashboards';
-import { executeChart } from '../../lib/api/charts';
+import { executeChart, updateChartStyle } from '../../lib/api/charts';
 import { transformResult } from '../charts/transform';
 import { exportChartAsPng } from '../charts/exportChartImage';
 import {
@@ -997,6 +998,51 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
     setLayout((prev) => prev.filter((item) => item.i !== id));
   }, []);
 
+  const applyPaletteToAll = useCallback(
+    async (palette: string) => {
+      const charts = widgets.filter(
+        (widget): widget is ChartWidget =>
+          widget.kind === 'chart' && Boolean(widget.savedChartId),
+      );
+      if (!charts.length) return;
+
+      const results = await Promise.allSettled(
+        charts.map((widget) =>
+          updateChartStyle(widget.savedChartId, {
+            ...widget.styleConfig,
+            palette,
+            colors: undefined,
+            colorsByKey: undefined,
+          }).then((detail) => ({ id: widget.savedChartId, style: detail.styleConfig ?? null })),
+        ),
+      );
+
+      const updated = new Map<string, ChartStyleConfig | null>();
+      for (const result of results) {
+        if (result.status === 'fulfilled') updated.set(result.value.id, result.value.style);
+      }
+
+      setWidgets((prev) =>
+        prev.map((widget) => {
+          if (widget.kind !== 'chart' || !widget.savedChartId) return widget;
+          return updated.has(widget.savedChartId)
+            ? { ...widget, styleConfig: updated.get(widget.savedChartId) ?? undefined }
+            : widget;
+        }),
+      );
+
+      const failed = results.length - updated.size;
+      if (failed > 0) {
+        toast.warning(
+          `Palette applied to ${updated.size} chart${updated.size === 1 ? '' : 's'}; ${failed} failed.`,
+        );
+      } else {
+        toast.success(`Palette applied to all ${updated.size} charts.`);
+      }
+    },
+    [widgets],
+  );
+
   const handleDownloadChart = useCallback(async (widget: ChartWidget) => {
     try {
       await exportChartAsPng(chartNodeRefs.current.get(widget.id), widget.title);
@@ -1468,6 +1514,25 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
                           {widget.styleConfig.info}
                         </TooltipContent>
                       </Tooltip>
+                    )}
+
+                    {widget.savedChartId && (
+                      <ChartQuickStylePopover
+                        chartId={widget.savedChartId}
+                        chartType={widget.chartId}
+                        data={widget.data}
+                        styleConfig={widget.styleConfig}
+                        onSaved={(style) =>
+                          setWidgets((prev) =>
+                            prev.map((item) =>
+                              item.id === widget.id && item.kind === 'chart'
+                                ? { ...item, styleConfig: style ?? undefined }
+                                : item,
+                            ),
+                          )
+                        }
+                        onApplyPalette={applyPaletteToAll}
+                      />
                     )}
 
                     {(widget.chartId !== 'map' || widgetHasExportData) && (

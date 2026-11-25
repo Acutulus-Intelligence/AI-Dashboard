@@ -2,7 +2,7 @@ import { Filter } from 'lucide-react';
 import { Funnel, FunnelChart, LabelList } from 'recharts';
 import { ChartContainer } from '@/components/ui/chart';
 import ChartHoverTooltip from '../ChartHoverTooltip';
-import { formatStyledValue } from '../format';
+import { estimateTextWidth, formatStyledValue } from '../format';
 import { param, type ChartDescriptor, type ParamSpec } from '../types';
 import ChartPlaceholder from './ChartPlaceholder';
 import StyledChartTooltip from './StyledChartTooltip';
@@ -35,17 +35,35 @@ export const funnelChart: ChartDescriptor = {
   icon: Filter,
   defaultSize: { w: 5, h: 4 },
   minSize: { w: 3, h: 3 },
+  colorAxis: 'category',
+  colorSlotFilter: (data, index) => {
+    const value = data.datasets[0]?.values[index];
+    return value != null && value >= 0;
+  },
   variants: [{ id: 'default', label: 'Funnel', description: 'Stages narrow towards the bottom.' }],
   params: [showLabels, showPercent, showTooltip],
-  render({ data, style }) {
+  render({ data, style, colorSlots }) {
     const series = data.datasets[0];
     if (!series) return <ChartPlaceholder icon={Filter} label="Funnel" />;
 
-    const stages = data.labels.flatMap((label, index) => {
-      const value = series.values[index];
-      return value == null || value < 0
-        ? []
-        : [{ name: label || series.label, value }];
+    const slots =
+      colorSlots ??
+      data.labels.map((label, index) => ({
+        index,
+        key: '',
+        label: String(label ?? ''),
+      }));
+
+    const stages = slots.flatMap((slot, colorIndex) => {
+      const value = series.values[slot.index];
+      if (value == null || value < 0) return [];
+      return [
+        {
+          name: slot.label || series.label,
+          value,
+          fill: style.colors[colorIndex % style.colors.length],
+        },
+      ];
     });
 
     if (stages.length === 0) return <ChartPlaceholder icon={Filter} label="Funnel" />;
@@ -53,24 +71,29 @@ export const funnelChart: ChartDescriptor = {
     const labels = param(style, 'showLabels', true);
     const percent = param(style, 'showPercent', true);
     const first = stages[0].value;
+    const shortName = (name: string) =>
+      name.length <= 18 ? name : `${name.slice(0, 17)}…`;
 
-    const rows = stages.map((stage, index) => ({
+    const rows = stages.map((stage) => ({
       ...stage,
-      fill: style.colors[index % style.colors.length],
       display:
         labels && percent && first > 0
-          ? `${stage.name} · ${Math.round((stage.value / first) * 100)}%`
+          ? `${shortName(stage.name)} · ${Math.round((stage.value / first) * 100)}%`
           : labels
-            ? `${stage.name} · ${formatStyledValue(stage.value, style)}`
+            ? `${shortName(stage.name)} · ${formatStyledValue(stage.value, style)}`
             : '',
     }));
+    const longest = rows.reduce((max, row) => Math.max(max, row.display.length), 0);
+    const rightMargin = labels
+      ? Math.min(140, Math.max(24, estimateTextWidth('x'.repeat(longest), 11) + 16))
+      : 12;
 
     return (
       <ChartContainer
         config={{ value: { label: series.label, color: style.colors[0] } }}
         className="h-full w-full aspect-auto"
       >
-        <FunnelChart>
+        <FunnelChart margin={{ top: 8, right: rightMargin, left: 8, bottom: 8 }}>
           {param(style, 'showTooltip', true) && (
             <ChartHoverTooltip content={<StyledChartTooltip style={style} />} />
           )}

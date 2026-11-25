@@ -194,6 +194,7 @@ Rules:
 - Never JOIN a table that is not in allowedTables
 - Never include actual data values — only column names and SQL
 - styleConfig.variant must be a variant of the chartType you chose
+- Prefer a bar chart when there are likely more than 8 categories; use pie only for a few parts of a whole
 - Colour mode XOR: set either palette OR colors, never both; omit the unused field
 - When setting colors, prefer { ""yAxisColumn"": ""<allowlist>"" } so each series is explicit; array form must follow yAxis order
 - styleConfig.colors must use only allowlisted values; omit colors in palette mode
@@ -331,6 +332,14 @@ __REFINE_RULES__
         ["6"] = "red / röd",
         ["7"] = "teal / cyan",
         ["8"] = "violet",
+        ["9"] = "pink / magenta",
+        ["10"] = "lime",
+        ["11"] = "sky blue",
+        ["12"] = "amber / brown",
+        ["13"] = "indigo",
+        ["14"] = "rose",
+        ["15"] = "emerald",
+        ["16"] = "slate",
     };
 
     public static string BuildCollectionSystemPrompt(
@@ -417,6 +426,7 @@ Rules:
 - CRITICAL: Do NOT invent columns that are not in allowedColumnNames. Never rename, guess, or pluralize column names.
 - If the data needs no grouping or aggregation, emit groupBy: [], aggregations: [], filters: [].
 - styleConfig.variant must be a variant of the chartType you chose
+- Prefer a bar chart when there are likely more than 8 categories; use pie only for a few parts of a whole
 - styleConfig.params may contain ONLY showLegend and showLabels (booleans) when listed for the chosen chartType
 - Do NOT set customColors — the UI controls those
 - Omit styleConfig fields you have no opinion about rather than guessing

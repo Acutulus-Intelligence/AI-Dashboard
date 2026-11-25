@@ -71,6 +71,64 @@ public class ChartStyleSanitizerTests
     }
 
     [Fact]
+    public void Color_by_category_is_available_on_bar() =>
+        ChartCatalog.Find("bar")!.Params.Should().Contain(
+            p => p.Key == "colorBy" && p.Kind == ChartParamKind.Select);
+
+    [Fact]
+    public void Named_colors_and_notation_are_sanitized()
+    {
+        var style = new ChartStyleConfig
+        {
+            ColorsByKey = new Dictionary<string, string>
+            {
+                ["Apple"] = "#22c55e",
+                ["Banana"] = "javascript:alert(1)",
+                ["Pear"] = "var(--chart-16)",
+                [""] = "#000000",
+            },
+            Notation = "COMPACT",
+        };
+
+        var result = ChartStyleSanitizer.Sanitize(style, "bar");
+
+        result.Should().NotBeNull();
+        result!.ColorsByKey.Should().NotBeNull();
+        result.ColorsByKey.Should().ContainKey("Apple");
+        result.ColorsByKey!["Apple"].Should().Be("#22c55e");
+        result.ColorsByKey.Should().NotContainKey("Banana");
+        result.ColorsByKey!["Pear"].Should().Be("var(--chart-16)");
+        result.ColorsByKey.Should().NotContainKey("");
+        result.Notation.Should().Be("compact");
+    }
+
+    [Fact]
+    public void Palette_can_coexist_with_named_colors_as_a_fallback()
+    {
+        var bar = ChartStyleSanitizer.Sanitize(
+            new ChartStyleConfig
+            {
+                Palette = "warm",
+                Colors = ["var(--chart-1)"],
+                ColorsByKey = new Dictionary<string, string> { ["Apple"] = "#22c55e" },
+            },
+            "bar");
+
+        bar!.Palette.Should().Be("warm");
+        bar.Colors.Should().BeNull();
+        bar.ColorsByKey.Should().ContainKey("Apple");
+
+        var table = ChartStyleSanitizer.Sanitize(
+            new ChartStyleConfig { Notation = "full", ColorsByKey = new Dictionary<string, string>
+            {
+                ["Apple"] = "#22c55e",
+            } },
+            "table");
+
+        table.Should().BeNull();
+    }
+
+    [Fact]
     public void Kpi_keeps_only_its_own_params_and_combo_keeps_legend_params()
     {
         var kpiStyle = new ChartStyleConfig

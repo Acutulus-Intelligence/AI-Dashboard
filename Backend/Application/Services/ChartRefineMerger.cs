@@ -197,6 +197,7 @@ public static partial class ChartRefineMerger
         {
             style.Palette = null;
             style.Colors = null;
+            style.ColorsByKey = null;
         }
 
         if (!spec.SupportsValueFormat)
@@ -205,6 +206,7 @@ public static partial class ChartRefineMerger
             style.ValueSuffix = null;
             style.Decimals = null;
             style.DecimalMode = null;
+            style.Notation = null;
         }
     }
 
@@ -223,8 +225,12 @@ public static partial class ChartRefineMerger
             Info = baseline.Info,
             Decimals = baseline.Decimals,
             DecimalMode = baseline.DecimalMode,
+            Notation = baseline.Notation,
             Palette = baseline.Palette,
             Colors = baseline.Colors is null ? null : [.. baseline.Colors],
+            ColorsByKey = baseline.ColorsByKey is null
+                ? null
+                : new Dictionary<string, string>(baseline.ColorsByKey),
             Params = chartTypeChanged ? null : baseline.Params,
         };
 
@@ -282,11 +288,15 @@ public static partial class ChartRefineMerger
     {
         if (!string.IsNullOrWhiteSpace(style.Palette))
         {
+            // Palette is the base; name-keyed overrides still win for individual
+            // categories/series. Positional overrides stay legacy-only.
             style.Colors = null;
             return;
         }
 
         if (style.Colors is { Count: > 0 } && HasNonEmptyColorSlot(style.Colors))
+            style.Palette = null;
+        else if (style.ColorsByKey is { Count: > 0 })
             style.Palette = null;
     }
 
@@ -488,6 +498,14 @@ public static partial class ChartRefineMerger
         ["6"] = (239, 68, 68),
         ["7"] = (20, 184, 166),
         ["8"] = (139, 92, 246),
+        ["9"] = (236, 72, 153),
+        ["10"] = (132, 204, 22),
+        ["11"] = (14, 165, 233),
+        ["12"] = (217, 119, 6),
+        ["13"] = (99, 102, 241),
+        ["14"] = (244, 63, 94),
+        ["15"] = (16, 185, 129),
+        ["16"] = (100, 116, 139),
     };
 
     private static readonly Dictionary<string, int> HueToChartIndex = new(StringComparer.OrdinalIgnoreCase)
@@ -500,6 +518,14 @@ public static partial class ChartRefineMerger
         ["red"] = 6, ["röd"] = 6, ["rod"] = 6,
         ["teal"] = 7, ["cyan"] = 7,
         ["violet"] = 8,
+        ["pink"] = 9, ["rosa"] = 9,
+        ["lime"] = 10,
+        ["sky"] = 11,
+        ["amber"] = 12,
+        ["indigo"] = 13,
+        ["rose"] = 14,
+        ["emerald"] = 15,
+        ["slate"] = 16,
     };
 
     private static ChartStyleConfig? MergeStyle(
@@ -517,24 +543,30 @@ public static partial class ChartRefineMerger
 
         string? palette;
         List<string>? colors;
+        Dictionary<string, string>? colorsByKey;
 
         if (aiSetPalette)
         {
             // Theme palette mode — drop any slice colours (including baseline).
             palette = aiFields!.Palette;
             colors = null;
+            colorsByKey = null;
         }
         else if (aiSetColors)
         {
             // Slice colour mode — drop palette.
             palette = null;
             colors = [.. aiFields!.Colors!];
+            colorsByKey = null;
         }
         else
         {
             // Neither from AI — keep baseline (already XOR if saved correctly).
             palette = baseline?.Palette;
             colors = baseline?.Colors is null ? null : [.. baseline.Colors];
+            colorsByKey = baseline?.ColorsByKey is null
+                ? null
+                : new Dictionary<string, string>(baseline.ColorsByKey);
         }
 
         var result = new ChartStyleConfig
@@ -547,8 +579,10 @@ public static partial class ChartRefineMerger
             Info = aiFields?.Info ?? baseline?.Info,
             Decimals = aiFields?.Decimals ?? baseline?.Decimals,
             DecimalMode = aiFields?.DecimalMode ?? baseline?.DecimalMode,
+            Notation = baseline?.Notation,
             Palette = palette,
             Colors = colors,
+            ColorsByKey = colorsByKey,
 
             // Params are per chart-type; drop them on type switch so UI defaults apply
             Params = MergeParams(baseline?.Params, aiFields?.Params, chartType, chartTypeChanged),

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Application.DTos.Request;
+using Domain.Charts;
 using Domain.Enums;
 using FluentAssertions;
 
@@ -125,6 +126,18 @@ public sealed class ProductRoutesTests
         updatedDoc.RootElement.GetProperty("title").GetString().Should().Be("Sales chart updated");
         updatedDoc.RootElement.GetProperty("sqlQuery").GetString().Should()
             .Contain("ORDER BY amount DESC");
+
+        var updateStyle = await client.PutAsJsonAsync($"/api/charts/{chartId}/style",
+            new UpdateChartStyleRequest(new ChartStyleConfig
+            {
+                ColorsByKey = new Dictionary<string, string> { ["Food"] = "#22c55e" },
+                Notation = "compact",
+            }));
+        updateStyle.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var styleDoc = JsonDocument.Parse(await updateStyle.Content.ReadAsStringAsync());
+        var style = styleDoc.RootElement.GetProperty("styleConfig");
+        style.GetProperty("notation").GetString().Should().Be("compact");
+        style.GetProperty("colorsByKey").GetProperty("Food").GetString().Should().Be("#22c55e");
 
         (await client.GetAsync("/api/charts")).StatusCode.Should().Be(HttpStatusCode.OK);
         (await client.GetAsync($"/api/charts/{chartId}")).StatusCode.Should().Be(HttpStatusCode.OK);

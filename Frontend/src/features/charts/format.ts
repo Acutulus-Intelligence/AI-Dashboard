@@ -2,7 +2,7 @@ import type { DecimalMode, ResolvedStyle } from './types';
 
 type FormatStyle = Pick<
   ResolvedStyle,
-  'valuePrefix' | 'valueSuffix' | 'decimals' | 'decimalMode'
+  'valuePrefix' | 'valueSuffix' | 'decimals' | 'decimalMode' | 'notation'
 >;
 
 function applyDecimals(value: number, decimals: number, mode: DecimalMode): string {
@@ -45,7 +45,12 @@ function formatNumber(value: number, style: FormatStyle): string {
     return applyDecimals(value, style.decimals, style.decimalMode ?? 'round');
   }
 
-  if (Math.abs(value) >= 10_000) {
+  const notation = style.notation ?? 'auto';
+  if (notation === 'full') {
+    return value.toLocaleString(undefined, { maximumFractionDigits: 10 });
+  }
+
+  if (notation === 'compact' || Math.abs(value) >= 10_000) {
     return value.toLocaleString(undefined, {
       notation: 'compact',
       maximumFractionDigits: 1,
@@ -53,6 +58,11 @@ function formatNumber(value: number, style: FormatStyle): string {
   }
 
   return value.toLocaleString();
+}
+
+/** Estimated rendered width of a formatted value, for axis/margin sizing. */
+export function estimateTextWidth(text: string, fontSize = 11): number {
+  return Math.max(1, text.length) * fontSize * 0.62;
 }
 
 export function tickFormatter(style: FormatStyle) {

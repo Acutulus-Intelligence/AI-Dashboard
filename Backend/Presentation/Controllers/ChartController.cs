@@ -56,6 +56,18 @@ public class ChartController : ControllerBase
         return Ok(chart);
     }
 
+    /// <summary>Updates presentation only; query and axes stay untouched.</summary>
+    [HttpPut("{id:guid}/style")]
+    public async Task<IActionResult> UpdateStyle(
+        Guid id,
+        [FromBody] UpdateChartStyleRequest request,
+        CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var chart = await _chartService.UpdateChartStyleAsync(id, userId, request, ct);
+        return Ok(chart);
+    }
+
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {

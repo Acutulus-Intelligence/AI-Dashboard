@@ -11,9 +11,9 @@ public static partial class CompanyStyleSanitizer
 
     /// <summary>Default swatches when a company has not customized style yet.</summary>
     public static IReadOnlyList<string> DefaultColors { get; } =
-        Enumerable.Range(1, 8).Select(i => $"var(--chart-{i})").ToList();
+        Enumerable.Range(1, 12).Select(i => $"var(--chart-{i})").ToList();
 
-    [GeneratedRegex(@"^(#[0-9a-fA-F]{3,8}|var\(--chart-[1-8]\))$")]
+    [GeneratedRegex(@"^(#[0-9a-fA-F]{3,8}|var\(--chart-(?:1[0-6]|[1-9])\))$")]
     private static partial Regex SafeColorPattern();
 
     /// <summary>

@@ -16,6 +16,7 @@ namespace Application.Services;
 public static class ChartLint
 {
     private const int MaxPieSlices = 8;
+    private const int MaxBarCategories = 12;
     private const int MaxLabelledRows = 12;
     private const int MaxLabelledSeries = 3;
     private const int LongLabelLength = 12;
@@ -187,6 +188,14 @@ public static class ChartLint
             config.StyleConfig ??= new ChartStyleConfig();
             config.StyleConfig.Variant = "horizontal";
             notes?.Add("Long category labels detected; switched bars to horizontal.");
+        }
+
+        if (chartType == "bar"
+            && rowCount > MaxBarCategories
+            && SetNumberParamIfAbsent(config, "topN", MaxBarCategories))
+        {
+            notes?.Add(
+                $"Bar chart had {rowCount} categories; keeping the top {MaxBarCategories} and grouping the rest into '{ChartResultShaper.OtherLabel}'.");
         }
 
         ApplySmartFormatting(config, rows, notes);

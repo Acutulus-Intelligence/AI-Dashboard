@@ -52,7 +52,7 @@ export const kpiChart: ChartDescriptor = {
     },
   ],
   params: [sparklineHeight],
-  render({ data, style }) {
+  render({ data, style, layout }) {
     if (!hasSeries(data)) return <ChartPlaceholder icon={Sigma} label="KPI" />;
 
     const series = data.datasets[0];
@@ -69,13 +69,23 @@ export const kpiChart: ChartDescriptor = {
     const showSparkline = style.variant !== 'value' && series.values.some((v) => v != null);
     const showDelta = style.variant === 'trend' && delta != null;
     const gradientId = `kpi-fill-${toCssColorIdent(series.label)}`;
+    const compact = layout?.compact ?? false;
+    const valueText = value == null ? '—' : formatStyledValue(value, style);
+    const availableWidth = layout?.width && layout.width > 0 ? layout.width : 220;
+    const fontSize = Math.max(
+      16,
+      Math.min(compact ? 24 : 30, Math.round(availableWidth / Math.max(valueText.length * 0.62, 5))),
+    );
 
     return (
       <div className="flex h-full min-h-0 flex-col justify-center gap-2 px-1">
         <span className="text-muted-foreground truncate text-xs">{label}</span>
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <span className="text-3xl font-semibold tracking-tight tabular-nums">
-            {value == null ? '—' : formatStyledValue(value, style)}
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+          <span
+            className="min-w-0 font-semibold tracking-tight tabular-nums"
+            style={{ fontSize }}
+          >
+            {valueText}
           </span>
           {showDelta && (
             <span

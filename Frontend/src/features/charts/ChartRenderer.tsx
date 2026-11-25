@@ -1,8 +1,10 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CircleAlert } from 'lucide-react';
+import { resolveColorAxis } from './colorAxis';
 import { resolveStyle } from './palette';
 import { get } from './registry';
-import type { ChartData, ChartStyleConfig } from './types';
+import { shapeForDisplay } from './shape';
+import type { ChartData, ChartLayout, ChartStyleConfig } from './types';
 
 interface ChartRendererProps {
   chartId: string;
@@ -11,21 +13,59 @@ interface ChartRendererProps {
 }
 
 const EMPTY: ChartData = { labels: [], datasets: [] };
+const UNMEASURED: ChartLayout = { width: 0, height: 0, compact: false };
+
+function useChartLayout() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [layout, setLayout] = useState<ChartLayout>(UNMEASURED);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+
+    const update = (width: number, height: number) => {
+      const compact = width > 0 && height > 0 && (width < 360 || height < 200);
+      setLayout((prev) =>
+        Math.abs(prev.width - width) < 1 &&
+        Math.abs(prev.height - height) < 1 &&
+        prev.compact === compact
+          ? prev
+          : { width, height, compact },
+      );
+    };
+
+    update(element.clientWidth, element.clientHeight);
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        update(entry.contentRect.width, entry.contentRect.height);
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  return { ref, layout };
+}
 
 export default function ChartRenderer({ chartId, data, styleConfig }: ChartRendererProps) {
   const descriptor = get(chartId);
-  const chartData = data ?? EMPTY;
+  const rawData = data ?? EMPTY;
+  const { ref, layout } = useChartLayout();
 
-  // Cartesian charts colour by series, pie and radial colour by label, so
-  // resolve enough colours for whichever axis the descriptor happens to use.
-  const colorCount = Math.max(chartData.datasets.length, chartData.labels.length);
+  const chart = useMemo(() => {
+    if (!descriptor) return null;
 
-  const style = useMemo(
-    () => (descriptor ? resolveStyle(descriptor, styleConfig, colorCount) : null),
-    [descriptor, styleConfig, colorCount],
-  );
+    // Top N shaping needs only the params, so resolve once with the raw keys.
+    const rawAxis = resolveColorAxis(descriptor, rawData, styleConfig);
+    const preliminary = resolveStyle(descriptor, styleConfig, rawAxis.keys);
+    const shaped = shapeForDisplay(rawData, preliminary);
 
-  if (!descriptor || !style) {
+    const axis = resolveColorAxis(descriptor, shaped, styleConfig);
+    const style = resolveStyle(descriptor, styleConfig, axis.keys);
+    return { data: shaped, style, axis };
+  }, [descriptor, rawData, styleConfig]);
+
+  if (!descriptor || !chart) {
     return (
       <div className="text-muted-foreground flex h-full items-center justify-center">
         <div className="text-center">
@@ -36,5 +76,14 @@ export default function ChartRenderer({ chartId, data, styleConfig }: ChartRende
     );
   }
 
-  return <>{descriptor.render({ data: chartData, style })}</>;
+  return (
+    <div ref={ref} className="h-full min-h-0 w-full">
+      {descriptor.render({
+        data: chart.data,
+        style: chart.style,
+        layout,
+        colorSlots: chart.axis.slots,
+      })}
+    </div>
+  );
 }

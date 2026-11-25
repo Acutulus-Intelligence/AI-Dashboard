@@ -6,6 +6,7 @@ import {
   ChartLegendContent,
 } from '@/components/ui/chart';
 import ChartHoverTooltip from '../ChartHoverTooltip';
+import { canShowPointLabels, canShowValueLabels, resolveCartesianMargins, xAxisLayout, yAxisWidth } from '../axis';
 import { cssColorVar } from '../colorKey';
 import { tickFormatter } from '../format';
 import { toChartConfig, toRows } from '../transform';
@@ -13,7 +14,6 @@ import { param, type ChartDescriptor, type ParamSpec } from '../types';
 import ChartPlaceholder from './ChartPlaceholder';
 import StyledChartTooltip from './StyledChartTooltip';
 import {
-  CARTESIAN_MARGIN,
   cornerRadius,
   hasSeries,
   showGrid,
@@ -68,7 +68,7 @@ export const comboChart: ChartDescriptor = {
     showLegend,
     showLabels,
   ],
-  render({ data, style }) {
+  render({ data, style, layout }) {
     if (!hasSeries(data)) return <ChartPlaceholder icon={BarChart3} label="Combo chart" />;
 
     const rows = toRows(data);
@@ -77,10 +77,20 @@ export const comboChart: ChartDescriptor = {
     const lastIndex = data.datasets.length - 1;
     const radius = param(style, 'cornerRadius', 4);
     const dot = param(style, 'dotSize', 3);
+    const compact = layout?.compact ?? false;
+    const xAxis = xAxisLayout(data.labels, compact);
+    const yWidth = yAxisWidth(data, style, compact);
+    const showPointValues =
+      param(style, 'showLabels', false) && canShowPointLabels(data, compact);
+    const showBarValues =
+      param(style, 'showLabels', false) && canShowValueLabels(data, compact);
+    const margin = resolveCartesianMargins(data, style, {
+      valueLabels: showPointValues || showBarValues,
+    });
 
     return (
       <ChartContainer config={config} className="h-full w-full aspect-auto">
-        <ComposedChart accessibilityLayer data={rows} margin={CARTESIAN_MARGIN}>
+        <ComposedChart accessibilityLayer data={rows} margin={margin}>
           {param(style, 'showGrid', true) && <CartesianGrid vertical={false} />}
           <XAxis
             dataKey="name"
@@ -88,19 +98,26 @@ export const comboChart: ChartDescriptor = {
             tickLine={false}
             axisLine={false}
             tickMargin={8}
+            height={xAxis.height}
+            interval={xAxis.interval}
+            angle={xAxis.angle}
+            textAnchor={xAxis.textAnchor}
+            tickFormatter={xAxis.tickFormatter}
           />
           <YAxis
             hide={!param(style, 'showYAxis', true)}
             tickLine={false}
             axisLine={false}
-            width={48}
+            width={yWidth}
             tickFormatter={tickFormatter(style)}
           />
 
           {param(style, 'showTooltip', true) && (
             <ChartHoverTooltip cursor={false} content={<StyledChartTooltip style={style} />} />
           )}
-          {param(style, 'showLegend', true) && <ChartLegend content={<ChartLegendContent />} />}
+          {param(style, 'showLegend', true) && !compact && (
+            <ChartLegend content={<ChartLegendContent />} />
+          )}
 
           {data.datasets.map((ds, i) => {
             const isLine = lineFirst ? i === 0 : i === lastIndex;
@@ -115,7 +132,7 @@ export const comboChart: ChartDescriptor = {
                   dot={dot > 0 ? { r: dot } : false}
                   activeDot={{ r: Math.max(dot, 4) }}
                 >
-                  {param(style, 'showLabels', false) && (
+                  {showPointValues && (
                     <LabelList
                       position="top"
                       offset={10}
@@ -135,7 +152,7 @@ export const comboChart: ChartDescriptor = {
                 fill={cssColorVar(ds.label)}
                 radius={radius}
               >
-                {param(style, 'showLabels', false) && (
+                {showBarValues && (
                   <LabelList
                     position="top"
                     className="fill-foreground"

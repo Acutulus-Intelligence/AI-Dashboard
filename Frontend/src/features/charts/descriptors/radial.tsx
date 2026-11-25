@@ -46,18 +46,21 @@ export const radialChart: ChartDescriptor = {
   icon: Gauge,
   defaultSize: { w: 4, h: 4 },
   minSize: { w: 3, h: 3 },
+  colorAxis: 'category',
   variants: [
     { id: 'default', label: 'Rings', description: 'One ring per category.' },
     { id: 'labelled', label: 'With labels', description: 'Category names drawn on the rings.' },
     { id: 'stacked', label: 'Stacked', description: 'Categories share one ring.' },
   ],
   params: [barSize, startAngle, endAngle, showGrid, showLabels, showTooltip, topN],
-  render({ data, style }) {
+  render({ data, style, layout }) {
     if (!hasSeries(data)) return <ChartPlaceholder icon={Gauge} label="Radial chart" />;
 
     const series = data.datasets[0];
     const stacked = style.variant === 'stacked';
-    const labelled = style.variant === 'labelled' || param(style, 'showLabels', false);
+    const compact = layout?.compact ?? false;
+    const labelled =
+      !compact && (style.variant === 'labelled' || param(style, 'showLabels', false));
 
     const keys = data.labels.map((label, i) => chartColorKey(i, label));
 
@@ -94,7 +97,7 @@ export const radialChart: ChartDescriptor = {
           {param(style, 'showTooltip', true) && (
             <ChartHoverTooltip
               cursor={false}
-              content={<StyledChartTooltip style={style} nameKey={stacked ? undefined : 'key'} />}
+              content={<StyledChartTooltip style={style} nameKey={stacked ? undefined : 'key'} showShare={!stacked} />}
             />
           )}
           {param(style, 'showGrid', true) && (

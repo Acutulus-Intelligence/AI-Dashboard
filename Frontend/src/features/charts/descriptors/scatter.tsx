@@ -6,6 +6,7 @@ import {
   ChartLegendContent,
 } from '@/components/ui/chart';
 import ChartHoverTooltip from '../ChartHoverTooltip';
+import { xAxisLayout, yAxisWidth } from '../axis';
 import { tickFormatter } from '../format';
 import { cssColorVar } from '../colorKey';
 import { toChartConfig } from '../transform';
@@ -69,12 +70,15 @@ export const scatterChart: ChartDescriptor = {
     { id: 'bubble', label: 'Bubble', description: 'Point size scales with the value.' },
   ],
   params: [pointSize, pointOpacity, pointShape, showGrid, showXAxis, showYAxis, showTooltip, showLegend],
-  render({ data, style }) {
+  render({ data, style, layout }) {
     if (!hasSeries(data)) return <ChartPlaceholder icon={ScatterIcon} label="Scatter chart" />;
 
     const config = toChartConfig(data, style);
     const bubble = style.variant === 'bubble';
     const size = param(style, 'pointSize', 60);
+    const compact = layout?.compact ?? false;
+    const xAxis = xAxisLayout(data.labels, compact);
+    const yWidth = yAxisWidth(data, style, compact);
 
     return (
       <ChartContainer config={config} className="h-full w-full aspect-auto">
@@ -91,6 +95,11 @@ export const scatterChart: ChartDescriptor = {
             tickLine={false}
             axisLine={false}
             tickMargin={8}
+            height={xAxis.height}
+            interval={xAxis.interval}
+            angle={xAxis.angle}
+            textAnchor={xAxis.textAnchor}
+            tickFormatter={xAxis.tickFormatter}
           />
           <YAxis
             type="number"
@@ -99,7 +108,7 @@ export const scatterChart: ChartDescriptor = {
             hide={!param(style, 'showYAxis', true)}
             tickLine={false}
             axisLine={false}
-            width={48}
+            width={yWidth}
             tickFormatter={tickFormatter(style)}
           />
           {bubble && <ZAxis type="number" dataKey="y" range={[size / 2, size * 4]} />}
@@ -107,7 +116,9 @@ export const scatterChart: ChartDescriptor = {
           {param(style, 'showTooltip', true) && (
             <ChartHoverTooltip cursor={{ strokeDasharray: '3 3' }} content={<StyledChartTooltip style={style} />} />
           )}
-          {param(style, 'showLegend', false) && <ChartLegend content={<ChartLegendContent />} />}
+          {param(style, 'showLegend', false) && !compact && (
+            <ChartLegend content={<ChartLegendContent />} />
+          )}
 
           {data.datasets.map((ds) => (
             <Scatter

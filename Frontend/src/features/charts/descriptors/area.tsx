@@ -6,6 +6,7 @@ import {
   ChartLegendContent,
 } from '@/components/ui/chart';
 import ChartHoverTooltip from '../ChartHoverTooltip';
+import { xAxisLayout, yAxisWidth } from '../axis';
 import { tickFormatter } from '../format';
 import { cssColorVar } from '../colorKey';
 import { toChartConfig, toRows } from '../transform';
@@ -38,7 +39,7 @@ export const areaChart: ChartDescriptor = {
     { id: 'gradient', label: 'Gradient', description: 'Fill fades towards the baseline.' },
   ],
   params: [curve, strokeWidth, fillOpacity, showGrid, showXAxis, showYAxis, showTooltip, showLegend],
-  render({ data, style }) {
+  render({ data, style, layout }) {
     if (!hasSeries(data)) return <ChartPlaceholder icon={AreaIcon} label="Area chart" />;
 
     const rows = toRows(data);
@@ -46,6 +47,9 @@ export const areaChart: ChartDescriptor = {
     const opacity = param(style, 'fillOpacity', 0.25);
     const gradient = style.variant === 'gradient';
     const stacked = style.variant === 'stacked';
+    const compact = layout?.compact ?? false;
+    const xAxis = xAxisLayout(data.labels, compact);
+    const yWidth = yAxisWidth(data, style, compact);
 
     return (
       <ChartContainer config={config} className="h-full w-full aspect-auto">
@@ -68,19 +72,29 @@ export const areaChart: ChartDescriptor = {
             tickLine={false}
             axisLine={false}
             tickMargin={8}
+            height={xAxis.height}
+            interval={xAxis.interval}
+            angle={xAxis.angle}
+            textAnchor={xAxis.textAnchor}
+            tickFormatter={xAxis.tickFormatter}
           />
           <YAxis
             hide={!param(style, 'showYAxis', true)}
             tickLine={false}
             axisLine={false}
-            width={48}
+            width={yWidth}
             tickFormatter={tickFormatter(style)}
           />
 
           {param(style, 'showTooltip', true) && (
-            <ChartHoverTooltip cursor={false} content={<StyledChartTooltip style={style} />} />
+            <ChartHoverTooltip
+              cursor={false}
+              content={<StyledChartTooltip style={style} showTotal={stacked} />}
+            />
           )}
-          {param(style, 'showLegend', false) && <ChartLegend content={<ChartLegendContent />} />}
+          {param(style, 'showLegend', false) && !compact && (
+            <ChartLegend content={<ChartLegendContent />} />
+          )}
 
           {data.datasets.map((ds) => (
             <Area

@@ -10,7 +10,9 @@ namespace Domain.Charts;
 /// </summary>
 public static partial class ChartStyleSanitizer
 {
-    private const int MaxColors = 32;
+    private const int MaxColors = 64;
+    private const int MaxColorKeys = 64;
+    private const int MaxColorKeyLength = 120;
     private const int MaxAffixLength = 16;
     private const int MaxInfoLength = 500;
     private const int MaxDecimals = 10;
@@ -21,11 +23,18 @@ public static partial class ChartStyleSanitizer
         "truncate",
     };
 
+    private static readonly HashSet<string> Notations = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "auto",
+        "full",
+        "compact",
+    };
+
     /// <summary>
     /// Accepts hex colours and the `--chart-N` theme tokens only, which keeps
     /// arbitrary CSS (and therefore injection via `style`) out of the payload.
     /// </summary>
-    [GeneratedRegex(@"^(#[0-9a-fA-F]{3,8}|var\(--chart-[1-8]\))$")]
+    [GeneratedRegex(@"^(#[0-9a-fA-F]{3,8}|var\(--chart-(?:1[0-6]|[1-9])\))$")]
     private static partial Regex SafeColorPattern();
 
     public static ChartStyleConfig? Sanitize(ChartStyleConfig? config, string chartType)
@@ -40,6 +49,7 @@ public static partial class ChartStyleSanitizer
                 v.Id.Equals(config.Variant, StringComparison.OrdinalIgnoreCase))?.Id,
             Palette = ChartCatalog.IsKnownPalette(config.Palette) ? config.Palette!.ToLowerInvariant() : null,
             Colors = SanitizeColors(config.Colors),
+            ColorsByKey = SanitizeColorsByKey(config.ColorsByKey),
             // Company-owned swatches replaced per-chart customColors.
             CustomColors = null,
             Params = SanitizeParams(config.Params, spec),
@@ -48,13 +58,19 @@ public static partial class ChartStyleSanitizer
             Info = SanitizeText(config.Info, MaxInfoLength),
             Decimals = decimals,
             DecimalMode = decimals is null ? null : SanitizeDecimalMode(config.DecimalMode),
+            Notation = SanitizeNotation(config.Notation),
         };
 
-        // Theme palette and per-slice colours are mutually exclusive.
+        // Theme palette and per-slice colours are mutually exclusive, but a
+        // palette can act as the fallback for name-keyed overrides.
         if (!string.IsNullOrWhiteSpace(result.Palette))
+        {
             result.Colors = null;
-        else if (result.Colors is { Count: > 0 })
+        }
+        else if (result.Colors is { Count: > 0 } || result.ColorsByKey is { Count: > 0 })
+        {
             result.Palette = null;
+        }
 
         var typeSpec = ChartCatalog.Find(chartType);
         if (typeSpec is not null)
@@ -63,6 +79,7 @@ public static partial class ChartStyleSanitizer
             {
                 result.Palette = null;
                 result.Colors = null;
+                result.ColorsByKey = null;
             }
 
             if (!typeSpec.SupportsValueFormat)
@@ -71,18 +88,21 @@ public static partial class ChartStyleSanitizer
                 result.ValueSuffix = null;
                 result.Decimals = null;
                 result.DecimalMode = null;
+                result.Notation = null;
             }
         }
 
         var isEmpty = result.Variant is null
             && result.Palette is null
             && result.Colors is null
+            && result.ColorsByKey is null
             && result.Params is null
             && result.ValuePrefix is null
             && result.ValueSuffix is null
             && result.Info is null
             && result.Decimals is null
-            && result.DecimalMode is null;
+            && result.DecimalMode is null
+            && result.Notation is null;
 
         return isEmpty ? null : result;
     }
@@ -110,6 +130,35 @@ public static partial class ChartStyleSanitizer
         if (string.IsNullOrWhiteSpace(mode)) return "round";
         var trimmed = mode.Trim().ToLowerInvariant();
         return DecimalModes.Contains(trimmed) ? trimmed : "round";
+    }
+
+    private static string? SanitizeNotation(string? notation)
+    {
+        if (string.IsNullOrWhiteSpace(notation)) return null;
+        var trimmed = notation.Trim().ToLowerInvariant();
+        return Notations.Contains(trimmed) ? trimmed : null;
+    }
+
+    private static Dictionary<string, string>? SanitizeColorsByKey(
+        Dictionary<string, string>? colors)
+    {
+        if (colors is null || colors.Count == 0) return null;
+
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (rawKey, rawColor) in colors)
+        {
+            if (result.Count >= MaxColorKeys) break;
+            if (string.IsNullOrWhiteSpace(rawKey) || string.IsNullOrWhiteSpace(rawColor)) continue;
+            if (!SafeColorPattern().IsMatch(rawColor.Trim())) continue;
+
+            var key = new string(rawKey.Trim().Where(c => !char.IsControl(c)).ToArray());
+            if (key.Length == 0) continue;
+            if (key.Length > MaxColorKeyLength) key = key[..MaxColorKeyLength];
+
+            result[key] = NormalizeHex(rawColor.Trim());
+        }
+
+        return result.Count > 0 ? result : null;
     }
 
     private static List<string>? SanitizeColors(List<string>? colors)

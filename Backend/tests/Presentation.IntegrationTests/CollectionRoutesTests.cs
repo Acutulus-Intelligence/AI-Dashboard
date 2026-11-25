@@ -4,7 +4,9 @@ using System.Text;
 using System.Text.Json;
 using Application.DTos.Request;
 using Application.DTos.Response;
+using Domain.Charts;
 using Domain.Enums;
+using Domain.Models;
 using FluentAssertions;
 
 namespace Presentation.IntegrationTests;
@@ -158,8 +160,35 @@ public sealed class CollectionRoutesTests
         using var chartDetailDoc = JsonDocument.Parse(await chartDetail.Content.ReadAsStringAsync());
         chartDetailDoc.RootElement.GetProperty("datasetId").GetGuid().Should().Be(fileId);
 
+        var updateStyle = await client.PutAsJsonAsync($"/api/charts/{chartId}", new UpdateChartRequest(
+            "Collection sales chart updated",
+            "bar",
+            "category",
+            ["amount"],
+            "sum",
+            "category",
+            "",
+            StyleConfig: new ChartStyleConfig { Palette = "cool" },
+            DataModel: new DataQueryModel
+            {
+                GroupBy = ["category"],
+                Aggregations = [new DataAggregation { Column = "amount", Function = "sum" }],
+                OrderBy = [new DataOrderBy { Column = "amount", Direction = "desc" }],
+                Limit = 10,
+            }));
+        updateStyle.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var updateDoc = JsonDocument.Parse(await updateStyle.Content.ReadAsStringAsync());
+        updateDoc.RootElement.GetProperty("styleConfig").GetProperty("palette").GetString()
+            .Should().Be("cool");
+        updateDoc.RootElement.GetProperty("sqlQuery").GetString().Should().BeEmpty();
+        updateDoc.RootElement.GetProperty("dataModel").ValueKind
+            .Should().NotBe(JsonValueKind.Null);
+
         var execute = await client.PostAsync($"/api/charts/{chartId}/execute", null);
         execute.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var executeDoc = JsonDocument.Parse(await execute.Content.ReadAsStringAsync());
+        executeDoc.RootElement.GetProperty("dataModel").ValueKind
+            .Should().NotBe(JsonValueKind.Null);
 
         var deleteFile = await client.DeleteAsync($"/api/collections/{collectionId}/files/{fileId}");
         deleteFile.StatusCode.Should().Be(HttpStatusCode.NoContent);

@@ -96,6 +96,10 @@ public static class ChartCatalog
     private static readonly ChartParamSpec FillOpacity = Number("fillOpacity", "Fill opacity", 0.25, 0, 1, 0.05);
     private static readonly ChartParamSpec CornerRadius = Number("cornerRadius", "Corner radius", 4, 0, 16, 1);
 
+    private static readonly ChartParamSpec ColorBy = Select(
+        "colorBy", "Color by", "series",
+        ("series", "Series"), ("category", "Category"));
+
     private static readonly ChartParamSpec Curve = Select(
         "curve", "Curve", "monotone",
         ("monotone", "Smooth"), ("linear", "Straight"), ("step", "Stepped"));
@@ -106,6 +110,7 @@ public static class ChartCatalog
         new("cool", "Cool"),
         new("warm", "Warm"),
         new("contrast", "High contrast"),
+        new("colorblind", "Colorblind safe"),
         new("mono", "Monochrome")
     ];
 
@@ -124,7 +129,7 @@ public static class ChartCatalog
             ],
             Params =
             [
-                CornerRadius, ShowGrid, ShowXAxis, ShowYAxis, ShowTooltip, ShowLegend, ShowLabels, TopN
+                CornerRadius, ColorBy, ShowGrid, ShowXAxis, ShowYAxis, ShowTooltip, ShowLegend, ShowLabels, TopN
             ]
         },
         new()
@@ -282,7 +287,8 @@ public static class ChartCatalog
             Params =
             [
                 Toggle("showLabels", "Labels", true),
-                ShowTooltip
+                ShowTooltip,
+                TopN
             ]
         },
         new()

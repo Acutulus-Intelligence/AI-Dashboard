@@ -4,6 +4,7 @@ import { ChartContainer } from '@/components/ui/chart';
 import { formatStyledValue } from '../format';
 import { param, type ChartDescriptor, type ParamSpec } from '../types';
 import ChartPlaceholder from './ChartPlaceholder';
+import { topN } from './params';
 
 const showLabels: ParamSpec = {
   kind: 'boolean',
@@ -31,17 +32,34 @@ export const treemapChart: ChartDescriptor = {
   icon: LayoutGrid,
   defaultSize: { w: 6, h: 4 },
   minSize: { w: 3, h: 3 },
+  colorAxis: 'category',
+  colorSlotFilter: (data, index) => (data.datasets[0]?.values[index] ?? 0) > 0,
   variants: [
     { id: 'default', label: 'Treemap', description: 'Rectangles sized by the measure.' },
   ],
-  params: [showLabels, showTooltip],
-  render({ data, style }) {
+  params: [showLabels, showTooltip, topN],
+  render({ data, style, colorSlots }) {
     const series = data.datasets[0];
     if (!series) return <ChartPlaceholder icon={LayoutGrid} label="Treemap" />;
 
-    const items = data.labels.flatMap((label, index) => {
-      const value = series.values[index];
-      return value == null || value <= 0 ? [] : [{ name: label || series.label, size: value }];
+    const slots =
+      colorSlots ??
+      data.labels.map((label, index) => ({
+        index,
+        key: '',
+        label: String(label ?? ''),
+      }));
+
+    const items = slots.flatMap((slot, colorIndex) => {
+      const value = series.values[slot.index];
+      if (value == null || value <= 0) return [];
+      return [
+        {
+          name: slot.label || series.label,
+          size: value,
+          color: style.colors[colorIndex % style.colors.length],
+        },
+      ];
     });
 
     if (items.length === 0) return <ChartPlaceholder icon={LayoutGrid} label="Treemap" />;
@@ -50,11 +68,16 @@ export const treemapChart: ChartDescriptor = {
     const tooltips = param(style, 'showTooltip', true);
 
     const renderCell = (node: TreemapNode) => {
+      // Recharts also renders the synthetic root node; skip its overlay/total.
+      if (node.depth === 0) return <g />;
+
       const width = Number(node.width ?? 0);
       const height = Number(node.height ?? 0);
       const value = Number(node.value ?? 0);
       const name = String(node.name ?? '');
-      const fill = style.colors[node.index % style.colors.length];
+      const fill =
+        (node.color as string | undefined) ??
+        style.colors[Number(node.index ?? 0) % style.colors.length];
 
       return (
         <g>

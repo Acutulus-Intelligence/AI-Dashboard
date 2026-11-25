@@ -29,8 +29,12 @@ public class UpdateChartRequestValidator : AbstractValidator<UpdateChartRequest>
             .MaximumLength(50);
 
         RuleFor(x => x.SqlQuery)
-            .NotEmpty()
-            .MaximumLength(10_000);
+            .MaximumLength(10_000)
+            .When(x => !string.IsNullOrEmpty(x.SqlQuery));
+
+        RuleFor(x => x)
+            .Must(x => x.SqlQuery is { Length: > 0 } || x.DataModel is not null)
+            .WithMessage("A chart must include either a SQL query (connection) or a data model (dataset).");
 
         RuleFor(x => x.StyleConfig!.Variant)
             .Must((request, variant) =>

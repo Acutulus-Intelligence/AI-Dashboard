@@ -1,4 +1,5 @@
 using Domain.Charts;
+using Domain.Models;
 
 namespace Application.DTos.Request;
 
@@ -13,5 +14,6 @@ public sealed record UpdateChartRequest(
     string Aggregation,
     string? GroupBy,
     string SqlQuery,
-    ChartStyleConfig? StyleConfig = null
+    ChartStyleConfig? StyleConfig = null,
+    DataQueryModel? DataModel = null
 );

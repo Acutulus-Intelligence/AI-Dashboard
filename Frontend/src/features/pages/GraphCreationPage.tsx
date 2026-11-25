@@ -77,8 +77,11 @@ import {
   type ChartSuggestion,
 } from '../../services/graphsApi';
 import ChartRenderer from '../charts/ChartRenderer';
+import { resolveColorAxis } from '../charts/colorAxis';
 import { DEFAULT_COMPANY_COLORS } from '../charts/companyColors';
+import { resolveStyle } from '../charts/palette';
 import { get, getAll } from '../charts/registry';
+import { shapeForDisplay } from '../charts/shape';
 import { transformResult } from '../charts/transform';
 import {
   exportChartDataAsCsv,
@@ -122,13 +125,13 @@ function cloneResult(result: ChartConfigResponse): ChartConfigResponse {
   return structuredClone(result);
 }
 
-/** Theme palette XOR per-slice colours — palette wins when both are set. */
+/** Theme palette XOR positional colours — keyed overrides may use the palette as fallback. */
 function normalizeColorExclusive(style: ChartStyleConfig): ChartStyleConfig {
   if (style.palette != null && style.palette !== '') {
     return { ...style, palette: style.palette, colors: undefined };
   }
-  if (style.colors?.length) {
-    return { ...style, palette: undefined, colors: style.colors };
+  if (style.colors?.length || (style.colorsByKey && Object.keys(style.colorsByKey).length > 0)) {
+    return { ...style, palette: undefined };
   }
   return style;
 }
@@ -494,23 +497,29 @@ export default function GraphCreationPage() {
     !!savedResultSnapshot &&
     !configEqual(result, savedResultSnapshot);
   const isDirty = isStyleDirty || isTitleDirty || isFolderDirty || isConfigDirty;
-  const colorSlots = chartData
-    ? Math.max(
-        chartData.datasets.length,
-        chartData.labels.length > 0 &&
-          (result?.chartType === 'pie' || result?.chartType === 'radial')
-          ? chartData.labels.length
-          : 0,
-        1,
-      )
-    : 1;
-  const colorLabels =
-    result &&
-    chartData &&
-    (result.chartType === 'pie' || result.chartType === 'radial') &&
-    chartData.labels.length > 0
-      ? chartData.labels
-      : chartData?.datasets.map((d) => d.label);
+  const colorView = useMemo(() => {
+    if (!descriptor || !chartData) {
+      return {
+        slots: 1,
+        labels: [] as string[],
+        keys: [] as string[],
+        axis: 'series' as const,
+        seriesCount: 1,
+      };
+    }
+
+    const rawAxis = resolveColorAxis(descriptor, chartData, styleConfig);
+    const preliminary = resolveStyle(descriptor, styleConfig, rawAxis.keys);
+    const shaped = shapeForDisplay(chartData, preliminary);
+    const axis = resolveColorAxis(descriptor, shaped, styleConfig);
+    return {
+      slots: Math.max(axis.slots.length, 1),
+      labels: axis.slots.map((slot) => slot.label),
+      keys: axis.slots.map((slot) => slot.key),
+      axis: axis.axis,
+      seriesCount: shaped.datasets.length,
+    };
+  }, [chartData, descriptor, styleConfig]);
 
   const breadcrumbs = useMemo<Crumb[]>(() => {
     if (isEditingExisting) {
@@ -780,6 +789,7 @@ export default function GraphCreationPage() {
 
     if (!caps.colors) {
       nextStyle.colors = undefined;
+      nextStyle.colorsByKey = undefined;
       nextStyle.palette = undefined;
     }
 
@@ -832,6 +842,7 @@ export default function GraphCreationPage() {
           aggregation: result.aggregation,
           groupBy: result.groupBy,
           sqlQuery: result.sqlQuery,
+          dataModel: result.dataModel ?? null,
           styleConfig,
         });
         if (isFolderDirty) {
@@ -847,6 +858,7 @@ export default function GraphCreationPage() {
           aggregation: updated.aggregation,
           groupBy: updated.groupBy,
           sqlQuery: updated.sqlQuery,
+          dataModel: updated.dataModel ?? result.dataModel,
           styleConfig: savedStyle,
         };
         setResult(nextResult);
@@ -879,6 +891,7 @@ export default function GraphCreationPage() {
           aggregation: detail.aggregation,
           groupBy: detail.groupBy,
           sqlQuery: detail.sqlQuery,
+          dataModel: detail.dataModel ?? result.dataModel,
           styleConfig: savedStyle,
         };
         setResult(nextResult);
@@ -1637,8 +1650,11 @@ export default function GraphCreationPage() {
                       value={styleConfig}
                       onChange={setStyleConfig}
                       companyColors={companyColors}
-                      colorSlots={Math.min(colorSlots, 8)}
-                      colorLabels={colorLabels?.slice(0, Math.min(colorSlots, 8))}
+                      colorSlots={colorView.slots}
+                      colorLabels={colorView.labels}
+                      colorKeys={colorView.keys}
+                      colorAxis={colorView.axis}
+                      seriesCount={colorView.seriesCount}
                     />
                   ) : (
                     <p className="text-muted-foreground text-sm">No style controls for this type.</p>
