@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertCircle, Printer, RefreshCw, SlidersHorizontal } from 'lucide-react';
+import { AlertCircle, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Popover,
@@ -30,7 +30,6 @@ interface DashboardRefreshBarProps {
   error: string | null;
   charts: RefreshChartOption[];
   onRefresh: () => void;
-  onPrint: () => void;
   onToggleEnabled: (enabled: boolean) => void;
   onToggleChart: (widgetId: string, enabled: boolean) => void;
 }
@@ -63,7 +62,6 @@ export default function DashboardRefreshBar({
   error,
   charts,
   onRefresh,
-  onPrint,
   onToggleEnabled,
   onToggleChart,
 }: DashboardRefreshBarProps) {
@@ -101,7 +99,7 @@ export default function DashboardRefreshBar({
   const hasCharts = charts.length > 0;
 
   return (
-    <div className="border-border bg-card/60 no-print rounded-xl border px-3 py-2">
+    <div className="border-border bg-card/60 rounded-xl border px-3 py-2">
       <div className="flex flex-wrap items-center gap-2">
         <Button
           type="button"
@@ -137,16 +135,6 @@ export default function DashboardRefreshBar({
         </div>
 
         <div className="ml-auto flex items-center gap-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            onClick={onPrint}
-            aria-label="Print dashboard or save as PDF"
-            title="Print / Save as PDF"
-          >
-            <Printer />
-          </Button>
           <Popover>
             <PopoverTrigger asChild>
               <Button

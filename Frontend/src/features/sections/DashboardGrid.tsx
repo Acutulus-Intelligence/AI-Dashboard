@@ -1351,7 +1351,6 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
             error={refreshError}
             charts={refreshChartOptions}
             onRefresh={() => void refreshNow()}
-            onPrint={() => window.print()}
             onToggleEnabled={(enabled) => void handleToggleAutoRefresh(enabled)}
             onToggleChart={(widgetId, enabled) => void handleToggleChartRefresh(widgetId, enabled)}
           />
@@ -1384,7 +1383,7 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
       )}
 
       {crossFilter && (
-        <div className="bg-muted/60 no-print mb-2 flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs">
+        <div className="bg-muted/60 mb-2 flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs">
           <span className="text-muted-foreground">Filter</span>
           <span className="font-medium">{crossFilter.column}</span>
           <span>=</span>
@@ -1509,7 +1508,7 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
                     {widget.title}
                   </CardTitle>
 
-                  <div className="ml-auto flex shrink-0 items-center gap-0.5 no-print">
+                  <div className="ml-auto flex shrink-0 items-center gap-0.5">
                     {!editMode && (
                       <Tooltip>
                         <TooltipTrigger asChild>
