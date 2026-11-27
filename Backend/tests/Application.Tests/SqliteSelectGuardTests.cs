@@ -23,6 +23,7 @@ public sealed class SqliteSelectGuardTests
     [InlineData("SELECT 1; SELECT 2")]
     [InlineData("WITH x AS (DELETE FROM data) SELECT * FROM x")]
     [InlineData("SELECT load_extension('evil')")]
+    [InlineData("SELECT name FROM pragma_table_info('data')")]
     [InlineData("INSERT INTO data VALUES ('x')")]
     public void Rejects_unsafe_sql(string sql)
     {

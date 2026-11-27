@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 import {
   DEFAULT_COMPANY_COLORS,
   colorLabel,
+  contrastRatio,
   cssColorToHex,
   isChartToken,
   isHexColor,
@@ -205,11 +206,30 @@ export default function ChartColorEditor({
   const duplicates = useMemo(() => {
     const seen = new Map<string, number>();
     for (const color of effective) {
-      const key = colorLabel(color);
+      // Compare the resolved colour, not just its hue label: #0000ff and
+      // var(--chart-1) can point at the same visible shade.
+      const key = cssColorToHex(color).toLowerCase();
       seen.set(key, (seen.get(key) ?? 0) + 1);
     }
     return [...seen.values()].some((count) => count > 1);
   }, [effective]);
+
+  const lowContrast = useMemo(() => {
+    if (typeof document === 'undefined') return false;
+
+    // Theme tokens are designed for the UI; only warn about explicit hex
+    // overrides the user (or AI) picked.
+    const explicit = [
+      ...(value.colors ?? []),
+      ...Object.values(value.colorsByKey ?? {}),
+    ].filter((color) => isHexColor(color));
+    if (explicit.length === 0) return false;
+
+    const background = cssColorToHex(
+      getComputedStyle(document.documentElement).getPropertyValue('--background').trim(),
+    );
+    return explicit.some((color) => contrastRatio(color, background) < 3);
+  }, [value.colors, value.colorsByKey]);
 
   function patch(partial: Partial<ChartStyleConfig>) {
     onChange({ ...value, ...partial });
@@ -362,6 +382,12 @@ export default function ChartColorEditor({
         {duplicates && (
           <p className="text-amber-600 text-xs">
             Two or more slots share the same colour. Pick a different shade so they stay readable.
+          </p>
+        )}
+        {lowContrast && (
+          <p className="text-amber-600 text-xs">
+            At least one colour has low contrast against the chart background. Pick a darker or
+            lighter shade for readability.
           </p>
         )}
       </div>

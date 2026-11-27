@@ -1,12 +1,12 @@
 import { BarChart3 } from 'lucide-react';
-import { Bar, CartesianGrid, ComposedChart, LabelList, Line, XAxis, YAxis } from 'recharts';
+import { Bar, Brush, CartesianGrid, ComposedChart, LabelList, Line, ReferenceLine, XAxis, YAxis } from 'recharts';
 import {
   ChartContainer,
   ChartLegend,
   ChartLegendContent,
 } from '@/components/ui/chart';
 import ChartHoverTooltip from '../ChartHoverTooltip';
-import { canShowPointLabels, canShowValueLabels, resolveCartesianMargins, xAxisLayout, yAxisWidth } from '../axis';
+import { canShowPointLabels, canShowValueLabels, datasetAxisWidth, datasetsAxisWidth, resolveCartesianMargins, timeLabelFormatter, xAxisConfig, yAxisWidth } from '../axis';
 import { cssColorVar } from '../colorKey';
 import { tickFormatter } from '../format';
 import { toChartConfig, toRows } from '../transform';
@@ -16,8 +16,11 @@ import StyledChartTooltip from './StyledChartTooltip';
 import {
   cornerRadius,
   hasSeries,
+  referenceValue,
+  showBrush,
   showGrid,
   showLabels,
+  showReference,
   showTooltip,
   showXAxis,
   showYAxis,
@@ -42,6 +45,14 @@ const dotSize: ParamSpec = {
   help: 'Zero hides the points on the line.',
 };
 
+const secondaryAxis: ParamSpec = {
+  kind: 'boolean',
+  key: 'secondaryAxis',
+  label: 'Secondary axis',
+  default: true,
+  help: 'Draw the line against its own right-hand axis when the scales differ.',
+};
+
 export const comboChart: ChartDescriptor = {
   id: 'combo',
   label: 'Combo',
@@ -64,9 +75,13 @@ export const comboChart: ChartDescriptor = {
     showGrid,
     showXAxis,
     showYAxis,
+    secondaryAxis,
     showTooltip,
     showLegend,
     showLabels,
+    showBrush,
+    showReference,
+    referenceValue,
   ],
   render({ data, style, layout }) {
     if (!hasSeries(data)) return <ChartPlaceholder icon={BarChart3} label="Combo chart" />;
@@ -75,11 +90,21 @@ export const comboChart: ChartDescriptor = {
     const config = toChartConfig(data, style);
     const lineFirst = style.variant === 'lineFirst';
     const lastIndex = data.datasets.length - 1;
+    const lineIndex = lineFirst ? 0 : lastIndex;
+    const lineDataset = data.datasets[lineIndex];
+    const barDatasets = data.datasets.filter((_, index) => index !== lineIndex);
+    const hasSecondaryAxis = param(style, 'secondaryAxis', true) && barDatasets.length > 0;
     const radius = param(style, 'cornerRadius', 4);
     const dot = param(style, 'dotSize', 3);
     const compact = layout?.compact ?? false;
-    const xAxis = xAxisLayout(data.labels, compact);
-    const yWidth = yAxisWidth(data, style, compact);
+    const xAxis = xAxisConfig(data, compact);
+    const leftWidth =
+      barDatasets.length > 0
+        ? datasetsAxisWidth(barDatasets, style, compact)
+        : yAxisWidth(data, style, compact);
+    const rightWidth =
+      hasSecondaryAxis && lineDataset ? datasetAxisWidth(lineDataset, style, compact) : 0;
+    const showY = param(style, 'showYAxis', true);
     const showPointValues =
       param(style, 'showLabels', false) && canShowPointLabels(data, compact);
     const showBarValues =
@@ -93,27 +118,47 @@ export const comboChart: ChartDescriptor = {
         <ComposedChart accessibilityLayer data={rows} margin={margin}>
           {param(style, 'showGrid', true) && <CartesianGrid vertical={false} />}
           <XAxis
-            dataKey="name"
+            {...xAxis}
             hide={!param(style, 'showXAxis', true)}
             tickLine={false}
             axisLine={false}
             tickMargin={8}
-            height={xAxis.height}
-            interval={xAxis.interval}
-            angle={xAxis.angle}
-            textAnchor={xAxis.textAnchor}
-            tickFormatter={xAxis.tickFormatter}
           />
           <YAxis
-            hide={!param(style, 'showYAxis', true)}
+            yAxisId="left"
+            hide={!showY}
             tickLine={false}
             axisLine={false}
-            width={yWidth}
+            width={leftWidth}
             tickFormatter={tickFormatter(style)}
           />
+          {hasSecondaryAxis && (
+            <YAxis
+              yAxisId="right"
+              orientation="right"
+              hide={!showY}
+              tickLine={false}
+              axisLine={false}
+              width={rightWidth}
+              tickFormatter={tickFormatter(style)}
+            />
+          )}
+
+          {param(style, 'showReference', false) && (
+            <ReferenceLine
+              yAxisId="left"
+              y={param(style, 'referenceValue', 0)}
+              stroke="var(--muted-foreground)"
+              strokeDasharray="4 4"
+            />
+          )}
 
           {param(style, 'showTooltip', true) && (
-            <ChartHoverTooltip cursor={false} content={<StyledChartTooltip style={style} />} />
+            <ChartHoverTooltip
+              cursor={false}
+              content={<StyledChartTooltip style={style} />}
+              labelFormatter={timeLabelFormatter(data)}
+            />
           )}
           {param(style, 'showLegend', true) && !compact && (
             <ChartLegend content={<ChartLegendContent />} />
@@ -125,6 +170,7 @@ export const comboChart: ChartDescriptor = {
               return (
                 <Line
                   key={ds.label}
+                  yAxisId={hasSecondaryAxis ? 'right' : 'left'}
                   dataKey={ds.label}
                   type="monotone"
                   stroke={cssColorVar(ds.label)}
@@ -148,6 +194,7 @@ export const comboChart: ChartDescriptor = {
             return (
               <Bar
                 key={ds.label}
+                yAxisId="left"
                 dataKey={ds.label}
                 fill={cssColorVar(ds.label)}
                 radius={radius}
@@ -163,6 +210,10 @@ export const comboChart: ChartDescriptor = {
               </Bar>
             );
           })}
+
+          {param(style, 'showBrush', false) && !compact && (
+            <Brush dataKey={xAxis.dataKey} height={24} travellerWidth={8} />
+          )}
         </ComposedChart>
       </ChartContainer>
     );

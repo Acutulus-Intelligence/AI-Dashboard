@@ -63,15 +63,25 @@ export const pieChart: ChartDescriptor = {
   defaultSize: { w: 4, h: 4 },
   minSize: { w: 3, h: 3 },
   colorAxis: 'category',
-  colorSlotFilter: (data, index) => data.datasets[0]?.values[index] != null,
+  colorSlotFilter: (data, index) => {
+    const value = data.datasets[0]?.values[index];
+    return value != null && value >= 0;
+  },
   variants: [
     { id: 'default', label: 'Pie', description: 'A solid pie.' },
     { id: 'donut', label: 'Donut', description: 'Hollow centre.' },
     { id: 'total', label: 'Donut with total', description: 'Donut showing the sum in the middle.' },
   ],
   params: [innerRadius, padAngle, showLabels, showTooltip, showLegend, topN],
-  render({ data, style, layout, colorSlots }) {
+  render({ data, style, layout, colorSlots, onCategoryClick }) {
     if (!hasSeries(data)) return <ChartPlaceholder icon={PieIcon} label="Pie chart" />;
+
+    const handleSliceClick = (entry: unknown) => {
+      if (!onCategoryClick) return;
+      const record = entry as { name?: unknown; payload?: { name?: unknown } } | null;
+      const name = record?.payload?.name ?? record?.name;
+      if (name != null) onCategoryClick(String(name));
+    };
 
     const series = data.datasets[0];
     const slots =
@@ -84,7 +94,7 @@ export const pieChart: ChartDescriptor = {
 
     const slices = slots.flatMap((slot, colorIndex) => {
       const value = series.values[slot.index];
-      return value == null
+      return value == null || value < 0
         ? []
         : [{ key: chartColorKey(colorIndex, slot.key || slot.label), name: slot.label, value }];
     });
@@ -113,10 +123,10 @@ export const pieChart: ChartDescriptor = {
 
     return (
       <ChartContainer config={sliceConfig(slots, style)} className="h-full w-full aspect-auto">
-        <PieChart margin={{ top: 4, right: labelSpace, left: labelSpace, bottom: 4 }}>
+        <PieChart accessibilityLayer margin={{ top: 4, right: labelSpace, left: labelSpace, bottom: 4 }}>
           {param(style, 'showTooltip', true) && (
             <ChartHoverTooltip
-              content={<StyledChartTooltip style={style} nameKey="key" showShare />}
+              content={<StyledChartTooltip style={style} nameKey="key" showShare shareTotal={total} />}
             />
           )}
 
@@ -127,7 +137,8 @@ export const pieChart: ChartDescriptor = {
             innerRadius={`${hole}%`}
             outerRadius={showSliceLabels ? '78%' : '92%'}
             paddingAngle={param(style, 'padAngle', 0)}
-            minAngle={2}
+            minAngle={0}
+            onClick={handleSliceClick}
             label={
               showSliceLabels
                 ? ({ name, percent }) => {

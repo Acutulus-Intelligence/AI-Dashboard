@@ -112,10 +112,19 @@ export function resolveColorSlots(
 ): string[] {
   const palette = getPalette(config?.palette);
   const count = Math.max(colorKeys.length, 1);
-  const keyed = config?.colorsByKey;
+  // The backend stores keys case-insensitively; match the same way here so a
+  // colour follows its category even if the query changes casing.
+  const keyed = config?.colorsByKey
+    ? new Map(
+        Object.entries(config.colorsByKey).map(([key, color]) => [
+          key.trim().toLowerCase(),
+          color,
+        ]),
+      )
+    : null;
   return Array.from({ length: count }, (_, i) => {
-    const key = colorKeys[i];
-    const keyedColor = key && keyed ? (keyed[key] ?? keyed[key.trim()]) : undefined;
+    const key = colorKeys[i]?.trim().toLowerCase() ?? '';
+    const keyedColor = key ? keyed?.get(key) : undefined;
     const paletteColor =
       i < palette.colors.length ? palette.colors[i] : distinctChartColor(i);
     return keyedColor || config?.colors?.[i] || paletteColor;

@@ -9,24 +9,75 @@ function measureSum(data: ChartData, index: number): number {
   }, 0);
 }
 
+function isOther(label: string): boolean {
+  return label.trim().toLowerCase() === OTHER_LABEL.toLowerCase();
+}
+
+/** Aggregates the hidden category values the same way the SQL did. */
+function aggregateTail(
+  dataset: ChartData['datasets'][number],
+  indexes: number[],
+  aggregation: string,
+): number | null {
+  let sum = 0;
+  let count = 0;
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+
+  for (const index of indexes) {
+    const value = dataset.values[index];
+    if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+    sum += value;
+    count += 1;
+    min = Math.min(min, value);
+    max = Math.max(max, value);
+  }
+
+  if (count === 0) return null;
+
+  switch (aggregation.toLowerCase()) {
+    case 'avg':
+      return sum / count;
+    case 'min':
+      return min;
+    case 'max':
+      return max;
+    default:
+      return sum;
+  }
+}
+
 /**
- * Applies the Top N presentation setting on the client so the slider updates
- * immediately. Remaining categories are summed into a single "Other" row.
+ * Keeps the N largest categories and aggregates the rest into "Other". Shared by
+ * the renderer and the exporter so downloads show exactly what the chart shows.
  */
-export function shapeForDisplay(data: ChartData, style: ResolvedStyle): ChartData {
-  const topN = Math.trunc(param(style, 'topN', 0));
-  if (topN <= 0 || data.labels.length <= topN) return data;
+export function shapeForTopN(
+  data: ChartData,
+  topN: number,
+  aggregation?: string,
+): ChartData {
+  const limit = typeof topN === 'number' && Number.isFinite(topN) ? Math.trunc(topN) : 0;
+  if (limit <= 0 || data.labels.length <= limit) return data;
+
+  // A time axis is ordered by timestamp; grouping categories into "Other" would
+  // break the scale, so presentation top-N never applies to time-series charts.
+  if (data.xTime) return data;
 
   const otherIndexes = data.labels
-    .map((label, index) => (label === OTHER_LABEL ? index : -1))
+    .map((label, index) => (isOther(label) ? index : -1))
     .filter((index) => index >= 0);
+
+  // Aggregating the tail is only meaningful for additive measures.
+  const aggregationName = (aggregation ?? data.aggregation ?? 'sum').toLowerCase();
+  if (aggregationName !== 'sum' && aggregationName !== 'count') return data;
+
   const order = data.labels
-    .map((label, index) => (label === OTHER_LABEL ? -1 : index))
+    .map((label, index) => (isOther(label) ? -1 : index))
     .filter((index) => index >= 0)
     .sort((a, b) => measureSum(data, b) - measureSum(data, a));
 
-  const kept = order.slice(0, topN);
-  const rest = [...order.slice(topN), ...otherIndexes];
+  const kept = order.slice(0, limit);
+  const rest = [...order.slice(limit), ...otherIndexes];
   const labels = kept.map((index) => data.labels[index]);
 
   const datasets = data.datasets.map((dataset) => ({
@@ -37,14 +88,19 @@ export function shapeForDisplay(data: ChartData, style: ResolvedStyle): ChartDat
   if (rest.length > 0) {
     labels.push(OTHER_LABEL);
     datasets.forEach((dataset, datasetIndex) => {
-      const source = data.datasets[datasetIndex];
-      const total = rest.reduce((sum, index) => {
-        const value = source.values[index];
-        return sum + (typeof value === 'number' && Number.isFinite(value) ? value : 0);
-      }, 0);
-      dataset.values.push(total);
+      dataset.values.push(
+        aggregateTail(data.datasets[datasetIndex], rest, aggregationName),
+      );
     });
   }
 
   return { ...data, labels, datasets };
+}
+
+/**
+ * Applies the Top N presentation setting on the client so the slider updates
+ * immediately.
+ */
+export function shapeForDisplay(data: ChartData, style: ResolvedStyle): ChartData {
+  return shapeForTopN(data, param(style, 'topN', 0), data.aggregation);
 }

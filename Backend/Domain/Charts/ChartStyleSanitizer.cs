@@ -104,7 +104,10 @@ public static partial class ChartStyleSanitizer
             && result.DecimalMode is null
             && result.Notation is null;
 
-        return isEmpty ? null : result;
+        if (isEmpty) return null;
+
+        result.SchemaVersion = 1;
+        return result;
     }
 
     private static string? SanitizeText(string? value, int maxLength)

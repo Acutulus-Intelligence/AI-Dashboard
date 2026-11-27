@@ -68,4 +68,8 @@ public sealed class ChartStyleConfig
     /// </summary>
     [JsonPropertyName("notation")]
     public string? Notation { get; set; }
+
+    /// <summary>Style schema version, so future migrations can read old configs safely.</summary>
+    [JsonPropertyName("schemaVersion")]
+    public int? SchemaVersion { get; set; }
 }

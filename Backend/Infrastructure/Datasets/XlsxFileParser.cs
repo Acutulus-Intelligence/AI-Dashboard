@@ -67,9 +67,11 @@ public class XlsxFileParser : IDatasetFileParser
     }
 
     /// <summary>
-    /// Reads the ZIP central directory and rejects workbooks whose declared
-    /// uncompressed size exceeds the configured budget. Runs before ClosedXML
-    /// loads the archive, which is where a zip bomb would do damage.
+    /// Reads the ZIP entries and counts the bytes that actually decompress. A
+    /// crafted archive can lie about the declared length in the central
+    /// directory, so the check cannot trust <see cref="ZipArchiveEntry.Length"/>
+    /// alone. Runs before ClosedXML loads the archive, which is where a zip bomb
+    /// would do damage.
     /// </summary>
     private void EnsureArchiveWithinLimit(Stream stream)
     {
@@ -80,20 +82,36 @@ public class XlsxFileParser : IDatasetFileParser
         try
         {
             using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
+            var maxEntries = _settings.MaxArchiveEntries > 0
+                ? _settings.MaxArchiveEntries
+                : int.MaxValue;
+            if (archive.Entries.Count > maxEntries)
+                throw new ArgumentException("The workbook contains too many archive entries.");
+
+            var buffer = new byte[81920];
             long total = 0;
             foreach (var entry in archive.Entries)
             {
-                total += entry.Length;
-                if (total > _settings.MaxExpandedBytes)
+                using var entryStream = entry.Open();
+                int read;
+                while ((read = entryStream.Read(buffer, 0, buffer.Length)) > 0)
                 {
-                    throw new ArgumentException(
-                        $"The workbook expands to more than {_settings.MaxExpandedBytes / (1024 * 1024)} MB.");
+                    total += read;
+                    if (total > _settings.MaxExpandedBytes)
+                    {
+                        throw new ArgumentException(
+                            $"The workbook expands to more than {_settings.MaxExpandedBytes / (1024 * 1024)} MB.");
+                    }
                 }
             }
         }
         catch (InvalidDataException)
         {
             throw new ArgumentException("The file is not a valid XLSX workbook.");
+        }
+        catch (Exception ex) when (ex is IOException or NotSupportedException)
+        {
+            throw new ArgumentException("The file is not a readable XLSX workbook.");
         }
         finally
         {

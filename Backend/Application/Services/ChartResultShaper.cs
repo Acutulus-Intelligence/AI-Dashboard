@@ -7,11 +7,12 @@ namespace Application.Services;
 /// <summary>
 /// Applies the user's <c>topN</c> presentation setting after the query has run:
 /// keeps the N largest categories and groups the rest into a single "Other"
-/// row. Summing the tail preserves the chart total, which keeps pie/donut
-/// shares honest.
+/// row. The tail uses the chart's aggregation (sum/avg/min/max) instead of
+/// blindly summing, and an existing "Other" category is folded into the tail so
+/// labels stay unique. Sorting matches the renderer (total across all measures).
 ///
-/// Runs for bar, pie and radial only and always returns a new list, so cached
-/// result rows are never mutated.
+/// Runs for bar, pie, radial and treemap only and always returns a new list, so
+/// cached result rows are never mutated.
 /// </summary>
 public static class ChartResultShaper
 {
@@ -22,6 +23,7 @@ public static class ChartResultShaper
         "bar",
         "pie",
         "radial",
+        "treemap",
     };
 
     public static List<Dictionary<string, object?>> Shape(
@@ -39,48 +41,109 @@ public static class ChartResultShaper
         var xAxis = config.XAxis;
         if (!rows[0].ContainsKey(xAxis)) return Copy(rows);
 
-        var measure = config.YAxis.FirstOrDefault(axis =>
-            ChartResultNormalizer.IsNumericColumn(rows, axis));
-        if (measure is null) return Copy(rows);
+        var measureAxes = config.YAxis
+            .Where(axis => !ChartResultNormalizer.IsIdentifierColumn(axis)
+                && ChartResultNormalizer.IsNumericColumn(rows, axis))
+            .ToList();
+        if (measureAxes.Count == 0) return Copy(rows);
+
+        var aggregation = NormalizeAggregation(config.Aggregation);
+
+        // Grouping non-additive measures into "Other" would be misleading: an
+        // unweighted average/min/max of category values is not the real total.
+        if (aggregation is "avg" or "min" or "max" or "none")
+        {
+            notes?.Add("Top N requires an additive measure; showing all categories.");
+            return Copy(rows);
+        }
 
         var ordered = rows
             .Select((row, index) => (
                 Row: row,
                 Index: index,
-                Value: ChartResultNormalizer.TryGetNumber(row.GetValueOrDefault(measure), out var value)
-                    ? value
-                    : (double?)null))
-            .OrderByDescending(item => item.Value ?? double.MinValue)
+                Score: RowScore(row, measureAxes),
+                IsOther: string.Equals(
+                    row.GetValueOrDefault(xAxis)?.ToString(), OtherLabel, StringComparison.OrdinalIgnoreCase)))
+            .OrderByDescending(item => item.Score)
             .ThenBy(item => item.Index)
             .ToList();
 
-        var kept = ordered.Take(topN).Select(item => item.Row).ToList();
-        var tail = ordered.Skip(topN).Select(item => item.Row).ToList();
+        // An existing "Other" row is always part of the tail; keeping it next to
+        // the generated row would produce two identical labels.
+        var kept = ordered
+            .Where(item => !item.IsOther)
+            .Take(topN)
+            .Select(item => item.Row)
+            .ToList();
+        var keptSet = new HashSet<Dictionary<string, object?>>(kept);
+        var tail = ordered
+            .Where(item => item.IsOther || !keptSet.Contains(item.Row))
+            .Select(item => item.Row)
+            .ToList();
 
-        var other = rows[0].Keys.ToDictionary(key => key, _ => (object?)null);
+        var other = new Dictionary<string, object?>();
+        foreach (var row in rows)
+        {
+            foreach (var key in row.Keys)
+                other.TryAdd(key, null);
+        }
 
         foreach (var axis in config.YAxis)
         {
             if (!other.ContainsKey(axis)) continue;
-
-            double sum = 0;
-            foreach (var row in tail)
-            {
-                if (ChartResultNormalizer.TryGetNumber(row.GetValueOrDefault(axis), out var value))
-                    sum += value;
-            }
-
-            other[axis] = sum;
+            other[axis] = Aggregate(tail, axis, aggregation);
         }
 
         other[xAxis] = OtherLabel;
         kept.Add(other);
 
         notes?.Add(
-            $"Kept the top {topN} categories by '{measure}' and grouped {tail.Count} into '{OtherLabel}'.");
+            $"Kept the top {topN} categories and grouped {tail.Count} into '{OtherLabel}' using {aggregation}.");
 
         return kept;
     }
+
+    private static double RowScore(
+        Dictionary<string, object?> row,
+        IReadOnlyList<string> measureAxes)
+    {
+        double score = 0;
+        foreach (var axis in measureAxes)
+        {
+            if (ChartResultNormalizer.TryGetNumber(row.GetValueOrDefault(axis), out var value))
+                score += value;
+        }
+
+        return score;
+    }
+
+    private static object? Aggregate(
+        IReadOnlyList<Dictionary<string, object?>> rows,
+        string axis,
+        string aggregation)
+    {
+        if (rows.Count == 0) return null;
+
+        var values = new List<double>(rows.Count);
+        foreach (var row in rows)
+        {
+            if (ChartResultNormalizer.TryGetNumber(row.GetValueOrDefault(axis), out var value))
+                values.Add(value);
+        }
+
+        if (values.Count == 0) return null;
+
+        return aggregation switch
+        {
+            "avg" => values.Average(),
+            "min" => values.Min(),
+            "max" => values.Max(),
+            _ => values.Sum(),
+        };
+    }
+
+    private static string NormalizeAggregation(string? aggregation) =>
+        string.IsNullOrWhiteSpace(aggregation) ? "sum" : aggregation.Trim().ToLowerInvariant();
 
     private static List<Dictionary<string, object?>> Copy(
         IReadOnlyList<Dictionary<string, object?>> rows) => [.. rows];

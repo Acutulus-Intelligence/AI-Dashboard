@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Application.DTos.Request;
+using Domain.Charts;
 using Domain.Enums;
 using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
@@ -457,6 +458,143 @@ public sealed class ChartCacheRoutesTests
         }
     }
 
+    [Fact]
+    public async Task Execute_applies_the_saved_top_n_presentation_param()
+    {
+        var client = CreateClient();
+        var email = $"cachetopn_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        await _factory.SeedActiveSubscriptionAsync(email);
+
+        var tableName = $"cache_topn_{Guid.NewGuid():N}";
+        var values = string.Join(", ", Enumerable.Range(1, 8).Select(i => $"('cat{i}', {i})"));
+        await ExecuteExternalSqlAsync(
+            $"CREATE TABLE {tableName} (category TEXT NOT NULL, amount NUMERIC NOT NULL);" +
+            $"INSERT INTO {tableName} (category, amount) VALUES {values};");
+
+        try
+        {
+            var connectionId = await CreateConnectionAsync(client);
+            var sql = $"SELECT category, SUM(amount) AS amount FROM {tableName} GROUP BY category ORDER BY amount DESC";
+            var style = new ChartStyleConfig
+            {
+                Params = new Dictionary<string, JsonElement>
+                {
+                    ["topN"] = JsonSerializer.SerializeToElement(3),
+                },
+            };
+            var chartId = await CreateChartAsync(client, connectionId, tableName, sql, "Top N chart", style);
+
+            var execute = await client.PostAsync($"/api/charts/{chartId}/execute", null);
+            execute.StatusCode.Should().Be(HttpStatusCode.OK);
+
+            using var doc = JsonDocument.Parse(await execute.Content.ReadAsStringAsync());
+            var rows = doc.RootElement.GetProperty("queryResult");
+
+            rows.GetArrayLength().Should().Be(4);
+            rows[0].GetProperty("category").GetString().Should().Be("cat8");
+            rows[3].GetProperty("category").GetString().Should().Be("Other");
+            rows[3].GetProperty("amount").GetDouble().Should().Be(15); // 1 + 2 + 3 + 4 + 5
+
+            (await client.DeleteAsync($"/api/charts/{chartId}")).StatusCode.Should()
+                .Be(HttpStatusCode.NoContent);
+            (await client.DeleteAsync($"/api/connections/{connectionId}")).StatusCode.Should()
+                .Be(HttpStatusCode.NoContent);
+        }
+        finally
+        {
+            await ExecuteExternalSqlAsync($"DROP TABLE IF EXISTS {tableName};");
+        }
+    }
+
+    [Fact]
+    public async Task Style_update_keeps_the_cached_query_result()
+    {
+        var client = CreateClient();
+        var email = $"cachestyle_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        await _factory.SeedActiveSubscriptionAsync(email);
+
+        var tableName = $"cache_style_{Guid.NewGuid():N}";
+        await ExecuteExternalSqlAsync(
+            $"CREATE TABLE {tableName} (category TEXT NOT NULL, amount NUMERIC NOT NULL);" +
+            $"INSERT INTO {tableName} (category, amount) VALUES ('A', 10);");
+
+        try
+        {
+            var connectionId = await CreateConnectionAsync(client);
+            var sql = $"SELECT category, SUM(amount) AS amount FROM {tableName} GROUP BY category";
+            var chartId = await CreateChartAsync(client, connectionId, tableName, sql);
+
+            (await client.PostAsync($"/api/charts/{chartId}/execute", null)).StatusCode.Should()
+                .Be(HttpStatusCode.OK);
+
+            await ExecuteExternalSqlAsync(
+                $"UPDATE {tableName} SET amount = 99 WHERE category = 'A';");
+
+            var styleUpdate = await client.PutAsJsonAsync(
+                $"/api/charts/{chartId}/style",
+                new UpdateChartStyleRequest(new ChartStyleConfig { Palette = "cool" }));
+            styleUpdate.StatusCode.Should().Be(HttpStatusCode.OK);
+
+            var afterStyle = await client.PostAsync($"/api/charts/{chartId}/execute", null);
+            afterStyle.StatusCode.Should().Be(HttpStatusCode.OK);
+            using var afterStyleDoc = JsonDocument.Parse(await afterStyle.Content.ReadAsStringAsync());
+            afterStyleDoc.RootElement.GetProperty("queryResult")[0]
+                .GetProperty("amount").GetDouble().Should().Be(10); // still cached, style-only change
+
+            (await client.DeleteAsync($"/api/charts/{chartId}")).StatusCode.Should()
+                .Be(HttpStatusCode.NoContent);
+            (await client.DeleteAsync($"/api/connections/{connectionId}")).StatusCode.Should()
+                .Be(HttpStatusCode.NoContent);
+        }
+        finally
+        {
+            await ExecuteExternalSqlAsync($"DROP TABLE IF EXISTS {tableName};");
+        }
+    }
+
+    [Fact]
+    public async Task Execute_returns_304_for_a_matching_etag()
+    {
+        var client = CreateClient();
+        var email = $"cacheetag_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        await _factory.SeedActiveSubscriptionAsync(email);
+
+        var tableName = $"cache_etag_{Guid.NewGuid():N}";
+        await ExecuteExternalSqlAsync(
+            $"CREATE TABLE {tableName} (category TEXT NOT NULL, amount NUMERIC NOT NULL);" +
+            $"INSERT INTO {tableName} (category, amount) VALUES ('A', 10);");
+
+        try
+        {
+            var connectionId = await CreateConnectionAsync(client);
+            var sql = $"SELECT category, SUM(amount) AS amount FROM {tableName} GROUP BY category";
+            var chartId = await CreateChartAsync(client, connectionId, tableName, sql);
+
+            var first = await client.PostAsync($"/api/charts/{chartId}/execute", null);
+            first.StatusCode.Should().Be(HttpStatusCode.OK);
+            first.Headers.ETag.Should().NotBeNull();
+
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post, $"/api/charts/{chartId}/execute");
+            request.Headers.TryAddWithoutValidation("If-None-Match", first.Headers.ETag!.Tag);
+
+            var conditional = await client.SendAsync(request);
+            conditional.StatusCode.Should().Be(HttpStatusCode.NotModified);
+
+            (await client.DeleteAsync($"/api/charts/{chartId}")).StatusCode.Should()
+                .Be(HttpStatusCode.NoContent);
+            (await client.DeleteAsync($"/api/connections/{connectionId}")).StatusCode.Should()
+                .Be(HttpStatusCode.NoContent);
+        }
+        finally
+        {
+            await ExecuteExternalSqlAsync($"DROP TABLE IF EXISTS {tableName};");
+        }
+    }
+
     private async Task<Guid> CreateConnectionAsync(HttpClient client, string name = "Cache sample")
     {
         var response = await client.PostAsJsonAsync("/api/connections", new CreateConnectionRequest(
@@ -474,7 +612,8 @@ public sealed class ChartCacheRoutesTests
         Guid connectionId,
         string tableName,
         string sql,
-        string title = "Cache chart")
+        string title = "Cache chart",
+        ChartStyleConfig? styleConfig = null)
     {
         var response = await client.PostAsJsonAsync("/api/charts", new SaveChartRequest(
             title,
@@ -486,7 +625,8 @@ public sealed class ChartCacheRoutesTests
             sql,
             connectionId,
             null,
-            tableName));
+            tableName,
+            StyleConfig: styleConfig));
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());

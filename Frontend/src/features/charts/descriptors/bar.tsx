@@ -1,5 +1,5 @@
 import { BarChart3 } from 'lucide-react';
-import { Bar, BarChart, CartesianGrid, Cell, LabelList, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Cell, LabelList, ReferenceLine, XAxis, YAxis } from 'recharts';
 import {
   ChartContainer,
   ChartLegend,
@@ -17,9 +17,11 @@ import {
   colorBy,
   cornerRadius,
   hasSeries,
+  referenceValue,
   showGrid,
   showLabels,
   showLegend,
+  showReference,
   showTooltip,
   showXAxis,
   showYAxis,
@@ -49,9 +51,18 @@ export const barChart: ChartDescriptor = {
     showLegend,
     showLabels,
     topN,
+    showReference,
+    referenceValue,
   ],
-  render({ data, style, layout }) {
+  render({ data, style, layout, onCategoryClick }) {
     if (!hasSeries(data)) return <ChartPlaceholder icon={BarChart3} label="Bar chart" />;
+
+    const handleCategoryClick = (entry: unknown) => {
+      if (!onCategoryClick) return;
+      const record = entry as { name?: unknown; payload?: { name?: unknown } } | null;
+      const name = record?.payload?.name ?? record?.name;
+      if (name != null) onCategoryClick(String(name));
+    };
 
     const rows = toRows(data);
     const config = toChartConfig(data, style);
@@ -130,6 +141,16 @@ export const barChart: ChartDescriptor = {
             </>
           )}
 
+          {param(style, 'showReference', false) && (
+            <ReferenceLine
+              {...(horizontal
+                ? { x: param(style, 'referenceValue', 0) }
+                : { y: param(style, 'referenceValue', 0) })}
+              stroke="var(--muted-foreground)"
+              strokeDasharray="4 4"
+            />
+          )}
+
           {param(style, 'showTooltip', true) && (
             <ChartHoverTooltip
               cursor={false}
@@ -147,6 +168,7 @@ export const barChart: ChartDescriptor = {
               fill={cssColorVar(ds.label)}
               stackId={stacked ? 'a' : undefined}
               radius={radius}
+              onClick={handleCategoryClick}
             >
               {categoryColors &&
                 data.labels.map((label, index) => (

@@ -158,23 +158,23 @@ export default function AdminStylePage() {
     }
 
     let cancelled = false;
-    setLoading(true);
-    companyApi
-      .getCompanyStyle()
-      .then((res) => {
+
+    void (async () => {
+      setLoading(true);
+      try {
+        const res = await companyApi.getCompanyStyle();
         if (cancelled) return;
         const next = res.colors?.length ? res.colors : [...DEFAULT_COMPANY_COLORS];
         setColors(next);
         setSavedSnapshot(next);
-      })
-      .catch((err: unknown) => {
+      } catch (err: unknown) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Failed to load company style.');
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;

@@ -1,6 +1,7 @@
 import type { ChartData, ChartStyleConfig } from './types';
 import { downloadBlob, slugifyTitle } from './download';
 import { buildHistogram } from './histogram';
+import { shapeForTopN } from './shape';
 import { buildWaterfallRows } from './waterfall';
 
 type SheetUtils = typeof import('xlsx')['utils'];
@@ -105,27 +106,35 @@ function buildSeriesData(data: ChartData, includeAllDatasets: boolean): ExportTa
 /**
  * Builds the export table for the data the chart actually shows. Raw SQL is
  * never exported: only the chart's axes/series, or the table's visible columns.
+ * Top-N shaping is applied first so a download matches what is on screen.
  */
 export function buildExportTable(
   data: ChartData,
   chartId: string,
   styleConfig?: ChartStyleConfig,
 ): ExportTable {
+  const rawTopN = styleConfig?.params?.topN;
+  const shapedData = shapeForTopN(
+    data,
+    typeof rawTopN === 'number' && Number.isFinite(rawTopN) ? rawTopN : 0,
+    data.aggregation,
+  );
+
   if (chartId === 'table' && styleConfig?.variant !== 'summary') {
-    return buildTableData(data);
+    return buildTableData(shapedData);
   }
 
   // Heatmaps and pivots need both dimensions, not just the plotted series.
   if (chartId === 'heatmap' || chartId === 'pivot') {
-    return buildTableData(data);
+    return buildTableData(shapedData);
   }
 
   if (chartId === 'waterfall') {
-    const series = data.datasets[0];
+    const series = shapedData.datasets[0];
     if (!series) return { header: [], rows: [] };
 
     const rows = buildWaterfallRows(
-      data.labels,
+      shapedData.labels,
       series.values,
       styleConfig?.params?.showTotals !== false,
     );
@@ -137,20 +146,20 @@ export function buildExportTable(
   }
 
   if (chartId === 'histogram') {
-    const series = data.datasets[0];
+    const series = shapedData.datasets[0];
     if (!series) return { header: [], rows: [] };
 
     const rawBins = styleConfig?.params?.bins;
     const bins = buildHistogram(series.values, typeof rawBins === 'number' ? rawBins : 12);
 
     return {
-      header: [data.xAxis?.trim() || 'Value', 'Count'],
+      header: [shapedData.xAxis?.trim() || 'Value', 'Count'],
       rows: bins.map((bin) => [bin.label, bin.count]),
     };
   }
 
   const includeAllDatasets = chartId !== 'pie' && chartId !== 'radial';
-  return buildSeriesData(data, includeAllDatasets);
+  return buildSeriesData(shapedData, includeAllDatasets);
 }
 
 /** Cheap check for whether an export would produce rows, without building them. */

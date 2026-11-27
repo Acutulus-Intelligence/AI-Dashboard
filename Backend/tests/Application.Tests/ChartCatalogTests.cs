@@ -79,6 +79,18 @@ public class ChartCatalogTests
     }
 
     [Fact]
+    public void Catalog_exposes_the_types_the_frontend_registry_renders()
+    {
+        // Keep in sync with Frontend/src/features/charts/registry.ts.
+        ChartCatalog.TypeIds.Should().BeEquivalentTo(
+        [
+            "bar", "combo", "histogram", "line", "area", "pie", "heatmap", "pivot",
+            "funnel", "waterfall", "treemap", "gauge", "radar", "radial", "kpi",
+            "scatter", "map", "table",
+        ]);
+    }
+
+    [Fact]
     public void Combo_has_legend_on_by_default_and_does_not_duplicate_line_thickness()
     {
         var combo = ChartCatalog.Find("combo");
@@ -87,6 +99,7 @@ public class ChartCatalogTests
         combo!.Variants.Select(v => v.Id).Should().Equal("default", "lineFirst");
         combo.Params.Should().Contain(p => p.Key == "showLegend" && (bool)p.Default);
         combo.Params.Should().Contain(p => p.Key == "showLabels");
+        combo.Params.Should().Contain(p => p.Key == "secondaryAxis" && (bool)p.Default);
     }
 
     [Fact]

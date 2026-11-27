@@ -125,6 +125,12 @@ function cloneResult(result: ChartConfigResponse): ChartConfigResponse {
   return structuredClone(result);
 }
 
+/** Top-N that affects how many result rows the server returns. */
+function topNOf(style?: ChartStyleConfig | null): number {
+  const value = style?.params?.topN;
+  return typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : 0;
+}
+
 /** Theme palette XOR positional colours — keyed overrides may use the palette as fallback. */
 function normalizeColorExclusive(style: ChartStyleConfig): ChartStyleConfig {
   if (style.palette != null && style.palette !== '') {
@@ -263,20 +269,23 @@ export default function GraphCreationPage() {
   const previewRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!isCompanyUser) {
-      setCompanyColors([...DEFAULT_COMPANY_COLORS]);
-      return;
-    }
     let cancelled = false;
-    companyApi
-      .getCompanyStyle()
-      .then((res) => {
+
+    void (async () => {
+      if (!isCompanyUser) {
+        setCompanyColors([...DEFAULT_COMPANY_COLORS]);
+        return;
+      }
+
+      try {
+        const res = await companyApi.getCompanyStyle();
         if (cancelled) return;
         setCompanyColors(res.colors?.length ? res.colors : [...DEFAULT_COMPANY_COLORS]);
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) setCompanyColors([...DEFAULT_COMPANY_COLORS]);
-      });
+      }
+    })();
+
     return () => {
       cancelled = true;
     };
@@ -299,11 +308,12 @@ export default function GraphCreationPage() {
   useEffect(() => {
     if (!routeChartId) return;
     let cancelled = false;
-    setLoading(true);
-    setError('');
-    setStep('generate');
 
     (async () => {
+      setLoading(true);
+      setError('');
+      setStep('generate');
+
       try {
         const [detail, executed] = await Promise.all([
           getChart(routeChartId),
@@ -345,55 +355,70 @@ export default function GraphCreationPage() {
 
   useEffect(() => {
     if (step !== 'pick-connection') return;
-    setConnectionsLoading(true);
-    getConnections()
-      .then(setConnections)
-      .catch(() => {
+
+    void (async () => {
+      setConnectionsLoading(true);
+      try {
+        const list = await getConnections();
+        setConnections(list);
+      } catch {
         setConnections([]);
         setError('Failed to load connections.');
-      })
-      .finally(() => setConnectionsLoading(false));
+      } finally {
+        setConnectionsLoading(false);
+      }
+    })();
 
-    setCollectionsLoading(true);
-    getCollections()
-      .then(setCollections)
-      .catch(() => {
+    void (async () => {
+      setCollectionsLoading(true);
+      try {
+        const list = await getCollections();
+        setCollections(list);
+      } catch {
         setCollections([]);
         setError('Failed to load collections.');
-      })
-      .finally(() => setCollectionsLoading(false));
+      } finally {
+        setCollectionsLoading(false);
+      }
+    })();
   }, [step]);
 
   useEffect(() => {
     if (step !== 'pick-table') return;
+
     if (sourceType === 'connection') {
       if (!connectionId) return;
-      setTablesLoading(true);
-      getTables(connectionId)
-        .then(setTables)
-        .catch(() => {
+      void (async () => {
+        setTablesLoading(true);
+        try {
+          setTables(await getTables(connectionId));
+        } catch {
           setTables([]);
           setError('Failed to load tables.');
-        })
-        .finally(() => setTablesLoading(false));
+        } finally {
+          setTablesLoading(false);
+        }
+      })();
     } else {
       if (!collectionId) return;
-      setFilesLoading(true);
-      getCollection(collectionId)
-        .then((d) => setFiles(d.files))
-        .catch(() => {
+      void (async () => {
+        setFilesLoading(true);
+        try {
+          const detail = await getCollection(collectionId);
+          setFiles(detail.files);
+        } catch {
           setFiles([]);
           setError('Failed to load collection files.');
-        })
-        .finally(() => setFilesLoading(false));
+        } finally {
+          setFilesLoading(false);
+        }
+      })();
     }
   }, [step, sourceType, connectionId, collectionId]);
 
   useEffect(() => {
     if (isEditingExisting) return;
     if (step !== 'generate') return;
-    setLoading(true);
-    setError('');
 
     const task =
       sourceType === 'connection'
@@ -412,14 +437,18 @@ export default function GraphCreationPage() {
             }))
           : Promise.resolve(null);
 
-    task
-      .then((previewData) => {
+    void (async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const previewData = await task;
         if (previewData) setPreview(previewData);
-      })
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : 'Failed to load schema'),
-      )
-      .finally(() => setLoading(false));
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'Failed to load schema');
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, [step, sourceType, connectionId, tableName, collectionId, fileId, isEditingExisting]);
 
   // Recommendations only need schema metadata, so they are cheap to fetch on
@@ -434,25 +463,24 @@ export default function GraphCreationPage() {
     if (!canRecommend) return;
 
     let cancelled = false;
-    setRecommendations([]);
-    setRecommendationsLoading(true);
-
     const request =
       sourceType === 'connection'
         ? recommendChart({ connectionId, tableName })
         : recommendCollectionChart(collectionId, fileId);
 
-    request
-      .then((response) => {
+    void (async () => {
+      setRecommendations([]);
+      setRecommendationsLoading(true);
+      try {
+        const response = await request;
         if (!cancelled) setRecommendations(response.recommendations);
-      })
-      .catch(() => {
+      } catch {
         // Recommendations are an enhancement; generation still works without them.
         if (!cancelled) setRecommendations([]);
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setRecommendationsLoading(false);
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;
@@ -833,6 +861,7 @@ export default function GraphCreationPage() {
     setSaving(true);
     setError('');
     try {
+      const topNChanged = topNOf(styleConfig) !== topNOf(result.styleConfig);
       if (savedChartId) {
         const updated = await updateChart(savedChartId, {
           title,
@@ -849,7 +878,7 @@ export default function GraphCreationPage() {
           await moveChartToFolder(savedChartId, folderId);
         }
         const savedStyle = updated.styleConfig ?? {};
-        const nextResult: ChartConfigResponse = {
+        let nextResult: ChartConfigResponse = {
           ...result,
           title: updated.title,
           chartType: updated.chartType,
@@ -861,8 +890,31 @@ export default function GraphCreationPage() {
           dataModel: updated.dataModel ?? result.dataModel,
           styleConfig: savedStyle,
         };
+
+        // The server returns top-N shaped rows. Increasing top-N needs a fresh
+        // execution, otherwise hidden categories cannot reappear.
+        if (topNChanged) {
+          try {
+            const fresh = await executeChart(savedChartId, { forceRefresh: true });
+            nextResult = {
+              ...nextResult,
+              chartType: fresh.chartType,
+              xAxis: fresh.xAxis,
+              yAxis: fresh.yAxis,
+              aggregation: fresh.aggregation,
+              groupBy: fresh.groupBy,
+              sqlQuery: fresh.sqlQuery,
+              queryResult: fresh.queryResult,
+              styleConfig: fresh.styleConfig ?? savedStyle,
+              dataModel: fresh.dataModel ?? nextResult.dataModel,
+            };
+          } catch {
+            toast.warning('Chart saved, but the preview could not be refreshed.');
+          }
+        }
+
         setResult(nextResult);
-        applySavedSnapshots(savedChartId, updated.title, savedStyle, nextResult, folderId);
+        applySavedSnapshots(savedChartId, updated.title, nextResult.styleConfig ?? savedStyle, nextResult, folderId);
         toast.success('Chart saved.');
       } else {
         const res = await saveChart({
@@ -882,7 +934,7 @@ export default function GraphCreationPage() {
         });
         const detail = await getChart(res.id);
         const savedStyle = detail.styleConfig ?? styleConfig;
-        const nextResult: ChartConfigResponse = {
+        let nextResult: ChartConfigResponse = {
           ...result,
           title: detail.title,
           chartType: detail.chartType,
@@ -894,8 +946,29 @@ export default function GraphCreationPage() {
           dataModel: detail.dataModel ?? result.dataModel,
           styleConfig: savedStyle,
         };
+
+        if (topNChanged) {
+          try {
+            const fresh = await executeChart(res.id, { forceRefresh: true });
+            nextResult = {
+              ...nextResult,
+              chartType: fresh.chartType,
+              xAxis: fresh.xAxis,
+              yAxis: fresh.yAxis,
+              aggregation: fresh.aggregation,
+              groupBy: fresh.groupBy,
+              sqlQuery: fresh.sqlQuery,
+              queryResult: fresh.queryResult,
+              styleConfig: fresh.styleConfig ?? savedStyle,
+              dataModel: fresh.dataModel ?? nextResult.dataModel,
+            };
+          } catch {
+            toast.warning('Chart saved, but the preview could not be refreshed.');
+          }
+        }
+
         setResult(nextResult);
-        applySavedSnapshots(res.id, detail.title, savedStyle, nextResult, folderId);
+        applySavedSnapshots(res.id, detail.title, nextResult.styleConfig ?? savedStyle, nextResult, folderId);
         toast.success('Chart saved.');
       }
     } catch (err: unknown) {
@@ -928,7 +1001,8 @@ export default function GraphCreationPage() {
       });
       const detail = await getChart(res.id);
       const savedStyle = detail.styleConfig ?? styleConfig;
-      const nextResult: ChartConfigResponse = {
+      const topNChanged = topNOf(styleConfig) !== topNOf(result.styleConfig);
+      let nextResult: ChartConfigResponse = {
         ...result,
         title: detail.title,
         chartType: detail.chartType,
@@ -939,8 +1013,29 @@ export default function GraphCreationPage() {
         sqlQuery: detail.sqlQuery,
         styleConfig: savedStyle,
       };
+
+      if (topNChanged) {
+        try {
+          const fresh = await executeChart(res.id, { forceRefresh: true });
+          nextResult = {
+            ...nextResult,
+            chartType: fresh.chartType,
+            xAxis: fresh.xAxis,
+            yAxis: fresh.yAxis,
+            aggregation: fresh.aggregation,
+            groupBy: fresh.groupBy,
+            sqlQuery: fresh.sqlQuery,
+            queryResult: fresh.queryResult,
+            styleConfig: fresh.styleConfig ?? savedStyle,
+            dataModel: fresh.dataModel ?? nextResult.dataModel,
+          };
+        } catch {
+          toast.warning('Saved as new, but the preview could not be refreshed.');
+        }
+      }
+
       setResult(nextResult);
-      applySavedSnapshots(res.id, detail.title, savedStyle, nextResult, folderId);
+      applySavedSnapshots(res.id, detail.title, nextResult.styleConfig ?? savedStyle, nextResult, folderId);
       toast.success('Saved as new chart.');
       navigate(graphEditPath(res.id), {
         replace: true,

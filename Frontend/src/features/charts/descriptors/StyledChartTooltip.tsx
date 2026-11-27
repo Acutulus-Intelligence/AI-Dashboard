@@ -23,6 +23,11 @@ interface StyledChartTooltipProps {
   showTotal?: boolean;
   /** Show each value as a share of the payload total (pie/radial). */
   showShare?: boolean;
+  /**
+   * Denominator for `showShare`. Recharts' pie/radial tooltip payload usually
+   * contains only the hovered slice, so the full chart total must be supplied.
+   */
+  shareTotal?: number;
 }
 
 function resolveLabel(
@@ -45,6 +50,7 @@ export default function StyledChartTooltip({
   nameKey,
   showTotal,
   showShare,
+  shareTotal,
 }: StyledChartTooltipProps) {
   const { config } = useChart();
 
@@ -59,6 +65,10 @@ export default function StyledChartTooltip({
     const value = typeof item.value === 'number' ? item.value : Number(item.value);
     return sum + (Number.isFinite(value) ? value : 0);
   }, 0);
+  const shareBase =
+    typeof shareTotal === 'number' && Number.isFinite(shareTotal) && shareTotal > 0
+      ? shareTotal
+      : total;
 
   return (
     <div className="border-border/50 bg-background grid min-w-32 gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-xl">
@@ -82,9 +92,9 @@ export default function StyledChartTooltip({
               </span>
               <span className="text-foreground shrink-0 font-mono font-medium tabular-nums">
                 {formatStyledValue(item.value, style)}
-                {showShare && total > 0 && (
+                {showShare && shareBase > 0 && (
                   <span className="text-muted-foreground ml-1 font-normal">
-                    {Math.round((Number(item.value) / total) * 100)}%
+                    {Math.round((Number(item.value) / shareBase) * 100)}%
                   </span>
                 )}
               </span>

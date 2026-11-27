@@ -3,7 +3,7 @@ import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { ChartContainer } from '@/components/ui/chart';
 import ChartHoverTooltip from '../ChartHoverTooltip';
 import { buildHistogram } from '../histogram';
-import { param, type ChartDescriptor, type ParamSpec } from '../types';
+import { param, type ChartDescriptor, type ParamSpec, type ResolvedStyle } from '../types';
 import ChartPlaceholder from './ChartPlaceholder';
 import StyledChartTooltip from './StyledChartTooltip';
 import {
@@ -43,6 +43,14 @@ export const histogramChart: ChartDescriptor = {
 
     const rows = bucketRows.map((bucket) => ({ name: bucket.label, count: bucket.count }));
     const config = { count: { label: 'Count', color: style.colors[0] } };
+    // Counts are observations, not the measure: never inherit its prefix/suffix.
+    const countStyle: ResolvedStyle = {
+      ...style,
+      valuePrefix: '',
+      valueSuffix: '',
+      decimals: 0,
+      notation: 'auto',
+    };
 
     return (
       <ChartContainer config={config} className="h-full w-full aspect-auto">
@@ -65,7 +73,7 @@ export const histogramChart: ChartDescriptor = {
           />
 
           {param(style, 'showTooltip', true) && (
-            <ChartHoverTooltip cursor={false} content={<StyledChartTooltip style={style} />} />
+            <ChartHoverTooltip cursor={false} content={<StyledChartTooltip style={countStyle} />} />
           )}
 
           <Bar

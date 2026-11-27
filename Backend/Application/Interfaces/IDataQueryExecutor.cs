@@ -9,6 +9,9 @@ namespace Application.Interfaces;
 /// </summary>
 public interface IDataQueryExecutor
 {
+    /// <summary>True when the last execution stopped at the configured row cap.</summary>
+    bool LastResultTruncated { get; }
+
     Task<List<Dictionary<string, object?>>> ExecuteAsync(
         IReadOnlyList<string> columnNames,
         IReadOnlyList<string> columnTypes,

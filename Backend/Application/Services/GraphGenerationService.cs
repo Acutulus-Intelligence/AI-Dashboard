@@ -163,6 +163,8 @@ public class GraphGenerationService : IGraphGenerationService
 
         // Axes are validated against the schema above; now reconcile them with
         // the columns the query actually returned, then apply readability lint.
+        if (_queryExecutor.LastResultTruncated)
+            notes.Add("The query result was truncated at the configured row limit.");
         ChartResultNormalizer.Normalize(result.Config, result.Rows, notes);
         var allowTypeChange = request.CurrentChart is null
             && request.Mode != "prefab"
@@ -306,6 +308,14 @@ public class GraphGenerationService : IGraphGenerationService
                 notes?.Add("AI omitted chartType and/or sqlQuery; filled from baseline.");
 
             config = ChartRefineMerger.Apply(baseline, config, prompt, allowedColors);
+            if (ChartRefineMerger.IsStyleOnlyPrompt(prompt))
+            {
+                // Deterministic guard: a colour/label/format request must never
+                // rewrite the query, even if the model returns new SQL.
+                ChartRefineMerger.KeepBaselineData(config, baseline);
+                notes?.Add("Style-only refinement: kept the baseline query and axes.");
+            }
+
             config.StyleConfig = ChartStyleSanitizer.Sanitize(config.StyleConfig, config.ChartType);
             notes?.Add(
                 ChartRefineMerger.RequestsStyleChange(prompt)

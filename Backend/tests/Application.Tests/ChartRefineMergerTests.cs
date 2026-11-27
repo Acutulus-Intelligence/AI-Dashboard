@@ -43,6 +43,30 @@ public class ChartRefineMergerTests
         ChartRefineMerger.RequestsStyleChange(prompt).Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData("make the bars blue")]
+    [InlineData("as a percentage")]
+    [InlineData("show the legend")]
+    [InlineData("round to 1 decimal")]
+    [InlineData("add data labels")]
+    [InlineData("switch to warm palette")]
+    [InlineData("color by category")]
+    [InlineData("colour each column")]
+    public void Style_only_prompts_are_detected(string prompt)
+    {
+        ChartRefineMerger.IsStyleOnlyPrompt(prompt).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("filter by region and make it blue")]
+    [InlineData("show last 30 days in red")]
+    [InlineData("group by month with warm colours")]
+    [InlineData("top 10 by amount")]
+    public void Prompts_with_data_changes_are_not_style_only(string prompt)
+    {
+        ChartRefineMerger.IsStyleOnlyPrompt(prompt).Should().BeFalse();
+    }
+
     [Fact]
     public void ClampColorsToAllowlist_preserves_empty_slots()
     {

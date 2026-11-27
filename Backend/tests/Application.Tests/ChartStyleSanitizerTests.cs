@@ -151,6 +151,7 @@ public class ChartStyleSanitizerTests
             {
                 ["showLegend"] = JsonSerializer.SerializeToElement(true),
                 ["showLabels"] = JsonSerializer.SerializeToElement(false),
+                ["secondaryAxis"] = JsonSerializer.SerializeToElement(false),
                 ["sparklineHeight"] = JsonSerializer.SerializeToElement(50),
             },
         };
@@ -159,6 +160,7 @@ public class ChartStyleSanitizerTests
         combo.Should().NotBeNull();
         combo!.Params.Should().ContainKey("showLegend");
         combo.Params.Should().ContainKey("showLabels");
+        combo.Params!["secondaryAxis"].GetBoolean().Should().BeFalse();
         combo.Params.Should().NotContainKey("sparklineHeight");
     }
 

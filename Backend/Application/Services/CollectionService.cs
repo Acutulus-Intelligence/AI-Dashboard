@@ -407,6 +407,13 @@ public class CollectionService : ICollectionService
         if (request.CurrentChart is not null)
         {
             config = ChartRefineMerger.Apply(request.CurrentChart, config, prompt, allowedColors);
+            if (ChartRefineMerger.IsStyleOnlyPrompt(prompt))
+            {
+                // Presentation-only request: never let the model rewrite the data
+                // model, chart type, or axes.
+                ChartRefineMerger.KeepBaselineData(config, request.CurrentChart);
+            }
+
             config.StyleConfig = ChartStyleSanitizer.Sanitize(config.StyleConfig, config.ChartType);
         }
         else

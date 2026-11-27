@@ -95,6 +95,31 @@ export const cornerRadius: ParamSpec = {
   step: 1,
 };
 
+export const showBrush: ParamSpec = {
+  kind: 'boolean',
+  key: 'showBrush',
+  label: 'Zoom brush',
+  default: false,
+  help: 'Adds a range slider under the chart.',
+};
+
+export const showReference: ParamSpec = {
+  kind: 'boolean',
+  key: 'showReference',
+  label: 'Reference line',
+  default: false,
+};
+
+export const referenceValue: ParamSpec = {
+  kind: 'number',
+  key: 'referenceValue',
+  label: 'Reference value',
+  default: 0,
+  min: -1_000_000_000,
+  max: 1_000_000_000,
+  step: 1,
+};
+
 export const colorBy: ParamSpec = {
   kind: 'select',
   key: 'colorBy',

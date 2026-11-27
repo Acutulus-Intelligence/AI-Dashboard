@@ -85,10 +85,12 @@ public static class ChartResultNormalizer
 
         if (yAxis.Count == 0)
         {
-            var fallback = keys.FirstOrDefault(k => IsNumericColumn(rows, k));
+            var fallback = keys.FirstOrDefault(k =>
+                !IsIdentifierColumn(k) && IsNumericColumn(rows, k));
             if (fallback is null)
             {
                 notes?.Add("No numeric column was returned; falling back to a table.");
+                config.YAxis = yAxis;
                 config.ChartType = "table";
                 return true;
             }
@@ -138,8 +140,38 @@ public static class ChartResultNormalizer
     private static bool HasValue(IReadOnlyList<Dictionary<string, object?>> rows, string key) =>
         rows.Take(SampleSize).Any(r => r.TryGetValue(key, out var value) && value is not null);
 
-    public static bool IsNumericColumn(IReadOnlyList<Dictionary<string, object?>> rows, string key) =>
-        rows.Take(SampleSize).Any(r => r.TryGetValue(key, out var value) && IsNumber(value));
+    public static bool IsNumericColumn(IReadOnlyList<Dictionary<string, object?>> rows, string key)
+    {
+        var sampled = 0;
+        var numeric = 0;
+
+        foreach (var row in rows.Take(SampleSize))
+        {
+            if (!row.TryGetValue(key, out var value) || value is null)
+                continue;
+
+            sampled++;
+            if (IsNumber(value))
+                numeric++;
+        }
+
+        // A single numeric-looking value is not enough: alphanumeric ID columns
+        // often contain numbers in a few rows. Require a strict majority.
+        return sampled > 0 && numeric > sampled / 2;
+    }
+
+    /// <summary>
+    /// Identifier-like columns are never meaningful measures, even when every
+    /// sampled value happens to be numeric.
+    /// </summary>
+    public static bool IsIdentifierColumn(string key)
+    {
+        var normalized = key.Trim().ToLowerInvariant().Replace('-', '_').Replace(' ', '_');
+        return normalized is "id" or "uuid" or "guid"
+            || normalized.EndsWith("_id", StringComparison.Ordinal)
+            || normalized.EndsWith("_uuid", StringComparison.Ordinal)
+            || normalized.EndsWith("_guid", StringComparison.Ordinal);
+    }
 
     private static bool IsNumber(object? value) => TryGetNumber(value, out _);
 

@@ -72,3 +72,29 @@ export function colorLabel(color: string): string {
   }
   return color.toUpperCase();
 }
+
+function channelLuminance(channel: number): number {
+  const value = channel / 255;
+  return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+}
+
+function relativeLuminance(hex: string): number | null {
+  const match = hex.match(/^#([0-9a-f]{6})$/i);
+  if (!match) return null;
+  const value = match[1];
+  const r = channelLuminance(parseInt(value.slice(0, 2), 16));
+  const g = channelLuminance(parseInt(value.slice(2, 4), 16));
+  const b = channelLuminance(parseInt(value.slice(4, 6), 16));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** WCAG contrast ratio between two CSS colours. Returns 21 when unknown. */
+export function contrastRatio(foreground: string, background: string): number {
+  const fg = relativeLuminance(cssColorToHex(foreground));
+  const bg = relativeLuminance(cssColorToHex(background));
+  if (fg == null || bg == null) return 21;
+
+  const lighter = Math.max(fg, bg);
+  const darker = Math.min(fg, bg);
+  return (lighter + 0.05) / (darker + 0.05);
+}

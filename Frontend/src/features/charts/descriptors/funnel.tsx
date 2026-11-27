@@ -68,6 +68,9 @@ export const funnelChart: ChartDescriptor = {
 
     if (stages.length === 0) return <ChartPlaceholder icon={Filter} label="Funnel" />;
 
+    // A funnel is read widest-to-narrowest; do not depend on the SQL ORDER BY.
+    stages.sort((a, b) => b.value - a.value);
+
     const labels = param(style, 'showLabels', true);
     const percent = param(style, 'showPercent', true);
     const first = stages[0].value;

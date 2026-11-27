@@ -82,7 +82,7 @@ export const scatterChart: ChartDescriptor = {
 
     return (
       <ChartContainer config={config} className="h-full w-full aspect-auto">
-        <ScatterChart margin={CARTESIAN_MARGIN}>
+        <ScatterChart accessibilityLayer margin={CARTESIAN_MARGIN}>
           {param(style, 'showGrid', true) && <CartesianGrid />}
           <XAxis
             type="category"

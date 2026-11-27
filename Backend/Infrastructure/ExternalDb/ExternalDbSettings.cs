@@ -31,6 +31,9 @@ public class ExternalDbSettings
     /// </summary>
     public bool VerifyServerCertificate { get; set; } = true;
 
+    /// <summary>When true, ask SQL Server for read-only intent (AG read routing).</summary>
+    public bool SqlServerReadOnlyIntent { get; set; }
+
     public string[] BlockedHosts { get; set; } =
     [
         "169.254.169.254",

@@ -16,7 +16,6 @@ namespace Application.Services;
 public static class ChartLint
 {
     private const int MaxPieSlices = 8;
-    private const int MaxBarCategories = 12;
     private const int MaxLabelledRows = 12;
     private const int MaxLabelledSeries = 3;
     private const int LongLabelLength = 12;
@@ -32,7 +31,6 @@ public static class ChartLint
         config.ChartType = chartType;
 
         var rowCount = rows.Count;
-        var pieShaped = false;
 
         if (chartType != "table" && !HasNumericSeries(config, rows))
         {
@@ -111,16 +109,8 @@ public static class ChartLint
             }
             else if (chartType is "pie" or "radial" && rowCount > MaxPieSlices)
             {
-                if (FindParam(config.ChartType, "topN") is { Kind: ChartParamKind.Number })
-                {
-                    if (SetNumberParamIfAbsent(config, "topN", MaxPieSlices))
-                    {
-                        pieShaped = true;
-                        notes?.Add(
-                            $"{chartType} had {rowCount} slices; keeping the top {MaxPieSlices} and grouping the rest into '{ChartResultShaper.OtherLabel}'.");
-                    }
-                }
-                else
+                // An explicit topN means the user already tuned the slice count.
+                if (!HasNumberParam(config, "topN"))
                 {
                     ChangeType(
                         config,
@@ -168,8 +158,7 @@ public static class ChartLint
             SetParamIfAbsent(config, "showLegend", true);
         }
 
-        if (chartType is "pie" or "radial"
-            && (pieShaped || rowCount is >= 2 and <= MaxPieSlices))
+        if (chartType is "pie" or "radial" && rowCount is >= 2 and <= MaxPieSlices)
         {
             SetParamIfAbsent(config, "showLegend", true);
         }
@@ -188,14 +177,6 @@ public static class ChartLint
             config.StyleConfig ??= new ChartStyleConfig();
             config.StyleConfig.Variant = "horizontal";
             notes?.Add("Long category labels detected; switched bars to horizontal.");
-        }
-
-        if (chartType == "bar"
-            && rowCount > MaxBarCategories
-            && SetNumberParamIfAbsent(config, "topN", MaxBarCategories))
-        {
-            notes?.Add(
-                $"Bar chart had {rowCount} categories; keeping the top {MaxBarCategories} and grouping the rest into '{ChartResultShaper.OtherLabel}'.");
         }
 
         ApplySmartFormatting(config, rows, notes);
@@ -299,19 +280,13 @@ public static class ChartLint
         ChartCatalog.Find(chartType)?.Params.FirstOrDefault(p =>
             p.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
 
-    private static bool SetNumberParamIfAbsent(AiChartConfig config, string key, int value)
+    private static bool HasNumberParam(AiChartConfig config, string key)
     {
         var param = FindParam(config.ChartType, key);
         if (param is null || param.Kind != ChartParamKind.Number) return false;
 
-        config.StyleConfig ??= new ChartStyleConfig();
-        config.StyleConfig.Params ??= new Dictionary<string, JsonElement>();
-
-        if (config.StyleConfig.Params.Keys.Any(k => k.Equals(key, StringComparison.OrdinalIgnoreCase)))
-            return false;
-
-        config.StyleConfig.Params[param.Key] = JsonSerializer.SerializeToElement(value);
-        return true;
+        return config.StyleConfig?.Params?.Keys
+            .Any(k => k.Equals(key, StringComparison.OrdinalIgnoreCase)) == true;
     }
 
     private static bool IsUsableHeatmap(
@@ -459,6 +434,7 @@ public static class ChartLint
         {
             config.StyleConfig.Palette = null;
             config.StyleConfig.Colors = null;
+            config.StyleConfig.ColorsByKey = null;
         }
 
         if (!spec.SupportsValueFormat)
@@ -467,6 +443,7 @@ public static class ChartLint
             config.StyleConfig.ValueSuffix = null;
             config.StyleConfig.Decimals = null;
             config.StyleConfig.DecimalMode = null;
+            config.StyleConfig.Notation = null;
         }
     }
 }

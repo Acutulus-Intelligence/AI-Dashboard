@@ -86,16 +86,149 @@ export function xAxisLayout(labels: string[], compact: boolean): XAxisLayout {
   };
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const YEAR_MS = 365 * DAY_MS;
+
+export function timeSpan(values: number[]): number {
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  for (const value of values) {
+    if (!Number.isFinite(value)) continue;
+    if (value < min) min = value;
+    if (value > max) max = value;
+  }
+  return Number.isFinite(min) ? Math.max(0, max - min) : 0;
+}
+
+export function formatTimeTick(value: number, span: number): string {
+  if (!Number.isFinite(value)) return '';
+  const date = new Date(value);
+
+  if (span <= 2 * DAY_MS) {
+    return date.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+  if (span <= 120 * DAY_MS) {
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+  if (span <= 2 * YEAR_MS) {
+    return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short' });
+  }
+  return date.toLocaleDateString(undefined, { year: 'numeric' });
+}
+
+export function formatTimeLabel(value: number, span: number): string {
+  if (!Number.isFinite(value)) return '';
+  const date = new Date(value);
+
+  return date.toLocaleString(
+    undefined,
+    span <= 2 * DAY_MS
+      ? {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        }
+      : { year: 'numeric', month: 'short', day: 'numeric' },
+  );
+}
+
+export interface XAxisConfig {
+  dataKey: string;
+  type: 'category' | 'number';
+  scale?: 'time';
+  domain?: [string, string];
+  minTickGap?: number;
+  height: number;
+  interval?: number | 'preserveStartEnd';
+  angle?: number;
+  textAnchor?: 'start' | 'middle' | 'end';
+  tickFormatter: (value: string | number) => string;
+}
+
+/**
+ * Real time scale when every x value is an ISO date; otherwise the original
+ * categorical layout. Keeping one helper means line/area/combo stay in sync.
+ */
+export function xAxisConfig(data: ChartData, compact: boolean): XAxisConfig {
+  if (data.xTime && data.xTime.length === data.labels.length) {
+    const span = timeSpan(data.xTime);
+    return {
+      dataKey: '__x',
+      type: 'number',
+      scale: 'time',
+      domain: ['dataMin', 'dataMax'],
+      minTickGap: compact ? 28 : 44,
+      height: 24,
+      tickFormatter: (value) => formatTimeTick(Number(value), span),
+    };
+  }
+
+  const layout = xAxisLayout(data.labels, compact);
+  return {
+    dataKey: 'name',
+    type: 'category',
+    height: layout.height,
+    interval: layout.interval,
+    angle: layout.angle,
+    textAnchor: layout.textAnchor,
+    tickFormatter: layout.tickFormatter,
+  };
+}
+
+/** Tooltip label formatter for a time axis; undefined keeps category labels. */
+export function timeLabelFormatter(
+  data: ChartData,
+): ((value: unknown) => string) | undefined {
+  if (!data.xTime?.length) return undefined;
+  const span = timeSpan(data.xTime);
+  return (value) => {
+    const numeric = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(numeric) ? formatTimeLabel(numeric, span) : String(value ?? '');
+  };
+}
+
 /** Estimates the left gutter from the widest formatted tick value. */
 export function yAxisWidth(
   data: ChartData,
   style: ResolvedStyle,
   compact: boolean,
 ): number {
+  return datasetsAxisWidth(data.datasets, style, compact);
+}
+
+/** Axis width for a single series (used by combo's secondary axis). */
+export function datasetAxisWidth(
+  dataset: ChartData['datasets'][number],
+  style: ResolvedStyle,
+  compact: boolean,
+): number {
+  return axisWidthFrom([dataset.values], style, compact);
+}
+
+export function datasetsAxisWidth(
+  datasets: ChartData['datasets'],
+  style: ResolvedStyle,
+  compact: boolean,
+): number {
+  return axisWidthFrom(datasets.map((dataset) => dataset.values), style, compact);
+}
+
+function axisWidthFrom(
+  series: ChartValue[][],
+  style: ResolvedStyle,
+  compact: boolean,
+): number {
   let maxAbs = 0;
   let sawValue = false;
-  for (const dataset of data.datasets) {
-    for (const value of dataset.values) {
+  for (const values of series) {
+    for (const value of values) {
       if (typeof value !== 'number' || !Number.isFinite(value)) continue;
       sawValue = true;
       maxAbs = Math.max(maxAbs, Math.abs(value));

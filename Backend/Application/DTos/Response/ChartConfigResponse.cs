@@ -15,5 +15,7 @@ public sealed record ChartConfigResponse(
     ChartStyleConfig? StyleConfig = null,
     DataQueryModel? DataModel = null,
     AiGenerationDebug? AiDebug = null,
-    DateTimeOffset? DataUpdatedAt = null
+    DateTimeOffset? DataUpdatedAt = null,
+    List<string>? Warnings = null,
+    bool Truncated = false
 );

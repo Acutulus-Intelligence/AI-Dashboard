@@ -94,6 +94,21 @@ public class ChartController : ControllerBase
     {
         var userId = GetUserId();
         var result = await _chartService.ExecuteChartAsync(id, userId, forceRefresh, ct);
+
+        if (result.DataUpdatedAt is { } updatedAt)
+        {
+            var etag = $"\"{updatedAt.UtcTicks}\"";
+            Response.Headers.ETag = etag;
+
+            var ifNoneMatch = Request.Headers.IfNoneMatch.ToString();
+            if (ifNoneMatch
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Contains(etag, StringComparer.Ordinal))
+            {
+                return StatusCode(StatusCodes.Status304NotModified);
+            }
+        }
+
         return Ok(result);
     }
 

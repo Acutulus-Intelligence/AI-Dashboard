@@ -35,6 +35,13 @@ const maxRows: ParamSpec = {
   step: 5,
 };
 
+const sortRows: ParamSpec = {
+  kind: 'boolean',
+  key: 'sortRows',
+  label: 'Sort rows by total',
+  default: false,
+};
+
 function sum(values: (number | null)[]): number | null {
   let total = 0;
   let seen = false;
@@ -60,7 +67,7 @@ export const pivotChart: ChartDescriptor = {
   variants: [
     { id: 'default', label: 'Pivot table', description: 'Rows and columns with the measure in each cell.' },
   ],
-  params: [showTotals, compact, stickyHeader, maxRows],
+  params: [showTotals, compact, stickyHeader, maxRows, sortRows],
   // Pivots are tables: no series colours, but value formatting still applies.
   styleCapabilities: { colors: false },
   render({ data, style }) {
@@ -69,8 +76,17 @@ export const pivotChart: ChartDescriptor = {
 
     const { columns, rows, cells, xKey, yKey } = matrix;
     const limit = param(style, 'maxRows', 100);
-    const visibleRows = rows.slice(0, limit);
+    const rowTotal = (row: string) =>
+      columns.reduce((sum, column) => {
+        const value = cells.get(cellKey(row, column));
+        return sum + (typeof value === 'number' ? value : 0);
+      }, 0);
+    const orderedRows = param(style, 'sortRows', false)
+      ? [...rows].sort((a, b) => rowTotal(b) - rowTotal(a))
+      : rows;
+    const visibleRows = orderedRows.slice(0, limit);
     const showTotalsRow = param(style, 'showTotals', true);
+    const totalsLabel = rows.length > visibleRows.length ? 'Total (shown)' : 'Total';
     const dense = param(style, 'compact', false);
     const sticky = param(style, 'stickyHeader', true);
     const padding = dense ? 'px-1 py-0.5' : 'px-2 py-1';
@@ -105,7 +121,7 @@ export const pivotChart: ChartDescriptor = {
                   </th>
                 ))}
                 {showTotalsRow && (
-                  <th className={`text-right font-semibold ${padding}`}>Total</th>
+                  <th className={`text-right font-semibold ${padding}`}>{totalsLabel}</th>
                 )}
               </tr>
             </thead>
@@ -143,7 +159,9 @@ export const pivotChart: ChartDescriptor = {
             {showTotalsRow && (
               <tfoot>
                 <tr className="border-t">
-                  <th className={`bg-background text-left font-semibold ${padding}`}>Total</th>
+                  <th className={`bg-background text-left font-semibold ${padding}`}>
+                    {totalsLabel}
+                  </th>
                   {columnTotals.map((value, index) => (
                     <td
                       key={columns[index]}

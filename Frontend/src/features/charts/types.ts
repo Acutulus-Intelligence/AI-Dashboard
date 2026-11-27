@@ -14,6 +14,13 @@ export interface ChartData {
   xAxis?: string;
   /** Second grouping column (used by heatmap). */
   groupBy?: string | null;
+  /** SQL aggregation ("sum", "avg", "min", "max", "count", "none"). */
+  aggregation?: string;
+  /**
+   * Epoch milliseconds for the x-axis when every label parses as an ISO date.
+   * Renderers use this for a real time scale instead of evenly spaced categories.
+   */
+  xTime?: number[];
 }
 
 /**
@@ -71,6 +78,8 @@ export interface ChartStyleConfig {
   decimalMode?: DecimalMode;
   /** How large numbers are abbreviated. Omit for the historical auto behaviour. */
   notation?: NumberNotation;
+  /** Style schema version written by the backend. */
+  schemaVersion?: number;
 }
 
 /** A `ChartStyleConfig` with every gap filled from the descriptor defaults. */
@@ -112,6 +121,8 @@ export interface ChartRenderContext {
   layout?: ChartLayout;
   /** Colour slots in the same order as `style.colors`. */
   colorSlots?: ColorSlot[];
+  /** Cross-filter hook: called with the clicked category label (dashboard only). */
+  onCategoryClick?: (category: string) => void;
 }
 
 /** Which shared style controls apply to this chart type (defaults: all on). */

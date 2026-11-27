@@ -25,6 +25,14 @@ interface ChartQuickStylePopoverProps {
 
 const EMPTY_DATA: ChartData = { labels: [], datasets: [] };
 
+/** Ignores the backend-managed schema version when comparing style states. */
+function serializeStyle(style: ChartStyleConfig | null | undefined): string {
+  if (!style) return '{}';
+  const rest = { ...style };
+  delete rest.schemaVersion;
+  return JSON.stringify(rest);
+}
+
 export default function ChartQuickStylePopover({
   chartId,
   chartType,
@@ -38,9 +46,11 @@ export default function ChartQuickStylePopover({
   const [draft, setDraft] = useState<ChartStyleConfig>(styleConfig ?? {});
   const [saving, setSaving] = useState(false);
   const [applying, setApplying] = useState(false);
-  const lastSavedRef = useRef(JSON.stringify(styleConfig ?? {}));
+  const lastSavedRef = useRef(serializeStyle(styleConfig));
   const savedCallbackRef = useRef(onSaved);
   savedCallbackRef.current = onSaved;
+  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+  const latestSaveRef = useRef(0);
 
   const colorView = useMemo(() => {
     if (!descriptor) return null;
@@ -60,7 +70,7 @@ export default function ChartQuickStylePopover({
 
   useEffect(() => {
     if (!open) return;
-    const serialized = JSON.stringify(draft);
+    const serialized = serializeStyle(draft);
     if (serialized === lastSavedRef.current) return;
 
     const timer = window.setTimeout(() => {
@@ -71,19 +81,32 @@ export default function ChartQuickStylePopover({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft, open]);
 
-  async function save(next: ChartStyleConfig) {
-    const serialized = JSON.stringify(next);
-    if (serialized === lastSavedRef.current) return;
-    setSaving(true);
-    try {
-      const result = await updateChartStyle(chartId, next);
-      lastSavedRef.current = JSON.stringify(result.styleConfig ?? {});
-      savedCallbackRef.current(result.styleConfig ?? null);
-    } catch (error: unknown) {
-      toast.error(error instanceof Error ? error.message : 'Could not save chart colours.');
-    } finally {
-      setSaving(false);
-    }
+  function save(next: ChartStyleConfig): Promise<void> {
+    const requestId = ++latestSaveRef.current;
+
+    const run = async () => {
+      // A newer edit was queued while this one waited: skip the stale state.
+      if (requestId !== latestSaveRef.current) return;
+
+      const serialized = serializeStyle(next);
+      if (serialized === lastSavedRef.current) return;
+
+      setSaving(true);
+      try {
+        const result = await updateChartStyle(chartId, next);
+        lastSavedRef.current = serializeStyle(result.styleConfig);
+        savedCallbackRef.current(result.styleConfig ?? null);
+      } catch (error: unknown) {
+        toast.error(error instanceof Error ? error.message : 'Could not save chart colours.');
+      } finally {
+        setSaving(false);
+      }
+    };
+
+    // Serialize writes: network responses must not land out of order.
+    const chained = saveChainRef.current.then(run, run);
+    saveChainRef.current = chained;
+    return chained;
   }
 
   async function applyPaletteToAll() {
@@ -100,7 +123,7 @@ export default function ChartQuickStylePopover({
   function handleOpenChange(next: boolean) {
     if (next) {
       setDraft(styleConfig ?? {});
-      lastSavedRef.current = JSON.stringify(styleConfig ?? {});
+      lastSavedRef.current = serializeStyle(styleConfig);
     } else {
       void save(draft);
     }

@@ -123,7 +123,12 @@ public static class SqlMasking
                 continue;
             }
 
-            if (c == '[')
+            // '[' quotes identifiers in SQL Server and SQLite. PostgreSQL uses it
+            // for array subscripts, where masking up to the closing ']' would hide
+            // function calls (for example ARRAY[pg_read_file(...)]) from the
+            // blocked-function scan. Redaction still masks it so bracketed values
+            // never reach logs.
+            if (c == '[' && (maskAllLineComments || provider is DbProvider.SqlServer or DbProvider.Sqlite))
             {
                 MaskDelimited(sql, buffer, ref i, ']');
                 continue;

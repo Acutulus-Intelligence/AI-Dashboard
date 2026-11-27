@@ -115,6 +115,7 @@ builder.Services.AddSingleton<IEncryptionService, AesEncryptionService>();
 // Chart result cache: in-process L1 -> Redis L2 -> query/DB.
 var chartCacheSection = builder.Configuration.GetSection(ChartCacheSettings.SectionName);
 builder.Services.Configure<ChartCacheSettings>(chartCacheSection);
+builder.Services.Configure<ChartSettings>(builder.Configuration.GetSection(ChartSettings.SectionName));
 var chartCacheSettings = chartCacheSection.Get<ChartCacheSettings>() ?? new ChartCacheSettings();
 builder.Services.AddMemoryCache();
 builder.Services.AddKeyedSingleton<IMemoryCache>(ChartCacheSettings.L1CacheKey, (_, _) =>

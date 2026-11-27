@@ -95,6 +95,11 @@ public static class ChartCatalog
     private static readonly ChartParamSpec StrokeWidth = Number("strokeWidth", "Line thickness", 2, 1, 6, 1);
     private static readonly ChartParamSpec FillOpacity = Number("fillOpacity", "Fill opacity", 0.25, 0, 1, 0.05);
     private static readonly ChartParamSpec CornerRadius = Number("cornerRadius", "Corner radius", 4, 0, 16, 1);
+    private static readonly ChartParamSpec ShowBrush = Toggle(
+        "showBrush", "Zoom brush", false, "Adds a range slider under the chart.");
+    private static readonly ChartParamSpec ShowReference = Toggle("showReference", "Reference line", false);
+    private static readonly ChartParamSpec ReferenceValue = Number(
+        "referenceValue", "Reference value", 0, -1_000_000_000, 1_000_000_000, 1);
 
     private static readonly ChartParamSpec ColorBy = Select(
         "colorBy", "Color by", "series",
@@ -129,7 +134,8 @@ public static class ChartCatalog
             ],
             Params =
             [
-                CornerRadius, ColorBy, ShowGrid, ShowXAxis, ShowYAxis, ShowTooltip, ShowLegend, ShowLabels, TopN
+                CornerRadius, ColorBy, ShowGrid, ShowXAxis, ShowYAxis, ShowTooltip, ShowLegend, ShowLabels, TopN,
+                ShowReference, ReferenceValue
             ]
         },
         new()
@@ -148,7 +154,10 @@ public static class ChartCatalog
                 Curve,
                 StrokeWidth,
                 Number("dotSize", "Point size", 0, 0, 8, 1, "Zero hides the points."),
-                ShowGrid, ShowXAxis, ShowYAxis, ShowTooltip, ShowLegend, ShowLabels
+                Number("movingAverage", "Moving average", 0, 0, 30, 1, "0 disables smoothing."),
+                Toggle("showTrendline", "Trendline", false, "Adds a dashed least-squares line per series."),
+                ShowGrid, ShowXAxis, ShowYAxis, ShowTooltip, ShowLegend, ShowLabels,
+                ShowBrush, ShowReference, ReferenceValue
             ]
         },
         new()
@@ -164,7 +173,8 @@ public static class ChartCatalog
             ],
             Params =
             [
-                Curve, StrokeWidth, FillOpacity, ShowGrid, ShowXAxis, ShowYAxis, ShowTooltip, ShowLegend
+                Curve, StrokeWidth, FillOpacity, ShowGrid, ShowXAxis, ShowYAxis, ShowTooltip, ShowLegend,
+                ShowBrush, ShowReference, ReferenceValue
             ]
         },
         new()
@@ -183,9 +193,13 @@ public static class ChartCatalog
                 CornerRadius,
                 StrokeWidth,
                 Number("dotSize", "Point size", 3, 0, 8, 1, "Zero hides the points on the line."),
-                ShowGrid, ShowXAxis, ShowYAxis, ShowTooltip,
+                ShowGrid, ShowXAxis, ShowYAxis,
+                Toggle("secondaryAxis", "Secondary axis", true,
+                    "Draw the line against its own right-hand axis when the scales differ."),
+                ShowTooltip,
                 Toggle("showLegend", "Legend", true),
-                ShowLabels
+                ShowLabels,
+                ShowBrush, ShowReference, ReferenceValue
             ]
         },
         new()
@@ -237,6 +251,7 @@ public static class ChartCatalog
                 Toggle("showTotals", "Totals", true),
                 Toggle("compact", "Compact cells", false),
                 Toggle("stickyHeader", "Sticky header", true),
+                Toggle("sortRows", "Sort rows by total", false),
                 Number("maxRows", "Row limit", 100, 5, 500, 5)
             ]
         },
@@ -305,7 +320,10 @@ public static class ChartCatalog
             [
                 Number("minValue", "Minimum", 0, -1_000_000, 1_000_000, 1),
                 Number("maxValue", "Maximum", 100, -1_000_000, 1_000_000, 1),
-                Number("thickness", "Arc thickness", 12, 4, 40, 2)
+                Number("thickness", "Arc thickness", 12, 4, 40, 2),
+                Toggle("autoRange", "Auto range", false, "Fit the range to the data."),
+                Toggle("showTarget", "Target marker", false),
+                Number("targetValue", "Target", 0, -1_000_000, 1_000_000, 1)
             ]
         },
         new()

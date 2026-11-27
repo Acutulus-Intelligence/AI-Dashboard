@@ -84,6 +84,40 @@ public static partial class ChartRefineMerger
     }
 
     /// <summary>
+    /// True when the prompt asks only for presentation and contains no data/query
+    /// words. Such refinements must not rewrite SQL/data model, even if the model
+    /// disobeys the prompt rules.
+    /// </summary>
+    public static bool IsStyleOnlyPrompt(string? prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt)) return false;
+
+        var normalized = prompt.Trim().ToLowerInvariant();
+        if (!RequestsStyleChange(normalized)) return false;
+
+        // "data labels" is presentation, not a data change.
+        var withoutLabelPhrases = normalized
+            .Replace("data labels", " ", StringComparison.Ordinal)
+            .Replace("data label", " ", StringComparison.Ordinal)
+            .Replace("dataetiketter", " ", StringComparison.Ordinal)
+            .Replace("dataetikett", " ", StringComparison.Ordinal);
+
+        return !DataWordRegex().IsMatch(withoutLabelPhrases);
+    }
+
+    /// <summary>Restores query/axes from the baseline for a style-only refine.</summary>
+    public static void KeepBaselineData(AiChartConfig config, ChartBaseline baseline)
+    {
+        config.ChartType = baseline.ChartType;
+        config.XAxis = baseline.XAxis;
+        config.YAxis = [.. baseline.YAxis];
+        config.Aggregation = baseline.Aggregation;
+        config.GroupBy = baseline.GroupBy;
+        config.SqlQuery = baseline.SqlQuery;
+        config.DataModel = baseline.DataModel;
+    }
+
+    /// <summary>
     /// Style fields the AI is allowed to set. Params are stripped. Colours are kept
     /// only when present in <paramref name="allowedColors"/>. Palette XOR colours.
     /// Unsupported fields for the chart type are cleared.

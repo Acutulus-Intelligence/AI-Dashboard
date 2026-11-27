@@ -78,16 +78,16 @@ public class ChartLintTests
     }
 
     [Fact]
-    public void Pie_with_more_than_eight_slices_keeps_the_top_eight_and_groups_the_rest()
+    public void Pie_with_more_than_eight_slices_becomes_a_bar_chart_without_hiding_categories()
     {
         var config = Config("pie", "amount");
         var notes = new List<string>();
 
         ChartLint.Apply(config, Rows(12), allowTypeChange: true, notes);
 
-        config.ChartType.Should().Be("pie");
-        config.StyleConfig!.Params!["topN"].GetInt32().Should().Be(8);
-        notes.Should().Contain(n => n.Contains("Other"));
+        config.ChartType.Should().Be("bar");
+        (config.StyleConfig?.Params?.ContainsKey("topN") ?? false).Should().BeFalse();
+        notes.Should().Contain(n => n.Contains("more than 8"));
     }
 
     [Fact]
@@ -116,6 +116,17 @@ public class ChartLintTests
         ChartLint.Apply(config, Rows(12), allowTypeChange: false);
 
         config.ChartType.Should().Be("pie");
+    }
+
+    [Fact]
+    public void Bar_with_many_categories_does_not_get_an_implicit_top_n()
+    {
+        var config = Config("bar", "amount");
+
+        ChartLint.Apply(config, Rows(20), allowTypeChange: true);
+
+        config.ChartType.Should().Be("bar");
+        config.StyleConfig?.Params.Should().BeNull();
     }
 
     [Fact]

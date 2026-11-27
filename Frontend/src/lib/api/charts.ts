@@ -92,6 +92,8 @@ export interface ChartConfigResponse {
   styleConfig?: ChartStyleConfig | null;
   dataModel?: DataQueryModel | null;
   dataUpdatedAt?: string | null;
+  warnings?: string[] | null;
+  truncated?: boolean;
 }
 
 export interface ExecuteChartOptions {

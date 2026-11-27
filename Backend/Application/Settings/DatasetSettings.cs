@@ -15,4 +15,7 @@ public class DatasetSettings
     /// bombs before the workbook is materialized. Zero disables the check.
     /// </summary>
     public long MaxExpandedBytes { get; set; } = 256L * 1024 * 1024;
+
+    /// <summary>Maximum number of ZIP entries in an uploaded XLSX archive.</summary>
+    public int MaxArchiveEntries { get; set; } = 4096;
 }

@@ -76,4 +76,22 @@ public sealed class SqlValidatorTests
             DbProvider.PostgreSql,
             out _).Should().BeFalse();
     }
+
+    [Theory]
+    [InlineData("SELECT ARRAY[pg_read_file('/etc/passwd')] AS x")]
+    [InlineData("SELECT ARRAY[pg_terminate_backend(123)] AS x")]
+    [InlineData("SELECT ARRAY[dblink('host=evil dbname=postgres')] AS x")]
+    public void Rejects_blocked_functions_hidden_in_postgres_array_subscripts(string sql)
+    {
+        _validator.IsSelectOnly(sql, DbProvider.PostgreSql, out var error).Should().BeFalse(error);
+    }
+
+    [Fact]
+    public void Allows_postgres_array_subscript_of_a_column()
+    {
+        _validator.IsSelectOnly(
+            "SELECT ARRAY[amount] FROM orders",
+            DbProvider.PostgreSql,
+            out var error).Should().BeTrue(error);
+    }
 }

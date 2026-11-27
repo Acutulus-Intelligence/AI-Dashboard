@@ -10,6 +10,8 @@ interface ChartRendererProps {
   chartId: string;
   data?: ChartData;
   styleConfig?: ChartStyleConfig;
+  /** Called with the clicked category label; used for dashboard cross-filtering. */
+  onCategoryClick?: (category: string) => void;
 }
 
 const EMPTY: ChartData = { labels: [], datasets: [] };
@@ -47,7 +49,7 @@ function useChartLayout() {
   return { ref, layout };
 }
 
-export default function ChartRenderer({ chartId, data, styleConfig }: ChartRendererProps) {
+export default function ChartRenderer({ chartId, data, styleConfig, onCategoryClick }: ChartRendererProps) {
   const descriptor = get(chartId);
   const rawData = data ?? EMPTY;
   const { ref, layout } = useChartLayout();
@@ -83,6 +85,7 @@ export default function ChartRenderer({ chartId, data, styleConfig }: ChartRende
         style: chart.style,
         layout,
         colorSlots: chart.axis.slots,
+        onCategoryClick,
       })}
     </div>
   );

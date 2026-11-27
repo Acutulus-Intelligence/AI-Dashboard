@@ -6,9 +6,9 @@ import {
   param,
   type ChartDescriptor,
   type ParamSpec,
-  type ResolvedStyle,
 } from '../types';
 import ChartPlaceholder from './ChartPlaceholder';
+import HeatmapLegend from './heatmapLegend';
 
 const showTooltip: ParamSpec = {
   kind: 'boolean',
@@ -30,34 +30,6 @@ const showLabels: ParamSpec = {
   label: 'Value labels',
   default: false,
 };
-
-function HeatmapLegend({
-  label,
-  color,
-  max,
-  style,
-}: {
-  label: string;
-  color: string;
-  max: number;
-  style: ResolvedStyle;
-}) {
-  return (
-    <div className="text-muted-foreground flex flex-wrap items-center justify-between gap-2 text-[11px]">
-      <span className="truncate">{label}</span>
-      <span className="flex items-center gap-1">
-        <span>Low</span>
-        <span className="bg-muted relative h-2 w-16 overflow-hidden rounded-sm">
-          <span
-            className="absolute inset-0"
-            style={{ background: `linear-gradient(to right, transparent, ${color})` }}
-          />
-        </span>
-        <span>{formatStyledValue(max, style)}</span>
-      </span>
-    </div>
-  );
-}
 
 export const heatmapChart: ChartDescriptor = {
   id: 'heatmap',
@@ -86,11 +58,11 @@ export const heatmapChart: ChartDescriptor = {
               gridTemplateColumns: `minmax(4rem, 7rem) repeat(${Math.max(columns.length, 1)}, minmax(1.5rem, 1fr))`,
             }}
           >
-            <div />
+            <div className="bg-background sticky top-0 left-0 z-20" />
             {columns.map((column) => (
               <div
                 key={`column-${column}`}
-                className="text-muted-foreground truncate text-center text-[11px] font-medium"
+                className="bg-background text-muted-foreground sticky top-0 z-10 truncate text-center text-[11px] font-medium"
                 title={column}
               >
                 {column}
@@ -99,7 +71,10 @@ export const heatmapChart: ChartDescriptor = {
 
             {rows.map((row) => (
               <Fragment key={`row-${row}`}>
-                <div className="text-muted-foreground truncate text-[11px]" title={row}>
+                <div
+                  className="bg-background text-muted-foreground sticky left-0 z-10 truncate text-[11px]"
+                  title={row}
+                >
                   {row}
                 </div>
                 {columns.map((column) => {
@@ -123,7 +98,10 @@ export const heatmapChart: ChartDescriptor = {
                       {value != null && (
                         <span
                           className="absolute inset-0 rounded-sm"
-                          style={{ backgroundColor: style.colors[0], opacity }}
+                          style={{
+                            backgroundColor: value < 0 ? 'var(--destructive)' : style.colors[0],
+                            opacity,
+                          }}
                           aria-hidden
                         />
                       )}
@@ -144,6 +122,7 @@ export const heatmapChart: ChartDescriptor = {
           <HeatmapLegend
             label={`${yKey} × ${xKey}`}
             color={style.colors[0]}
+            min={matrix.min}
             max={maxAbs}
             style={style}
           />

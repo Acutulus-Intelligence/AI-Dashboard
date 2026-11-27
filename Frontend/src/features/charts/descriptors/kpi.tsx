@@ -68,7 +68,11 @@ export const kpiChart: ChartDescriptor = {
 
     const showSparkline = style.variant !== 'value' && series.values.some((v) => v != null);
     const showDelta = style.variant === 'trend' && delta != null;
-    const gradientId = `kpi-fill-${toCssColorIdent(series.label)}`;
+    // Include the colour in the id: two KPI widgets may share a measure name but
+    // use different colours, and duplicate SVG ids would cross-wire the gradient.
+    const gradientId = `kpi-fill-${toCssColorIdent(series.label)}-${toCssColorIdent(
+      style.colors[0] ?? '',
+    )}`;
     const compact = layout?.compact ?? false;
     const valueText = value == null ? '—' : formatStyledValue(value, style);
     const availableWidth = layout?.width && layout.width > 0 ? layout.width : 220;

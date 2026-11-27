@@ -50,6 +50,7 @@ export const radarChart: ChartDescriptor = {
     return (
       <ChartContainer config={config} className="h-full w-full aspect-auto">
         <RadarChart
+          accessibilityLayer
           data={rows}
           margin={{ top: labelMargin, right: labelMargin, bottom: labelMargin, left: labelMargin }}
         >

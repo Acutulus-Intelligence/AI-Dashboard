@@ -84,6 +84,45 @@ public class ChartResultShaperTests
     }
 
     [Fact]
+    public void Non_additive_aggregations_are_not_grouped_into_other()
+    {
+        var config = Config("bar", 2);
+        config.Aggregation = "avg";
+        var rows = Rows(("a", 10), ("b", 40), ("c", 20), ("d", 30));
+        var notes = new List<string>();
+
+        var shaped = ChartResultShaper.Shape(config, rows, notes);
+
+        shaped.Should().HaveCount(4);
+        shaped.Should().NotContain(row => Equals(row["category"], ChartResultShaper.OtherLabel));
+        notes.Should().Contain(n => n.Contains("additive"));
+    }
+
+    [Fact]
+    public void An_existing_other_category_is_folded_into_the_generated_row()
+    {
+        var rows = Rows(("a", 50), ("b", 40), ("c", 30), (ChartResultShaper.OtherLabel, 20));
+
+        var shaped = ChartResultShaper.Shape(Config("bar", 2), rows);
+
+        shaped.Should().HaveCount(3);
+        shaped.Count(row => Equals(row["category"], ChartResultShaper.OtherLabel)).Should().Be(1);
+        shaped[2]["amount"].Should().Be(50d); // 30 + 20
+    }
+
+    [Fact]
+    public void Treemap_is_shaped_like_other_category_charts()
+    {
+        var rows = Rows(("a", 5), ("b", 30), ("c", 10), ("d", 20));
+
+        var shaped = ChartResultShaper.Shape(Config("treemap", 2), rows);
+
+        shaped.Should().HaveCount(3);
+        shaped[2]["category"].Should().Be(ChartResultShaper.OtherLabel);
+        shaped[2]["amount"].Should().Be(15d); // 5 + 10
+    }
+
+    [Fact]
     public void Null_values_sort_last()
     {
         var rows = Rows(("a", null), ("b", 30), ("c", 10), ("d", null));

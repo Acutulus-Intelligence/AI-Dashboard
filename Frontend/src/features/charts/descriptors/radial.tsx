@@ -88,6 +88,7 @@ export const radialChart: ChartDescriptor = {
     return (
       <ChartContainer config={config} className="h-full w-full aspect-auto">
         <RadialBarChart
+          accessibilityLayer
           data={rows}
           innerRadius={stacked ? '60%' : '25%'}
           outerRadius="95%"
@@ -97,7 +98,7 @@ export const radialChart: ChartDescriptor = {
           {param(style, 'showTooltip', true) && (
             <ChartHoverTooltip
               cursor={false}
-              content={<StyledChartTooltip style={style} nameKey={stacked ? undefined : 'key'} showShare={!stacked} />}
+              content={<StyledChartTooltip style={style} nameKey={stacked ? undefined : 'key'} showShare={!stacked} shareTotal={stackTotal} />}
             />
           )}
           {param(style, 'showGrid', true) && (

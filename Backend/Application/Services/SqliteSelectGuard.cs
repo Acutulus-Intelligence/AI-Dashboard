@@ -23,6 +23,12 @@ public static class SqliteSelectGuard
         @"\b(LOAD_EXTENSION|READFILE|WRITEFILE)\s*\(",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    // Parameterised pragma table-valued functions (e.g. pragma_table_info('x'))
+    // are not covered by the PRAGMA keyword block above.
+    private static readonly Regex PragmaFunctionPattern = new(
+        @"\bpragma_\w+\s*\(",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     public static bool IsSelectOnly(string sql, out string? errorMessage)
     {
         if (string.IsNullOrWhiteSpace(sql))
@@ -61,6 +67,12 @@ public static class SqliteSelectGuard
         if (DangerousFunctionPattern.IsMatch(statement))
         {
             errorMessage = "Query contains a blocked function.";
+            return false;
+        }
+
+        if (PragmaFunctionPattern.IsMatch(statement))
+        {
+            errorMessage = "Query contains a blocked pragma function.";
             return false;
         }
 

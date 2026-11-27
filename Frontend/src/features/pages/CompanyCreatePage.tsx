@@ -21,6 +21,12 @@ export default function CompanyCreatePage() {
   const billingParam = searchParams.get('billing');
   const billing = billingParam === '1' ? 1 : 0;
 
+  const [companyName, setCompanyName] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
+  const [error, setError] = useState('');
+  const [subscription, setSubscription] = useState<UserSubscription | null>(null);
+
   useEffect(() => {
     getMyCompany()
       .then(() => {
@@ -29,12 +35,6 @@ export default function CompanyCreatePage() {
       })
       .catch(() => setCheckingExisting(false));
   }, [navigate]);
-
-  const [companyName, setCompanyName] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [redirecting, setRedirecting] = useState(false);
-  const [error, setError] = useState('');
-  const [subscription, setSubscription] = useState<UserSubscription | null>(null);
 
   useEffect(() => {
     if (!hasActiveSubscription) return;

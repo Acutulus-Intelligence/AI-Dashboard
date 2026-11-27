@@ -142,4 +142,71 @@ public class ChartResultNormalizerTests
 
         config.YAxis.Should().Equal("amount");
     }
+
+    [Fact]
+    public void Numeric_values_need_a_strict_majority_to_count_as_a_measure()
+    {
+        var mixed = new List<Dictionary<string, object?>>
+        {
+            Row(("amount", "12.5")),
+            Row(("amount", "not a number")),
+            Row(("amount", null)),
+        };
+
+        ChartResultNormalizer.IsNumericColumn(mixed, "amount").Should().BeFalse();
+
+        var mostlyNumeric = new List<Dictionary<string, object?>>
+        {
+            Row(("amount", "12.5")),
+            Row(("amount", 4)),
+            Row(("amount", "N/A")),
+        };
+
+        ChartResultNormalizer.IsNumericColumn(mostlyNumeric, "amount").Should().BeTrue();
+    }
+
+    [Fact]
+    public void Explicit_identifier_columns_are_kept_when_the_user_chose_them()
+    {
+        var config = Config(yAxis: ["customer_id"]);
+        var rows = new List<Dictionary<string, object?>>
+        {
+            Row(("category", "A"), ("customer_id", 1001)),
+            Row(("category", "B"), ("customer_id", 1002)),
+        };
+
+        ChartResultNormalizer.Normalize(config, rows);
+
+        config.ChartType.Should().Be("bar");
+        config.YAxis.Should().Equal("customer_id");
+    }
+
+    [Fact]
+    public void Identifier_columns_are_not_chosen_as_an_automatic_measure()
+    {
+        var config = Config(yAxis: ["not_returned"]);
+        var rows = new List<Dictionary<string, object?>>
+        {
+            Row(("category", "A"), ("customer_id", 1001)),
+            Row(("category", "B"), ("customer_id", 1002)),
+        };
+
+        ChartResultNormalizer.Normalize(config, rows);
+
+        config.ChartType.Should().Be("table");
+    }
+
+    [Fact]
+    public void Identifier_columns_are_not_chosen_as_the_x_axis()
+    {
+        var config = Config(xAxis: "missing", yAxis: ["amount"]);
+        var rows = new List<Dictionary<string, object?>>
+        {
+            Row(("id", 1), ("label", "A"), ("amount", 10)),
+        };
+
+        ChartResultNormalizer.Normalize(config, rows);
+
+        config.XAxis.Should().Be("label");
+    }
 }
