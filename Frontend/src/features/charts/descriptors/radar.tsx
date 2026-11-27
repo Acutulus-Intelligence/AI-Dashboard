@@ -6,6 +6,7 @@ import {
   ChartLegendContent,
 } from '@/components/ui/chart';
 import ChartHoverTooltip from '../ChartHoverTooltip';
+import { truncateLabel } from '../axis';
 import { toChartConfig, toRows } from '../transform';
 import { cssColorVar } from '../colorKey';
 import { param, type ChartDescriptor, type ParamSpec } from '../types';
@@ -33,22 +34,34 @@ export const radarChart: ChartDescriptor = {
     { id: 'dots', label: 'Dots', description: 'Filled with a point at each axis.' },
   ],
   params: [strokeWidth, fillOpacity, showGrid, showDots, showTooltip, showLegend],
-  render({ data, style }) {
+  render({ data, style, layout }) {
     if (!hasSeries(data)) return <ChartPlaceholder icon={RadarIcon} label="Radar chart" />;
 
     const rows = toRows(data);
     const config = toChartConfig(data, style);
     const outline = style.variant === 'lines';
     const dots = style.variant === 'dots' || param(style, 'showDots', false);
+    const compact = layout?.compact ?? false;
+    const longest = data.labels.reduce((max, label) => Math.max(max, String(label ?? '').length), 0);
+    const labelMargin = compact
+      ? Math.min(36, Math.max(8, longest * 4))
+      : Math.min(56, Math.max(10, longest * 5));
 
     return (
       <ChartContainer config={config} className="h-full w-full aspect-auto">
-        <RadarChart data={rows}>
+        <RadarChart
+          accessibilityLayer
+          data={rows}
+          margin={{ top: labelMargin, right: labelMargin, bottom: labelMargin, left: labelMargin }}
+        >
           {param(style, 'showTooltip', true) && (
             <ChartHoverTooltip cursor={false} content={<StyledChartTooltip style={style} />} />
           )}
           {param(style, 'showGrid', true) && <PolarGrid />}
-          <PolarAngleAxis dataKey="name" />
+          <PolarAngleAxis
+            dataKey="name"
+            tickFormatter={(value) => truncateLabel(String(value ?? ''), compact ? 8 : 14)}
+          />
 
           {data.datasets.map((ds) => (
             <Radar

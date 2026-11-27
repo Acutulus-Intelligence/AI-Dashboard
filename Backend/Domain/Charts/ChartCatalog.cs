@@ -89,9 +89,21 @@ public static class ChartCatalog
     private static readonly ChartParamSpec ShowXAxis = Toggle("showXAxis", "X axis", true);
     private static readonly ChartParamSpec ShowYAxis = Toggle("showYAxis", "Y axis", true);
     private static readonly ChartParamSpec ShowLabels = Toggle("showLabels", "Value labels", false);
+    private static readonly ChartParamSpec TopN = Number(
+        "topN", "Top categories", 0, 0, 100, 1,
+        "0 shows every category; otherwise the rest are grouped into Other.");
     private static readonly ChartParamSpec StrokeWidth = Number("strokeWidth", "Line thickness", 2, 1, 6, 1);
     private static readonly ChartParamSpec FillOpacity = Number("fillOpacity", "Fill opacity", 0.25, 0, 1, 0.05);
     private static readonly ChartParamSpec CornerRadius = Number("cornerRadius", "Corner radius", 4, 0, 16, 1);
+    private static readonly ChartParamSpec ShowBrush = Toggle(
+        "showBrush", "Zoom brush", false, "Adds a range slider under the chart.");
+    private static readonly ChartParamSpec ShowReference = Toggle("showReference", "Reference line", false);
+    private static readonly ChartParamSpec ReferenceValue = Number(
+        "referenceValue", "Reference value", 0, -1_000_000_000, 1_000_000_000, 1);
+
+    private static readonly ChartParamSpec ColorBy = Select(
+        "colorBy", "Color by", "series",
+        ("series", "Series"), ("category", "Category"));
 
     private static readonly ChartParamSpec Curve = Select(
         "curve", "Curve", "monotone",
@@ -103,6 +115,7 @@ public static class ChartCatalog
         new("cool", "Cool"),
         new("warm", "Warm"),
         new("contrast", "High contrast"),
+        new("colorblind", "Colorblind safe"),
         new("mono", "Monochrome")
     ];
 
@@ -121,7 +134,8 @@ public static class ChartCatalog
             ],
             Params =
             [
-                CornerRadius, ShowGrid, ShowXAxis, ShowYAxis, ShowTooltip, ShowLegend, ShowLabels
+                CornerRadius, ColorBy, ShowGrid, ShowXAxis, ShowYAxis, ShowTooltip, ShowLegend, ShowLabels, TopN,
+                ShowReference, ReferenceValue
             ]
         },
         new()
@@ -140,7 +154,10 @@ public static class ChartCatalog
                 Curve,
                 StrokeWidth,
                 Number("dotSize", "Point size", 0, 0, 8, 1, "Zero hides the points."),
-                ShowGrid, ShowXAxis, ShowYAxis, ShowTooltip, ShowLegend, ShowLabels
+                Number("movingAverage", "Moving average", 0, 0, 30, 1, "0 disables smoothing."),
+                Toggle("showTrendline", "Trendline", false, "Adds a dashed least-squares line per series."),
+                ShowGrid, ShowXAxis, ShowYAxis, ShowTooltip, ShowLegend, ShowLabels,
+                ShowBrush, ShowReference, ReferenceValue
             ]
         },
         new()
@@ -156,7 +173,157 @@ public static class ChartCatalog
             ],
             Params =
             [
-                Curve, StrokeWidth, FillOpacity, ShowGrid, ShowXAxis, ShowYAxis, ShowTooltip, ShowLegend
+                Curve, StrokeWidth, FillOpacity, ShowGrid, ShowXAxis, ShowYAxis, ShowTooltip, ShowLegend,
+                ShowBrush, ShowReference, ReferenceValue
+            ]
+        },
+        new()
+        {
+            Id = "combo",
+            Label = "Combo",
+            Description =
+                "Bars for the primary measures with one series drawn as a line. By default the last series is the line; lineFirst draws the first series as the line instead.",
+            Variants =
+            [
+                new("default", "Bar + line", "The last series is drawn as a line."),
+                new("lineFirst", "Line first", "The first series is drawn as a line; the rest are bars.")
+            ],
+            Params =
+            [
+                CornerRadius,
+                StrokeWidth,
+                Number("dotSize", "Point size", 3, 0, 8, 1, "Zero hides the points on the line."),
+                ShowGrid, ShowXAxis, ShowYAxis,
+                Toggle("secondaryAxis", "Secondary axis", true,
+                    "Draw the line against its own right-hand axis when the scales differ."),
+                ShowTooltip,
+                Toggle("showLegend", "Legend", true),
+                ShowLabels,
+                ShowBrush, ShowReference, ReferenceValue
+            ]
+        },
+        new()
+        {
+            Id = "histogram",
+            Label = "Histogram",
+            Description =
+                "Distribution of one numeric column split into equal-width bins. Return the raw numeric values (one row per observation) in the measure column; do not aggregate or group in SQL.",
+            Variants =
+            [
+                new("default", "Histogram", "Bars show how many values fall in each range.")
+            ],
+            Params =
+            [
+                Number("bins", "Bins", 12, 5, 60, 1),
+                CornerRadius, ShowGrid, ShowXAxis, ShowYAxis, ShowTooltip
+            ]
+        },
+        new()
+        {
+            Id = "heatmap",
+            Label = "Heatmap",
+            Description =
+                "A matrix of one measure across two categorical columns. xAxis is the column and groupBy is the row (or vice versa). Return both dimensions and one aggregated measure; do not pivot in SQL.",
+            Variants =
+            [
+                new("default", "Heatmap", "Cells coloured by the measure.")
+            ],
+            Params =
+            [
+                ShowTooltip,
+                Toggle("showLegend", "Legend", true),
+                Toggle("showLabels", "Value labels", false)
+            ]
+        },
+        new()
+        {
+            Id = "pivot",
+            Label = "Pivot",
+            Description =
+                "A cross-tab table of one measure by two categorical columns. xAxis is the row and groupBy is the column (or vice versa). Return both dimensions and one aggregated measure; do not pivot in SQL.",
+            SupportsColors = false,
+            Variants =
+            [
+                new("default", "Pivot table", "Rows and columns with the measure in each cell.")
+            ],
+            Params =
+            [
+                Toggle("showTotals", "Totals", true),
+                Toggle("compact", "Compact cells", false),
+                Toggle("stickyHeader", "Sticky header", true),
+                Toggle("sortRows", "Sort rows by total", false),
+                Number("maxRows", "Row limit", 100, 5, 500, 5)
+            ]
+        },
+        new()
+        {
+            Id = "funnel",
+            Label = "Funnel",
+            Description =
+                "Stages of one process where each step is a subset of the previous. Return one stage column and one non-negative measure, ordered from widest to narrowest with ORDER BY.",
+            Variants =
+            [
+                new("default", "Funnel", "Stages narrow towards the bottom.")
+            ],
+            Params =
+            [
+                Toggle("showLabels", "Stage labels", true),
+                Toggle("showPercent", "Percent of first stage", true),
+                ShowTooltip
+            ]
+        },
+        new()
+        {
+            Id = "waterfall",
+            Label = "Waterfall",
+            Description =
+                "Cumulative effect of signed changes across ordered categories. Return one category column and one signed change measure per step; do not pre-aggregate into a running total.",
+            Variants =
+            [
+                new("default", "Waterfall", "Bars show each change and the running total.")
+            ],
+            Params =
+            [
+                ShowGrid, ShowTooltip,
+                Toggle("showLabels", "Change labels", false),
+                Toggle("showTotals", "Total bar", true)
+            ]
+        },
+        new()
+        {
+            Id = "treemap",
+            Label = "Treemap",
+            Description =
+                "Area-based view where each category's rectangle is sized by one non-negative measure. Return one category column and one aggregated measure.",
+            Variants =
+            [
+                new("default", "Treemap", "Rectangles sized by the measure.")
+            ],
+            Params =
+            [
+                Toggle("showLabels", "Labels", true),
+                ShowTooltip,
+                TopN
+            ]
+        },
+        new()
+        {
+            Id = "gauge",
+            Label = "Gauge",
+            Description =
+                "A single value against a fixed range. Return one numeric measure; the range is presentation, not SQL.",
+            Variants =
+            [
+                new("default", "Gauge", "Semicircle showing the value against the range.")
+            ],
+            Params =
+            [
+                Number("minValue", "Minimum", 0, -1_000_000, 1_000_000, 1),
+                Number("maxValue", "Maximum", 100, -1_000_000, 1_000_000, 1),
+                Number("thickness", "Arc thickness", 12, 4, 40, 2),
+                Toggle("autoRange", "Auto range", false, "Fit the range to the data."),
+                Toggle("showTarget", "Target marker", false),
+                Number("targetValue", "Target", 0, -1_000_000, 1_000_000, 1)
             ]
         },
         new()
@@ -174,7 +341,7 @@ public static class ChartCatalog
             [
                 Number("innerRadius", "Hole size", 0, 0, 80, 5, "Percent of the radius left empty in the middle."),
                 Number("padAngle", "Slice gap", 0, 0, 8, 1),
-                ShowLabels, ShowTooltip, ShowLegend
+                ShowLabels, ShowTooltip, ShowLegend, TopN
             ]
         },
         new()
@@ -209,7 +376,24 @@ public static class ChartCatalog
                 Number("barSize", "Ring thickness", 14, 4, 40, 2),
                 Number("startAngle", "Start angle", 90, -180, 360, 15),
                 Number("endAngle", "End angle", -270, -360, 360, 15),
-                ShowGrid, ShowLabels, ShowTooltip
+                ShowGrid, ShowLabels, ShowTooltip, TopN
+            ]
+        },
+        new()
+        {
+            Id = "kpi",
+            Label = "KPI",
+            Description =
+                "A headline number for a single measure, taken from the last row. Variants add a sparkline and the change versus the previous row.",
+            Variants =
+            [
+                new("value", "Value", "A large number and its label."),
+                new("sparkline", "Sparkline", "A large number with a small trend line."),
+                new("trend", "Trend", "A large number, the change versus the previous row, and a sparkline.")
+            ],
+            Params =
+            [
+                Number("sparklineHeight", "Sparkline height", 40, 24, 96, 4)
             ]
         },
         new()

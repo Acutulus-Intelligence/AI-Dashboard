@@ -60,7 +60,9 @@ export default function DashboardsPage() {
   }, []);
 
   useEffect(() => {
-    void load();
+    void (async () => {
+      await load();
+    })();
   }, [load]);
 
   function openCreate() {

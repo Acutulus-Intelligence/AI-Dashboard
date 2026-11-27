@@ -6,4 +6,11 @@ public sealed record PaymentWebhookEvent(
     string? StripeSubscriptionId,
     string? StripeCustomerId,
     string? StripePaymentMethodId = null,
-    string? StripeStatus = null);
+    string? StripeStatus = null,
+    DateTime? CurrentPeriodEnd = null,
+    DateTime? TrialEnd = null,
+    bool? CancelAtPeriodEnd = null,
+    string? StripeEventId = null,
+    DateTime? EventCreatedAt = null,
+    long? AmountPaid = null,
+    string? BillingReason = null);

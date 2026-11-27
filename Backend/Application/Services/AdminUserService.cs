@@ -1,3 +1,4 @@
+using Application.Common;
 using Application.Common.Exceptions;
 using Application.DTos.Request;
 using Application.DTos.Response;
@@ -212,14 +213,19 @@ public class AdminUserService : IAdminUserService
     {
         var totalUsers = await _db.Users.CountAsync(ct);
 
+        var now = DateTime.UtcNow;
+        var cutoff = now - SubscriptionTiming.RenewalGrace;
+
         var individualIds = await _db.UserSubscriptions
-            .Where(s => s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active)
+            .Where(s => (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active) &&
+                        (s.EndDate == null || s.EndDate > cutoff))
             .Select(s => s.UserId)
             .Distinct()
             .ToListAsync(ct);
 
         var companyIds = await _db.CompanySubscriptions
-            .Where(s => s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active)
+            .Where(s => (s.Status == SubscriptionStatus.Trial || s.Status == SubscriptionStatus.Active) &&
+                        (s.EndDate == null || s.EndDate > cutoff))
             .Select(s => s.CompanyId)
             .Distinct()
             .ToListAsync(ct);

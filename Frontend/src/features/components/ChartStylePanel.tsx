@@ -13,13 +13,13 @@ import {
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
-import { PALETTES } from '../charts/palette';
-import { DEFAULT_COMPANY_COLORS, colorLabel } from '../charts/companyColors';
+import ChartColorEditor from './ChartColorEditor';
 import {
   resolveStyleCapabilities,
   type ChartDescriptor,
   type ChartStyleConfig,
   type DecimalMode,
+  type NumberNotation,
   type ParamSpec,
 } from '../charts/types';
 
@@ -33,6 +33,12 @@ interface ChartStylePanelProps {
   colorSlots?: number;
   /** Optional labels for colour slots (e.g. pie category names). */
   colorLabels?: string[];
+  /** Stable keys for colorsByKey (empty for unnamed/duplicate labels). */
+  colorKeys?: string[];
+  /** Whether the slots represent series or categories. */
+  colorAxis?: 'series' | 'category';
+  /** Number of datasets; category colour mode needs a single series. */
+  seriesCount?: number;
   className?: string;
 }
 
@@ -104,20 +110,6 @@ function ParamControl({
   );
 }
 
-function applySeriesColor(
-  colors: string[] | undefined,
-  colorSlots: number,
-  seriesIndex: number,
-  hex: string,
-): string[] | undefined {
-  const next = Array.from(
-    { length: Math.max(colorSlots, colors?.length ?? 0, seriesIndex + 1) },
-    (_, i) => (i === seriesIndex ? hex : (colors?.[i] ?? '')),
-  );
-  while (next.length > 0 && !next[next.length - 1]) next.pop();
-  return next.length ? next : undefined;
-}
-
 export default function ChartStylePanel({
   descriptor,
   value,
@@ -125,27 +117,43 @@ export default function ChartStylePanel({
   companyColors,
   colorSlots = 2,
   colorLabels,
+  colorKeys,
+  colorAxis,
+  seriesCount = 1,
   className,
 }: ChartStylePanelProps) {
   const variant = value.variant ?? descriptor.variants[0]?.id;
-  const palette = value.palette ?? 'default';
   const caps = resolveStyleCapabilities(descriptor);
-  const swatches =
-    companyColors && companyColors.length > 0 ? companyColors : DEFAULT_COMPANY_COLORS;
   const decimalsText =
     typeof value.decimals === 'number' && Number.isFinite(value.decimals)
       ? String(value.decimals)
       : '';
   const decimalMode: DecimalMode = value.decimalMode === 'truncate' ? 'truncate' : 'round';
+  const notation: NumberNotation =
+    value.notation === 'full' || value.notation === 'compact' ? value.notation : 'auto';
   const showValueLabels = caps.valueLabels;
   const showColors = caps.colors && colorSlots > 0;
   const showInfo = caps.info;
   const showLabelsBlock = showValueLabels || showInfo;
+  const colorBySpec = descriptor.colorAxisParam
+    ? descriptor.params.find((spec) => spec.key === descriptor.colorAxisParam)
+    : undefined;
+  const otherParams = descriptor.params.filter(
+    (spec) => spec.key !== descriptor.colorAxisParam,
+  );
+  const colorByValue = String(
+    value.params?.[descriptor.colorAxisParam ?? ''] ?? colorBySpec?.default ?? 'series',
+  );
+  const categoryColorsDisabled = seriesCount > 1 || variant === 'stacked';
   const hasVariantSection = descriptor.variants.length > 1;
+  const hasColorBySection = Boolean(colorBySpec);
   const hasColorSection = caps.colors;
-  const hasParamsSection = descriptor.params.length > 0;
-  const showLabelsSeparator = showLabelsBlock && (hasVariantSection || hasColorSection || hasParamsSection);
-  const showParamsSeparator = hasParamsSection && (hasVariantSection || hasColorSection);
+  const hasParamsSection = otherParams.length > 0;
+  const showLabelsSeparator =
+    showLabelsBlock &&
+    (hasVariantSection || hasColorBySection || hasColorSection || hasParamsSection);
+  const showParamsSeparator =
+    hasParamsSection && (hasVariantSection || hasColorBySection || hasColorSection);
 
   function patch(partial: Partial<ChartStyleConfig>) {
     onChange({ ...value, ...partial });
@@ -155,11 +163,10 @@ export default function ChartStylePanel({
     patch({ params: { ...value.params, [key]: next } });
   }
 
-  function setColor(index: number, color: string) {
-    patch({
-      colors: applySeriesColor(value.colors, colorSlots, index, color),
-      palette: undefined,
-    });
+  function setColorBy(key: string, next: string) {
+    // Positional colours belong to the old axis; keyed overrides stay and the
+    // palette remains as the fallback for the new axis.
+    patch({ params: { ...value.params, [key]: next }, colors: undefined });
   }
 
   function setDecimalsFromInput(raw: string) {
@@ -244,6 +251,25 @@ export default function ChartStylePanel({
                   </ToggleGroup>
                 )}
               </div>
+
+              <div className="grid gap-1.5">
+                <Label htmlFor="value-notation" className="text-muted-foreground text-xs font-normal">
+                  Number format
+                </Label>
+                <Select
+                  value={notation}
+                  onValueChange={(next) => patch({ notation: next as NumberNotation })}
+                >
+                  <SelectTrigger id="value-notation" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">Auto (compact above 10k)</SelectItem>
+                    <SelectItem value="full">Full numbers</SelectItem>
+                    <SelectItem value="compact">Compact (42k, 1.2M)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </>
           )}
 
@@ -289,81 +315,54 @@ export default function ChartStylePanel({
         </div>
       )}
 
-      {caps.colors && (
+      {colorBySpec && descriptor.colorAxisParam && (
         <div className="grid gap-2">
-          <Label>Palette</Label>
-          <div className="flex flex-wrap gap-2">
-            {PALETTES.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => patch({ palette: p.id, colors: undefined })}
-                className={cn(
-                  'flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs transition-colors',
-                  palette === p.id && !value.colors?.length
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border hover:bg-muted',
-                )}
-              >
-                <span className="flex gap-0.5">
-                  {p.colors.slice(0, 4).map((c, i) => (
-                    <span
-                      key={i}
-                      className="size-3 rounded-full border border-black/10"
-                      style={{ background: c }}
-                    />
-                  ))}
-                </span>
-                {p.label}
-              </button>
-            ))}
-          </div>
+          <Label>Color by</Label>
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            value={categoryColorsDisabled ? 'series' : colorByValue}
+            onValueChange={(next) => next && setColorBy(descriptor.colorAxisParam!, next)}
+            className="flex flex-wrap justify-start"
+          >
+            <ToggleGroupItem value="series" className="px-3 text-xs">
+              Series
+            </ToggleGroupItem>
+            <ToggleGroupItem
+              value="category"
+              className="px-3 text-xs"
+              disabled={categoryColorsDisabled}
+            >
+              Category
+            </ToggleGroupItem>
+          </ToggleGroup>
+          <p className="text-muted-foreground text-xs">
+            {categoryColorsDisabled
+              ? seriesCount > 1
+                ? 'Category colours need a single series.'
+                : 'Category colours are not available for stacked bars.'
+              : colorBySpec.help}
+          </p>
         </div>
       )}
 
       {showColors && (
-        <div className="grid gap-2">
-          <Label>{colorLabels?.length ? 'Slice colours' : 'Series colours'}</Label>
-          <div className="grid gap-2">
-            {Array.from({ length: colorSlots }, (_, i) => {
-              const current = value.colors?.[i];
-              const slotLabel = colorLabels?.[i]?.trim() || `Series ${i + 1}`;
-              return (
-                <div key={i} className="flex items-center gap-2">
-                  <span
-                    className="text-muted-foreground w-24 shrink-0 truncate text-xs"
-                    title={slotLabel}
-                  >
-                    {slotLabel}
-                  </span>
-                  <div className="flex flex-wrap gap-1">
-                    {swatches.map((swatch) => (
-                      <button
-                        key={swatch}
-                        type="button"
-                        aria-label={`Colour ${colorLabel(swatch)} for ${slotLabel}`}
-                        title={colorLabel(swatch)}
-                        onClick={() => setColor(i, swatch)}
-                        className={cn(
-                          'size-5 cursor-pointer rounded-full border border-black/10 transition-transform',
-                          current === swatch && 'ring-ring scale-110 ring-2',
-                        )}
-                        style={{ background: swatch }}
-                      />
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        <ChartColorEditor
+          value={value}
+          onChange={onChange}
+          companyColors={companyColors}
+          colorSlots={colorSlots}
+          colorLabels={colorLabels}
+          colorKeys={colorKeys}
+          colorAxis={colorAxis}
+        />
       )}
 
       {hasParamsSection && (
         <>
           {showParamsSeparator && <Separator />}
           <div className="grid gap-4">
-            {descriptor.params.map((spec) => (
+            {otherParams.map((spec) => (
               <ParamControl
                 key={spec.key}
                 spec={spec}

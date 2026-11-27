@@ -25,6 +25,7 @@ public class ExternalConnectionService : IExternalConnectionService
     private readonly ILogger<ExternalConnectionService> _logger;
     private readonly IConnectionAccessService _access;
     private readonly IChartCacheInvalidator _chartCacheInvalidator;
+    private readonly ConnectionHostGuard _hostGuard;
 
     public ExternalConnectionService(
         AppDbContext db,
@@ -32,7 +33,8 @@ public class ExternalConnectionService : IExternalConnectionService
         IOptions<ExternalDbSettings> settings,
         ILogger<ExternalConnectionService> logger,
         IConnectionAccessService access,
-        IChartCacheInvalidator chartCacheInvalidator)
+        IChartCacheInvalidator chartCacheInvalidator,
+        ConnectionHostGuard hostGuard)
     {
         _db = db;
         _encryption = encryption;
@@ -40,6 +42,7 @@ public class ExternalConnectionService : IExternalConnectionService
         _logger = logger;
         _access = access;
         _chartCacheInvalidator = chartCacheInvalidator;
+        _hostGuard = hostGuard;
     }
 
     public async Task<ConnectionResponse> CreateAsync(Guid userId, CreateConnectionRequest request, CancellationToken ct = default)
@@ -62,8 +65,25 @@ public class ExternalConnectionService : IExternalConnectionService
         if (parsed.Provider != request.DbProvider)
             throw new ArgumentException($"The connection string does not match the selected database provider ({parsed.Provider}).");
 
-        if (HostBlocklist.IsBlocked(parsed.Host, _settings.BlockedHosts))
+        if (!ConnectionStringSecurity.TryNormalize(
+                request.ConnectionString,
+                request.DbProvider,
+                _settings.RequireTls,
+                out var normalizedConnectionString,
+                out var connectionSecurityError))
+        {
+            throw new ArgumentException(connectionSecurityError);
+        }
+
+        if (await HostBlocklist.IsBlockedAsync(
+                parsed.Host,
+                _settings.BlockedHosts,
+                _settings.AllowPrivateHosts,
+                _settings.AllowedHosts,
+                ct))
+        {
             throw new ArgumentException("This host is not allowed.");
+        }
 
         var companyId = user.CompanyId;
         var visibility = request.Visibility;
@@ -112,7 +132,7 @@ public class ExternalConnectionService : IExternalConnectionService
             await EnsureNameUniqueInCompanyAsync(companyId.Value, request.Name, null, visibility, ct);
         }
 
-        var connectionString = request.ConnectionString;
+        var connectionString = normalizedConnectionString;
 
         var connection = new ExternalConnection
         {
@@ -208,10 +228,30 @@ public class ExternalConnectionService : IExternalConnectionService
 
         var decrypted = _encryption.Decrypt(connection.EncryptedConnectionString);
 
+        if (!ConnectionStringParts.TryRead(
+                connection.DbProvider,
+                decrypted,
+                out var host,
+                out var port,
+                out var database,
+                out var username,
+                out var password))
+        {
+            throw new InvalidOperationException("Stored connection string could not be read.");
+        }
+
+        var passwordSet = !string.IsNullOrWhiteSpace(password);
+
         return new ConnectionConfigResponse(
             connection.Name,
             connection.DbProvider,
-            decrypted,
+            host,
+            port,
+            database,
+            username,
+            passwordSet,
+            BuildMaskedConnectionString(
+                connection.DbProvider, host, port, database, username, passwordSet),
             connection.Visibility,
             connection.AllowedRoleIds);
     }
@@ -249,20 +289,48 @@ public class ExternalConnectionService : IExternalConnectionService
         if (!await _access.CanManageAsync(id, userId, ct))
             throw new UnauthorizedAccessException("You do not have permission to manage this connection.");
 
-        if (!ConnectionStringParser.TryParse(request.ConnectionString, out var parsed, out var parseError))
-            throw new ArgumentException(parseError);
+        var normalizedConnectionString = string.Empty;
 
-        if (request.DbProvider == DbProvider.Sqlite)
-            throw new ArgumentException("SQLite database connections are not supported.");
+        if (request.KeepExistingPassword)
+        {
+            if (request.DbProvider != connection.DbProvider)
+                throw new ArgumentException("Re-enter the connection string to change the database provider.");
+        }
+        else
+        {
+            if (!ConnectionStringParser.TryParse(request.ConnectionString, out var parsed, out var parseError))
+                throw new ArgumentException(parseError);
 
-        if (parsed.Provider is null)
-            throw new ArgumentException("Could not detect the database provider from this connection string.");
+            if (request.DbProvider == DbProvider.Sqlite)
+                throw new ArgumentException("SQLite database connections are not supported.");
 
-        if (parsed.Provider != request.DbProvider)
-            throw new ArgumentException($"The connection string does not match the selected database provider ({parsed.Provider}).");
+            if (parsed.Provider is null)
+                throw new ArgumentException("Could not detect the database provider from this connection string.");
 
-        if (HostBlocklist.IsBlocked(parsed.Host, _settings.BlockedHosts))
-            throw new ArgumentException("This host is not allowed.");
+            if (parsed.Provider != request.DbProvider)
+                throw new ArgumentException($"The connection string does not match the selected database provider ({parsed.Provider}).");
+
+            if (!ConnectionStringSecurity.TryNormalize(
+                    request.ConnectionString,
+                    request.DbProvider,
+                    _settings.RequireTls,
+                    out normalizedConnectionString,
+                    out var connectionSecurityError,
+                    _settings.VerifyServerCertificate))
+            {
+                throw new ArgumentException(connectionSecurityError);
+            }
+
+            if (await HostBlocklist.IsBlockedAsync(
+                    parsed.Host,
+                    _settings.BlockedHosts,
+                    _settings.AllowPrivateHosts,
+                    _settings.AllowedHosts,
+                    ct))
+            {
+                throw new ArgumentException("This host is not allowed.");
+            }
+        }
 
         var visibility = request.Visibility;
         var allowedRoleIds = request.AllowedRoleIds ?? [];
@@ -295,41 +363,49 @@ public class ExternalConnectionService : IExternalConnectionService
             await EnsureNameUniqueInCompanyAsync(connection.CompanyId.Value, request.Name, id, visibility, ct);
         }
 
-        var connectionString = request.ConnectionString;
-
         await using var transaction = await _db.Database.BeginTransactionAsync(ct);
 
         connection.Name = request.Name;
-        connection.DbProvider = request.DbProvider;
-        connection.EncryptedConnectionString = _encryption.Encrypt(connectionString);
         connection.Visibility = visibility;
         connection.AllowedRoleIds = allowedRoleIds;
-        connection.IsVerified = false;
+
+        if (!request.KeepExistingPassword)
+        {
+            connection.DbProvider = request.DbProvider;
+            connection.EncryptedConnectionString = _encryption.Encrypt(normalizedConnectionString);
+            connection.IsVerified = false;
+        }
 
         await _db.SaveChangesAsync(ct);
 
-        // Repointing a connection must make every cached chart result from the
-        // old data source unreachable, even if a concurrent execute finishes
-        // after invalidation.
-        var updatedAt = DateTime.UtcNow;
-        await _db.SavedCharts
-            .Where(sc => sc.ConnectionId == connection.Id)
-            .ExecuteUpdateAsync(setters => setters.SetProperty(sc => sc.UpdatedAt, updatedAt), ct);
+        if (!request.KeepExistingPassword)
+        {
+            // Repointing a connection must make every cached chart result from the
+            // old data source unreachable, even if a concurrent execute finishes
+            // after invalidation.
+            var updatedAt = DateTime.UtcNow;
+            await _db.SavedCharts
+                .Where(sc => sc.ConnectionId == connection.Id)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(sc => sc.UpdatedAt, updatedAt), ct);
+        }
 
         await transaction.CommitAsync(ct);
 
-        try
+        if (!request.KeepExistingPassword)
         {
-            await _chartCacheInvalidator.InvalidateForConnectionAsync(connection.Id, ct);
-        }
-        catch (Exception ex)
-        {
-            // The update is already committed. Cache invalidation is best-effort;
-            // the chart UpdatedAt bump above prevents stale cache hits.
-            _logger.LogWarning(
-                ex,
-                "Failed to invalidate chart caches after updating connection {ConnectionId}.",
-                connection.Id);
+            try
+            {
+                await _chartCacheInvalidator.InvalidateForConnectionAsync(connection.Id, ct);
+            }
+            catch (Exception ex)
+            {
+                // The update is already committed. Cache invalidation is best-effort;
+                // the chart UpdatedAt bump above prevents stale cache hits.
+                _logger.LogWarning(
+                    ex,
+                    "Failed to invalidate chart caches after updating connection {ConnectionId}.",
+                    connection.Id);
+            }
         }
 
         return MapResponse(connection);
@@ -362,6 +438,8 @@ public class ExternalConnectionService : IExternalConnectionService
 
         try
         {
+            await _hostGuard.EnsureSafeAsync(connection.DbProvider, decrypted, ct);
+
             using var conn = CreateDbConnection(connection.DbProvider, decrypted);
             await conn.OpenAsync(ct);
             connection.IsVerified = true;
@@ -395,6 +473,31 @@ public class ExternalConnectionService : IExternalConnectionService
             throw new ConflictException(
                 $"A shared connection named \"{trimmed}\" already exists in your company.",
                 "connection_name_conflict");
+    }
+
+    private static string BuildMaskedConnectionString(
+        DbProvider provider,
+        string host,
+        int port,
+        string database,
+        string username,
+        bool passwordSet)
+    {
+        var portSuffix = port > 0 ? $";Port={port}" : string.Empty;
+
+        var masked = provider switch
+        {
+            DbProvider.PostgreSql =>
+                $"Host={host}{portSuffix};Database={database};Username={username}",
+            DbProvider.MySql =>
+                $"Server={host}{portSuffix};Database={database};User ID={username}",
+            DbProvider.SqlServer =>
+                $"Server={host}{(port > 0 ? $",{port}" : string.Empty)};Database={database};User Id={username}",
+            _ =>
+                $"Host={host};Database={database};Username={username}"
+        };
+
+        return passwordSet ? $"{masked};Password=***" : masked;
     }
 
     private static (string host, int port, string database, string username) ParseConnectionString(DbProvider provider, string connectionString)

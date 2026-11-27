@@ -5,4 +5,5 @@ public sealed record CachedChartResult(
     Guid ChartId,
     List<Dictionary<string, object?>> Rows,
     DateTime ChartUpdatedAt,
-    DateTimeOffset DataUpdatedAt);
+    DateTimeOffset DataUpdatedAt,
+    bool Truncated = false);

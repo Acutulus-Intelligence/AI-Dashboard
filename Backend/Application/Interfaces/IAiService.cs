@@ -24,6 +24,7 @@ public interface IAiService
         string schemaJson,
         string prompt,
         string? prefabChartType = null,
+        string? currentChartJson = null,
         IReadOnlyList<string>? allowedColors = null,
         string? repairHint = null,
         CancellationToken ct = default);

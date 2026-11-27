@@ -1,4 +1,5 @@
 using Application.Interfaces;
+using Application.Services;
 using Infrastructure.ExternalDb;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
@@ -12,6 +13,8 @@ namespace Infrastructure.Datasets;
 /// </summary>
 public class SqliteDatasetExecutor : IDatasetQueryExecutor
 {
+    public bool LastResultTruncated { get; private set; }
+
     private readonly ExternalDbSettings _settings;
 
     public SqliteDatasetExecutor(IOptions<ExternalDbSettings> settings)
@@ -27,6 +30,11 @@ public class SqliteDatasetExecutor : IDatasetQueryExecutor
         string sql,
         CancellationToken ct = default)
     {
+        if (!SqliteSelectGuard.IsSelectOnly(sql, out var selectError))
+            throw new InvalidOperationException($"Query rejected: {selectError}");
+
+        LastResultTruncated = false;
+
         await using var conn = new SqliteConnection("Data Source=:memory:");
         await conn.OpenAsync(ct);
 
@@ -39,25 +47,42 @@ public class SqliteDatasetExecutor : IDatasetQueryExecutor
         var results = new List<Dictionary<string, object?>>();
         long totalBytes = 0;
 
-        await using var reader = await cmd.ExecuteReaderAsync(ct);
-        while (await reader.ReadAsync(ct))
+        // Microsoft.Data.Sqlite supports cancellation by interrupting the query,
+        // which gives dataset SQL a real time limit (CommandTimeout is ignored).
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(Math.Max(1, _settings.QueryTimeoutSeconds)));
+        var token = timeout.Token;
+
+        try
         {
-            if (results.Count >= _settings.QueryMaxRows)
-                throw new InvalidOperationException($"Query exceeded the maximum row limit of {_settings.QueryMaxRows}.");
-
-            var row = new Dictionary<string, object?>();
-            for (var i = 0; i < reader.FieldCount; i++)
+            await using var reader = await cmd.ExecuteReaderAsync(token);
+            while (await reader.ReadAsync(token))
             {
-                var value = reader.GetValue(i);
-                row[reader.GetName(i)] = value == DBNull.Value ? null : value;
-                if (value is not null and not DBNull)
-                    totalBytes += EstimateSize(value);
+                if (results.Count >= _settings.QueryMaxRows)
+                {
+                    LastResultTruncated = true;
+                    break;
+                }
+
+                var row = new Dictionary<string, object?>();
+                for (var i = 0; i < reader.FieldCount; i++)
+                {
+                    var value = reader.GetValue(i);
+                    row[reader.GetName(i)] = value == DBNull.Value ? null : value;
+                    if (value is not null and not DBNull)
+                        totalBytes += EstimateSize(value);
+                }
+
+                if (totalBytes > _settings.QueryMaxBytes)
+                    throw new InvalidOperationException($"The result exceeded the maximum size of {_settings.QueryMaxBytes} bytes.");
+
+                results.Add(row);
             }
-
-            if (totalBytes > _settings.QueryMaxBytes)
-                throw new InvalidOperationException($"The result exceeded the maximum size of {_settings.QueryMaxBytes} bytes.");
-
-            results.Add(row);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new InvalidOperationException(
+                $"Query timed out after {_settings.QueryTimeoutSeconds} seconds.");
         }
 
         return results;
@@ -73,16 +98,22 @@ public class SqliteDatasetExecutor : IDatasetQueryExecutor
     {
         var quotedTable = QuoteIdentifier(tableName);
         var columns = columnNames
-            .Select((name, i) => $"{QuoteIdentifier(name)} {DeclaredType(columnTypes[i])}")
+            .Select((name, i) => $"{QuoteIdentifier(name)} {DeclaredType(i < columnTypes.Count ? columnTypes[i] : "string")}")
             .ToArray();
+
+        // One transaction for the bulk load: per-row implicit transactions make a
+        // 100k-row dataset take minutes instead of seconds.
+        using var transaction = conn.BeginTransaction();
 
         await using (var create = conn.CreateCommand())
         {
+            create.Transaction = transaction;
             create.CommandText = $"CREATE TABLE {quotedTable} ({string.Join(", ", columns)})";
             await create.ExecuteNonQueryAsync(ct);
         }
 
         await using var insert = conn.CreateCommand();
+        insert.Transaction = transaction;
         insert.CommandText = $"INSERT INTO {quotedTable} ({string.Join(", ", columnNames.Select(QuoteIdentifier))}) " +
                              $"VALUES ({string.Join(", ", Enumerable.Range(0, columnNames.Count).Select(i => $"@p{i}"))})";
 
@@ -101,6 +132,11 @@ public class SqliteDatasetExecutor : IDatasetQueryExecutor
             }
             await insert.ExecuteNonQueryAsync(ct);
         }
+
+        // Dispose the prepared statement before committing; SQLite can refuse to
+        // commit while a command is still active.
+        await insert.DisposeAsync();
+        await transaction.CommitAsync(ct);
     }
 
     private static string DeclaredType(string inferredType) => inferredType switch

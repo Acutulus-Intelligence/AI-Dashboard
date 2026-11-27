@@ -4,7 +4,9 @@ using System.Text;
 using System.Text.Json;
 using Application.DTos.Request;
 using Application.DTos.Response;
+using Domain.Charts;
 using Domain.Enums;
+using Domain.Models;
 using FluentAssertions;
 
 namespace Presentation.IntegrationTests;
@@ -81,12 +83,52 @@ public sealed class CollectionRoutesTests
         fileDetailDoc.RootElement.GetProperty("columns").GetArrayLength().Should().Be(2);
         fileDetailDoc.RootElement.GetProperty("previewRows").GetArrayLength().Should().Be(3);
 
+        var recommend = await client.PostAsync(
+            $"/api/collections/{collectionId}/files/{fileId}/recommend", null);
+        recommend.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var recommendDoc = JsonDocument.Parse(await recommend.Content.ReadAsStringAsync());
+        recommendDoc.RootElement.GetProperty("recommendations").GetArrayLength().Should().BeGreaterThan(0);
+        recommendDoc.RootElement.GetProperty("profile").GetProperty("columns").GetArrayLength().Should().Be(2);
+
         var generate = await client.PostAsJsonAsync(
             $"/api/collections/{collectionId}/files/{fileId}/generate",
             new { Prompt = "Show sales by category", PrefabChartType = (string?)null, Mode = "auto" });
         generate.StatusCode.Should().Be(HttpStatusCode.OK);
         using var genDoc = JsonDocument.Parse(await generate.Content.ReadAsStringAsync());
         genDoc.RootElement.GetProperty("queryResult").GetArrayLength().Should().Be(2);
+
+        var refine = await client.PostAsJsonAsync(
+            $"/api/collections/{collectionId}/files/{fileId}/generate",
+            new
+            {
+                Prompt = "Make the title clearer",
+                PrefabChartType = (string?)null,
+                Mode = "prompt",
+                CurrentChart = new
+                {
+                    Title = "Sales by category",
+                    ChartType = "bar",
+                    XAxis = "category",
+                    YAxis = new[] { "amount" },
+                    Aggregation = "sum",
+                    GroupBy = "category",
+                    SqlQuery = "",
+                    DataModel = new
+                    {
+                        Filters = Array.Empty<object>(),
+                        GroupBy = new[] { "category" },
+                        Aggregations = new[] { new { Column = "amount", Function = "sum" } },
+                        OrderBy = Array.Empty<object>(),
+                        Limit = 10,
+                    },
+                },
+            });
+        refine.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var refineDoc = JsonDocument.Parse(await refine.Content.ReadAsStringAsync());
+        refineDoc.RootElement.GetProperty("title").GetString()
+            .Should().Be("Sales by category (refined)");
+        refineDoc.RootElement.GetProperty("dataModel").ValueKind
+            .Should().NotBe(JsonValueKind.Null);
 
         var saveChart = await client.PostAsJsonAsync("/api/charts", new
         {
@@ -118,8 +160,35 @@ public sealed class CollectionRoutesTests
         using var chartDetailDoc = JsonDocument.Parse(await chartDetail.Content.ReadAsStringAsync());
         chartDetailDoc.RootElement.GetProperty("datasetId").GetGuid().Should().Be(fileId);
 
+        var updateStyle = await client.PutAsJsonAsync($"/api/charts/{chartId}", new UpdateChartRequest(
+            "Collection sales chart updated",
+            "bar",
+            "category",
+            ["amount"],
+            "sum",
+            "category",
+            "",
+            StyleConfig: new ChartStyleConfig { Palette = "cool" },
+            DataModel: new DataQueryModel
+            {
+                GroupBy = ["category"],
+                Aggregations = [new DataAggregation { Column = "amount", Function = "sum" }],
+                OrderBy = [new DataOrderBy { Column = "amount", Direction = "desc" }],
+                Limit = 10,
+            }));
+        updateStyle.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var updateDoc = JsonDocument.Parse(await updateStyle.Content.ReadAsStringAsync());
+        updateDoc.RootElement.GetProperty("styleConfig").GetProperty("palette").GetString()
+            .Should().Be("cool");
+        updateDoc.RootElement.GetProperty("sqlQuery").GetString().Should().BeEmpty();
+        updateDoc.RootElement.GetProperty("dataModel").ValueKind
+            .Should().NotBe(JsonValueKind.Null);
+
         var execute = await client.PostAsync($"/api/charts/{chartId}/execute", null);
         execute.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var executeDoc = JsonDocument.Parse(await execute.Content.ReadAsStringAsync());
+        executeDoc.RootElement.GetProperty("dataModel").ValueKind
+            .Should().NotBe(JsonValueKind.Null);
 
         var deleteFile = await client.DeleteAsync($"/api/collections/{collectionId}/files/{fileId}");
         deleteFile.StatusCode.Should().Be(HttpStatusCode.NoContent);

@@ -36,6 +36,13 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { executeChart, getChart, saveChart, updateChart } from '../../lib/api/charts';
@@ -57,18 +64,24 @@ import {
   getCollection,
   getCollectionFile,
   getCollections,
+  recommendCollectionChart,
   type CollectionFileResponse,
   type CollectionResponse,
 } from '../../services/collectionsApi';
 import {
   generateChart,
+  recommendChart,
   type AiGenerationDebug,
   type ChartBaseline,
   type ChartConfigResponse,
+  type ChartSuggestion,
 } from '../../services/graphsApi';
 import ChartRenderer from '../charts/ChartRenderer';
+import { resolveColorAxis } from '../charts/colorAxis';
 import { DEFAULT_COMPANY_COLORS } from '../charts/companyColors';
+import { resolveStyle } from '../charts/palette';
 import { get, getAll } from '../charts/registry';
+import { shapeForDisplay } from '../charts/shape';
 import { transformResult } from '../charts/transform';
 import {
   exportChartDataAsCsv,
@@ -77,7 +90,9 @@ import {
 } from '../charts/exportChartData';
 import { exportChartAsPng } from '../charts/exportChartImage';
 import type { ChartStyleConfig } from '../charts/types';
+import { resolveStyleCapabilities } from '../charts/types';
 import ChartStylePanel from '../components/ChartStylePanel';
+import ChartRecommendationCards from '../components/ChartRecommendationCards';
 import AddToDashboardDialog from '../components/AddToDashboardDialog';
 import FolderSelect from '../components/FolderSelect';
 import AppShell from '../layouts/AppShell';
@@ -110,13 +125,19 @@ function cloneResult(result: ChartConfigResponse): ChartConfigResponse {
   return structuredClone(result);
 }
 
-/** Theme palette XOR per-slice colours — palette wins when both are set. */
+/** Top-N that affects how many result rows the server returns. */
+function topNOf(style?: ChartStyleConfig | null): number {
+  const value = style?.params?.topN;
+  return typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : 0;
+}
+
+/** Theme palette XOR positional colours — keyed overrides may use the palette as fallback. */
 function normalizeColorExclusive(style: ChartStyleConfig): ChartStyleConfig {
   if (style.palette != null && style.palette !== '') {
     return { ...style, palette: style.palette, colors: undefined };
   }
-  if (style.colors?.length) {
-    return { ...style, palette: undefined, colors: style.colors };
+  if (style.colors?.length || (style.colorsByKey && Object.keys(style.colorsByKey).length > 0)) {
+    return { ...style, palette: undefined };
   }
   return style;
 }
@@ -136,6 +157,7 @@ function toBaseline(
     groupBy: result.groupBy,
     sqlQuery: result.sqlQuery,
     styleConfig: cloneStyle(style),
+    dataModel: result.dataModel ?? null,
   };
 }
 
@@ -216,6 +238,8 @@ export default function GraphCreationPage() {
   const [prompt, setPrompt] = useState('');
   const [refinePrompt, setRefinePrompt] = useState('');
   const [prefabType, setPrefabType] = useState('');
+  const [recommendations, setRecommendations] = useState<ChartSuggestion[]>([]);
+  const [recommendationsLoading, setRecommendationsLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [refining, setRefining] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -245,20 +269,23 @@ export default function GraphCreationPage() {
   const previewRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!isCompanyUser) {
-      setCompanyColors([...DEFAULT_COMPANY_COLORS]);
-      return;
-    }
     let cancelled = false;
-    companyApi
-      .getCompanyStyle()
-      .then((res) => {
+
+    void (async () => {
+      if (!isCompanyUser) {
+        setCompanyColors([...DEFAULT_COMPANY_COLORS]);
+        return;
+      }
+
+      try {
+        const res = await companyApi.getCompanyStyle();
         if (cancelled) return;
         setCompanyColors(res.colors?.length ? res.colors : [...DEFAULT_COMPANY_COLORS]);
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) setCompanyColors([...DEFAULT_COMPANY_COLORS]);
-      });
+      }
+    })();
+
     return () => {
       cancelled = true;
     };
@@ -281,11 +308,12 @@ export default function GraphCreationPage() {
   useEffect(() => {
     if (!routeChartId) return;
     let cancelled = false;
-    setLoading(true);
-    setError('');
-    setStep('generate');
 
     (async () => {
+      setLoading(true);
+      setError('');
+      setStep('generate');
+
       try {
         const [detail, executed] = await Promise.all([
           getChart(routeChartId),
@@ -296,6 +324,7 @@ export default function GraphCreationPage() {
         setTableName(detail.tableName ?? '');
         if (detail.datasetId) {
           setSourceType('collection');
+          setCollectionId(detail.collectionId ?? '');
           setFileId(detail.datasetId);
         }
         setSavedChartId(detail.id);
@@ -326,55 +355,70 @@ export default function GraphCreationPage() {
 
   useEffect(() => {
     if (step !== 'pick-connection') return;
-    setConnectionsLoading(true);
-    getConnections()
-      .then(setConnections)
-      .catch(() => {
+
+    void (async () => {
+      setConnectionsLoading(true);
+      try {
+        const list = await getConnections();
+        setConnections(list);
+      } catch {
         setConnections([]);
         setError('Failed to load connections.');
-      })
-      .finally(() => setConnectionsLoading(false));
+      } finally {
+        setConnectionsLoading(false);
+      }
+    })();
 
-    setCollectionsLoading(true);
-    getCollections()
-      .then(setCollections)
-      .catch(() => {
+    void (async () => {
+      setCollectionsLoading(true);
+      try {
+        const list = await getCollections();
+        setCollections(list);
+      } catch {
         setCollections([]);
         setError('Failed to load collections.');
-      })
-      .finally(() => setCollectionsLoading(false));
+      } finally {
+        setCollectionsLoading(false);
+      }
+    })();
   }, [step]);
 
   useEffect(() => {
     if (step !== 'pick-table') return;
+
     if (sourceType === 'connection') {
       if (!connectionId) return;
-      setTablesLoading(true);
-      getTables(connectionId)
-        .then(setTables)
-        .catch(() => {
+      void (async () => {
+        setTablesLoading(true);
+        try {
+          setTables(await getTables(connectionId));
+        } catch {
           setTables([]);
           setError('Failed to load tables.');
-        })
-        .finally(() => setTablesLoading(false));
+        } finally {
+          setTablesLoading(false);
+        }
+      })();
     } else {
       if (!collectionId) return;
-      setFilesLoading(true);
-      getCollection(collectionId)
-        .then((d) => setFiles(d.files))
-        .catch(() => {
+      void (async () => {
+        setFilesLoading(true);
+        try {
+          const detail = await getCollection(collectionId);
+          setFiles(detail.files);
+        } catch {
           setFiles([]);
           setError('Failed to load collection files.');
-        })
-        .finally(() => setFilesLoading(false));
+        } finally {
+          setFilesLoading(false);
+        }
+      })();
     }
   }, [step, sourceType, connectionId, collectionId]);
 
   useEffect(() => {
     if (isEditingExisting) return;
     if (step !== 'generate') return;
-    setLoading(true);
-    setError('');
 
     const task =
       sourceType === 'connection'
@@ -393,15 +437,55 @@ export default function GraphCreationPage() {
             }))
           : Promise.resolve(null);
 
-    task
-      .then((previewData) => {
+    void (async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const previewData = await task;
         if (previewData) setPreview(previewData);
-      })
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : 'Failed to load schema'),
-      )
-      .finally(() => setLoading(false));
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'Failed to load schema');
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, [step, sourceType, connectionId, tableName, collectionId, fileId, isEditingExisting]);
+
+  // Recommendations only need schema metadata, so they are cheap to fetch on
+  // entry and let the user pick a type before spending an AI generation.
+  useEffect(() => {
+    if (isEditingExisting || step !== 'generate') return;
+
+    const canRecommend =
+      sourceType === 'connection'
+        ? Boolean(connectionId && tableName)
+        : Boolean(collectionId && fileId);
+    if (!canRecommend) return;
+
+    let cancelled = false;
+    const request =
+      sourceType === 'connection'
+        ? recommendChart({ connectionId, tableName })
+        : recommendCollectionChart(collectionId, fileId);
+
+    void (async () => {
+      setRecommendations([]);
+      setRecommendationsLoading(true);
+      try {
+        const response = await request;
+        if (!cancelled) setRecommendations(response.recommendations);
+      } catch {
+        // Recommendations are an enhancement; generation still works without them.
+        if (!cancelled) setRecommendations([]);
+      } finally {
+        if (!cancelled) setRecommendationsLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [step, isEditingExisting, sourceType, connectionId, tableName, collectionId, fileId]);
 
   useEffect(() => {
     if (!connectionName && connectionId) {
@@ -441,23 +525,29 @@ export default function GraphCreationPage() {
     !!savedResultSnapshot &&
     !configEqual(result, savedResultSnapshot);
   const isDirty = isStyleDirty || isTitleDirty || isFolderDirty || isConfigDirty;
-  const colorSlots = chartData
-    ? Math.max(
-        chartData.datasets.length,
-        chartData.labels.length > 0 &&
-          (result?.chartType === 'pie' || result?.chartType === 'radial')
-          ? chartData.labels.length
-          : 0,
-        1,
-      )
-    : 1;
-  const colorLabels =
-    result &&
-    chartData &&
-    (result.chartType === 'pie' || result.chartType === 'radial') &&
-    chartData.labels.length > 0
-      ? chartData.labels
-      : chartData?.datasets.map((d) => d.label);
+  const colorView = useMemo(() => {
+    if (!descriptor || !chartData) {
+      return {
+        slots: 1,
+        labels: [] as string[],
+        keys: [] as string[],
+        axis: 'series' as const,
+        seriesCount: 1,
+      };
+    }
+
+    const rawAxis = resolveColorAxis(descriptor, chartData, styleConfig);
+    const preliminary = resolveStyle(descriptor, styleConfig, rawAxis.keys);
+    const shaped = shapeForDisplay(chartData, preliminary);
+    const axis = resolveColorAxis(descriptor, shaped, styleConfig);
+    return {
+      slots: Math.max(axis.slots.length, 1),
+      labels: axis.slots.map((slot) => slot.label),
+      keys: axis.slots.map((slot) => slot.key),
+      axis: axis.axis,
+      seriesCount: shaped.datasets.length,
+    };
+  }, [chartData, descriptor, styleConfig]);
 
   const breadcrumbs = useMemo<Crumb[]>(() => {
     if (isEditingExisting) {
@@ -624,14 +714,14 @@ export default function GraphCreationPage() {
       const res =
         sourceType === 'collection'
           ? await generateCollectionChart(collectionId, fileId, {
-              prompt: mode === 'prompt' ? prompt : undefined,
+              prompt: prompt.trim() || undefined,
               prefabChartType: mode === 'prefab' ? prefabType : undefined,
               mode,
             })
           : await generateChart({
               connectionId,
               tableName,
-              prompt: mode === 'prompt' ? prompt : undefined,
+              prompt: prompt.trim() || undefined,
               prefabChartType: mode === 'prefab' ? prefabType : undefined,
               mode,
             });
@@ -649,22 +739,33 @@ export default function GraphCreationPage() {
   }
 
   async function handleRefine() {
-    if (!result || !connectionId || !tableName || !refinePrompt.trim()) return;
+    if (!result || !refinePrompt.trim()) return;
+    if (sourceType === 'connection' && (!connectionId || !tableName)) return;
+    if (sourceType === 'collection' && (!collectionId || !fileId)) return;
+
     const snapshot = {
       result: cloneResult(result),
       styleConfig: cloneStyle(styleConfig),
       title: editableTitle,
     };
+    const baseline = toBaseline(result, styleConfig, editableTitle);
     setRefining(true);
     setError('');
     try {
-      const res = await generateChart({
-        connectionId,
-        tableName,
-        prompt: refinePrompt.trim(),
-        mode: 'prompt',
-        currentChart: toBaseline(result, styleConfig, editableTitle),
-      });
+      const res =
+        sourceType === 'collection'
+          ? await generateCollectionChart(collectionId, fileId, {
+              prompt: refinePrompt.trim(),
+              mode: 'prompt',
+              currentChart: baseline,
+            })
+          : await generateChart({
+              connectionId,
+              tableName,
+              prompt: refinePrompt.trim(),
+              mode: 'prompt',
+              currentChart: baseline,
+            });
       setPreRefineSnapshot(snapshot);
       const style = normalizeColorExclusive(res.styleConfig ?? {});
       setResult({ ...res, styleConfig: style });
@@ -688,6 +789,49 @@ export default function GraphCreationPage() {
     setPreRefineSnapshot(null);
     setEditingTitle(false);
     toast.message('Reverted to the version before the last AI adjustment.');
+  }
+
+  /** Switches type locally without spending an AI call; keeps compatible style. */
+  function handleChartTypeChange(nextType: string) {
+    if (!result || nextType === result.chartType) return;
+
+    const descriptor = get(nextType);
+    if (!descriptor) return;
+
+    if ((nextType === 'heatmap' || nextType === 'pivot') && !result.groupBy) {
+      toast.error('This chart type needs a second dimension in the result.');
+      return;
+    }
+
+    const allowedParams = new Set(descriptor.params.map((spec) => spec.key));
+    const params = Object.fromEntries(
+      Object.entries(styleConfig.params ?? {}).filter(([key]) => allowedParams.has(key)),
+    );
+    const caps = resolveStyleCapabilities(descriptor);
+
+    const nextStyle: ChartStyleConfig = {
+      ...styleConfig,
+      variant: descriptor.variants[0]?.id,
+      params: Object.keys(params).length > 0 ? params : undefined,
+    };
+
+    if (!caps.colors) {
+      nextStyle.colors = undefined;
+      nextStyle.colorsByKey = undefined;
+      nextStyle.palette = undefined;
+    }
+
+    if (!caps.valueLabels) {
+      nextStyle.valuePrefix = undefined;
+      nextStyle.valueSuffix = undefined;
+      nextStyle.decimals = undefined;
+      nextStyle.decimalMode = undefined;
+    }
+
+    setResult({ ...result, chartType: nextType, styleConfig: nextStyle });
+    setStyleConfig(nextStyle);
+    setPreRefineSnapshot(null);
+    toast.message(`Chart type changed to ${descriptor.label}.`);
   }
 
   function applySavedSnapshots(
@@ -717,6 +861,7 @@ export default function GraphCreationPage() {
     setSaving(true);
     setError('');
     try {
+      const topNChanged = topNOf(styleConfig) !== topNOf(result.styleConfig);
       if (savedChartId) {
         const updated = await updateChart(savedChartId, {
           title,
@@ -726,13 +871,14 @@ export default function GraphCreationPage() {
           aggregation: result.aggregation,
           groupBy: result.groupBy,
           sqlQuery: result.sqlQuery,
+          dataModel: result.dataModel ?? null,
           styleConfig,
         });
         if (isFolderDirty) {
           await moveChartToFolder(savedChartId, folderId);
         }
         const savedStyle = updated.styleConfig ?? {};
-        const nextResult: ChartConfigResponse = {
+        let nextResult: ChartConfigResponse = {
           ...result,
           title: updated.title,
           chartType: updated.chartType,
@@ -741,10 +887,34 @@ export default function GraphCreationPage() {
           aggregation: updated.aggregation,
           groupBy: updated.groupBy,
           sqlQuery: updated.sqlQuery,
+          dataModel: updated.dataModel ?? result.dataModel,
           styleConfig: savedStyle,
         };
+
+        // The server returns top-N shaped rows. Increasing top-N needs a fresh
+        // execution, otherwise hidden categories cannot reappear.
+        if (topNChanged) {
+          try {
+            const fresh = await executeChart(savedChartId, { forceRefresh: true });
+            nextResult = {
+              ...nextResult,
+              chartType: fresh.chartType,
+              xAxis: fresh.xAxis,
+              yAxis: fresh.yAxis,
+              aggregation: fresh.aggregation,
+              groupBy: fresh.groupBy,
+              sqlQuery: fresh.sqlQuery,
+              queryResult: fresh.queryResult,
+              styleConfig: fresh.styleConfig ?? savedStyle,
+              dataModel: fresh.dataModel ?? nextResult.dataModel,
+            };
+          } catch {
+            toast.warning('Chart saved, but the preview could not be refreshed.');
+          }
+        }
+
         setResult(nextResult);
-        applySavedSnapshots(savedChartId, updated.title, savedStyle, nextResult, folderId);
+        applySavedSnapshots(savedChartId, updated.title, nextResult.styleConfig ?? savedStyle, nextResult, folderId);
         toast.success('Chart saved.');
       } else {
         const res = await saveChart({
@@ -764,7 +934,7 @@ export default function GraphCreationPage() {
         });
         const detail = await getChart(res.id);
         const savedStyle = detail.styleConfig ?? styleConfig;
-        const nextResult: ChartConfigResponse = {
+        let nextResult: ChartConfigResponse = {
           ...result,
           title: detail.title,
           chartType: detail.chartType,
@@ -773,10 +943,32 @@ export default function GraphCreationPage() {
           aggregation: detail.aggregation,
           groupBy: detail.groupBy,
           sqlQuery: detail.sqlQuery,
+          dataModel: detail.dataModel ?? result.dataModel,
           styleConfig: savedStyle,
         };
+
+        if (topNChanged) {
+          try {
+            const fresh = await executeChart(res.id, { forceRefresh: true });
+            nextResult = {
+              ...nextResult,
+              chartType: fresh.chartType,
+              xAxis: fresh.xAxis,
+              yAxis: fresh.yAxis,
+              aggregation: fresh.aggregation,
+              groupBy: fresh.groupBy,
+              sqlQuery: fresh.sqlQuery,
+              queryResult: fresh.queryResult,
+              styleConfig: fresh.styleConfig ?? savedStyle,
+              dataModel: fresh.dataModel ?? nextResult.dataModel,
+            };
+          } catch {
+            toast.warning('Chart saved, but the preview could not be refreshed.');
+          }
+        }
+
         setResult(nextResult);
-        applySavedSnapshots(res.id, detail.title, savedStyle, nextResult, folderId);
+        applySavedSnapshots(res.id, detail.title, nextResult.styleConfig ?? savedStyle, nextResult, folderId);
         toast.success('Chart saved.');
       }
     } catch (err: unknown) {
@@ -809,7 +1001,8 @@ export default function GraphCreationPage() {
       });
       const detail = await getChart(res.id);
       const savedStyle = detail.styleConfig ?? styleConfig;
-      const nextResult: ChartConfigResponse = {
+      const topNChanged = topNOf(styleConfig) !== topNOf(result.styleConfig);
+      let nextResult: ChartConfigResponse = {
         ...result,
         title: detail.title,
         chartType: detail.chartType,
@@ -820,8 +1013,29 @@ export default function GraphCreationPage() {
         sqlQuery: detail.sqlQuery,
         styleConfig: savedStyle,
       };
+
+      if (topNChanged) {
+        try {
+          const fresh = await executeChart(res.id, { forceRefresh: true });
+          nextResult = {
+            ...nextResult,
+            chartType: fresh.chartType,
+            xAxis: fresh.xAxis,
+            yAxis: fresh.yAxis,
+            aggregation: fresh.aggregation,
+            groupBy: fresh.groupBy,
+            sqlQuery: fresh.sqlQuery,
+            queryResult: fresh.queryResult,
+            styleConfig: fresh.styleConfig ?? savedStyle,
+            dataModel: fresh.dataModel ?? nextResult.dataModel,
+          };
+        } catch {
+          toast.warning('Saved as new, but the preview could not be refreshed.');
+        }
+      }
+
       setResult(nextResult);
-      applySavedSnapshots(res.id, detail.title, savedStyle, nextResult, folderId);
+      applySavedSnapshots(res.id, detail.title, nextResult.styleConfig ?? savedStyle, nextResult, folderId);
       toast.success('Saved as new chart.');
       navigate(graphEditPath(res.id), {
         replace: true,
@@ -1162,6 +1376,16 @@ export default function GraphCreationPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="grid gap-6">
+                <ChartRecommendationCards
+                  recommendations={recommendations}
+                  loading={recommendationsLoading}
+                  selectedType={prefabType}
+                  onUse={(chartType) => {
+                    setMode('prefab');
+                    setPrefabType(chartType);
+                  }}
+                />
+
                 <div className="grid gap-3 sm:grid-cols-3">
                   {MODES.map((opt) => (
                     <button
@@ -1197,26 +1421,43 @@ export default function GraphCreationPage() {
                 )}
 
                 {mode === 'prefab' && (
-                  <div className="flex flex-wrap gap-2">
-                    {getAll().map((chart) => (
-                      <Button
-                        key={chart.id}
-                        type="button"
-                        size="sm"
-                        variant={prefabType === chart.id ? 'default' : 'outline'}
-                        onClick={() => setPrefabType(chart.id)}
-                      >
-                        <chart.icon />
-                        {chart.label}
-                      </Button>
-                    ))}
+                  <div className="grid gap-3">
+                    <div className="flex flex-wrap gap-2">
+                      {getAll().map((chart) => (
+                        <Button
+                          key={chart.id}
+                          type="button"
+                          size="sm"
+                          variant={prefabType === chart.id ? 'default' : 'outline'}
+                          onClick={() => setPrefabType(chart.id)}
+                        >
+                          <chart.icon />
+                          {chart.label}
+                        </Button>
+                      ))}
+                    </div>
+                    <Textarea
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                      placeholder="Optional: which data should it show? (e.g. revenue per region last year)"
+                      rows={2}
+                    />
                   </div>
                 )}
 
                 {mode === 'auto' && (
-                  <p className="text-muted-foreground text-sm">
-                    The AI will pick the best chart type, variant and styling for this table.
-                  </p>
+                  <div className="grid gap-3">
+                    <Textarea
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                      placeholder="Optional: focus the chart on specific data…"
+                      rows={2}
+                    />
+                    <p className="text-muted-foreground text-sm">
+                      The AI picks the best chart type, variant and styling. The suggestion above is
+                      used as a starting point.
+                    </p>
+                  </div>
                 )}
 
                 <Button
@@ -1285,6 +1526,28 @@ export default function GraphCreationPage() {
                         </TooltipContent>
                       </Tooltip>
                     )}
+                    <Select value={result.chartType} onValueChange={handleChartTypeChange}>
+                      <SelectTrigger
+                        className="h-8 w-[128px] shrink-0 text-xs"
+                        aria-label="Chart type"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent align="end">
+                        {getAll()
+                          .filter(
+                            (chart) =>
+                              (chart.id !== 'heatmap' && chart.id !== 'pivot') ||
+                              Boolean(result.groupBy),
+                          )
+                          .map((chart) => (
+                            <SelectItem key={chart.id} value={chart.id}>
+                              <chart.icon className="size-4" />
+                              {chart.label}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <button
@@ -1368,7 +1631,14 @@ export default function GraphCreationPage() {
                         type="button"
                         variant="secondary"
                         className="w-fit"
-                        disabled={refining || generating || !refinePrompt.trim() || !connectionId || !tableName}
+                        disabled={
+                          refining ||
+                          generating ||
+                          !refinePrompt.trim() ||
+                          (sourceType === 'collection'
+                            ? !collectionId || !fileId
+                            : !connectionId || !tableName)
+                        }
                         onClick={() => void handleRefine()}
                       >
                         {refining ? <Loader2 className="animate-spin" /> : <Sparkles />}
@@ -1475,8 +1745,11 @@ export default function GraphCreationPage() {
                       value={styleConfig}
                       onChange={setStyleConfig}
                       companyColors={companyColors}
-                      colorSlots={Math.min(colorSlots, 8)}
-                      colorLabels={colorLabels?.slice(0, Math.min(colorSlots, 8))}
+                      colorSlots={colorView.slots}
+                      colorLabels={colorView.labels}
+                      colorKeys={colorView.keys}
+                      colorAxis={colorView.axis}
+                      seriesCount={colorView.seriesCount}
                     />
                   ) : (
                     <p className="text-muted-foreground text-sm">No style controls for this type.</p>

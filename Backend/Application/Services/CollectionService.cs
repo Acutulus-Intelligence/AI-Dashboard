@@ -21,6 +21,7 @@ public class CollectionService : ICollectionService
     private readonly IDatasetFileParser[] _parsers;
     private readonly DatasetSettings _settings;
     private readonly IChartCacheInvalidator _chartCacheInvalidator;
+    private readonly IAuditTrail _audit;
 
     public CollectionService(
         IApplicationDbContext db,
@@ -29,7 +30,8 @@ public class CollectionService : ICollectionService
         ICollectionAccessService access,
         IEnumerable<IDatasetFileParser> parsers,
         IOptions<DatasetSettings> settings,
-        IChartCacheInvalidator chartCacheInvalidator)
+        IChartCacheInvalidator chartCacheInvalidator,
+        IAuditTrail audit)
     {
         _db = db;
         _aiService = aiService;
@@ -38,7 +40,14 @@ public class CollectionService : ICollectionService
         _parsers = parsers.ToArray();
         _settings = settings.Value;
         _chartCacheInvalidator = chartCacheInvalidator;
+        _audit = audit;
     }
+
+    private static readonly JsonSerializerOptions BaselineJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+    };
 
     public async Task<CollectionResponse> CreateAsync(Guid userId, CreateCollectionRequest request, CancellationToken ct = default)
     {
@@ -325,24 +334,94 @@ public class CollectionService : ICollectionService
         var allowedColors = await ResolveAccountColorsAsync(userId, ct);
         var schemaJson = ChartGenerationSchema.ToJson(dataset.TableName, columnNames, columnTypes, allowedColors);
 
+        // Slim baseline for the prompt — never includes query result rows.
+        var currentChartJson = request.CurrentChart is null
+            ? null
+            : JsonSerializer.Serialize(new
+            {
+                request.CurrentChart.Title,
+                request.CurrentChart.ChartType,
+                request.CurrentChart.XAxis,
+                request.CurrentChart.YAxis,
+                SeriesColourSlots = request.CurrentChart.YAxis
+                    .Select((name, i) => $"{i}={name}")
+                    .ToList(),
+                request.CurrentChart.Aggregation,
+                request.CurrentChart.GroupBy,
+                request.CurrentChart.DataModel,
+                StyleConfig = ChartRefineMerger.SlimStyleForAi(
+                    request.CurrentChart.StyleConfig,
+                    request.CurrentChart.ChartType),
+            }, BaselineJsonOptions);
+
+        var description = request.Prompt?.Trim();
+
         var prompt = request.Mode switch
         {
-            "prompt" => request.Prompt ?? "Show me this data in a chart.",
-            "prefab" => $"Create a {request.PrefabChartType} chart for this table.",
-            "auto" => "Choose the best visualization for this data.",
+            "prompt" => string.IsNullOrWhiteSpace(description)
+                ? "Show me this data in a chart."
+                : description,
+            "prefab" => BuildPrefabPrompt(request.PrefabChartType, description),
+            "auto" => string.IsNullOrWhiteSpace(description)
+                ? "Choose the best visualization for this data."
+                : $"Choose the best visualization for this data. {description}",
             _ => "Show me this data in a chart."
         };
 
+        if (request.Mode == "auto")
+        {
+            var recommendation = ChartRecommender.Recommend(
+                "dataset",
+                columnNames.Select((name, i) => (
+                    name,
+                    i < columnTypes.Length ? columnTypes[i] : "unknown",
+                    false)));
+            var top = recommendation.Recommendations.FirstOrDefault(r => r.ChartType != "table");
+            if (top is not null)
+            {
+                prompt +=
+                    $"\nData profile suggestion: {top.ChartType} ({top.Confidence} confidence). " +
+                    $"Reasons: {string.Join(" ", top.Reasons)} " +
+                    "Prefer this unless the data clearly contradicts it.";
+            }
+        }
+
         var (config, _) = await AiGenerationRetry.RunAsync(
             (repairHint, token) => _aiService.GenerateCollectionChartConfigAsync(
-                schemaJson, prompt, request.PrefabChartType, allowedColors, repairHint, token),
+                schemaJson, prompt, request.PrefabChartType, currentChartJson, allowedColors,
+                repairHint, token),
             generated =>
             {
                 if (generated.DataModel is null)
-                    return "AI returned no data model for this data.";
+                {
+                    // Style-only refine: the baseline data model is merged below.
+                    return request.CurrentChart?.DataModel is not null
+                        ? null
+                        : "AI returned no data model for this data.";
+                }
+
                 return DataQueryModelGrounding.Validate(generated.DataModel, columnNames, generated);
             },
             ct);
+
+        if (request.CurrentChart is not null)
+        {
+            config = ChartRefineMerger.Apply(request.CurrentChart, config, prompt, allowedColors);
+            if (ChartRefineMerger.IsStyleOnlyPrompt(prompt))
+            {
+                // Presentation-only request: never let the model rewrite the data
+                // model, chart type, or axes.
+                ChartRefineMerger.KeepBaselineData(config, request.CurrentChart);
+            }
+
+            config.StyleConfig = ChartStyleSanitizer.Sanitize(config.StyleConfig, config.ChartType);
+        }
+        else
+        {
+            config.StyleConfig = ChartStyleSanitizer.Sanitize(
+                ChartRefineMerger.TakeAiControlledStyleFields(config.StyleConfig, config.ChartType, allowedColors),
+                config.ChartType);
+        }
 
         if (config.DataModel is null)
             throw new InvalidOperationException("AI returned no data model for this data.");
@@ -351,11 +430,26 @@ public class CollectionService : ICollectionService
         if (groundingError is not null)
             throw new InvalidOperationException(groundingError);
 
-        config.StyleConfig = ChartStyleSanitizer.Sanitize(
-            ChartRefineMerger.TakeAiControlledStyleFields(config.StyleConfig, config.ChartType, allowedColors),
-            config.ChartType);
-
         var result = await _dataQueryExecutor.ExecuteAsync(columnNames, columnTypes, rows, config.DataModel, ct);
+
+        ChartResultNormalizer.Normalize(config, result);
+        var allowTypeChange = request.CurrentChart is null
+            && request.Mode != "prefab"
+            && !ChartTypeIntent.PromptNamesChartType(request.Prompt);
+        ChartLint.Apply(config, result, allowTypeChange);
+        var shapedRows = ChartResultShaper.Shape(config, result);
+
+        _audit.Record(new AuditEntry(
+            AuditAction.ChartGenerated,
+            userId,
+            null,
+            fileId,
+            null,
+            config.ChartType,
+            config.SqlQuery,
+            shapedRows.Count,
+            "success",
+            "dataset"));
 
         return new ChartConfigResponse(
             config.ChartType,
@@ -365,9 +459,15 @@ public class CollectionService : ICollectionService
             config.Aggregation,
             config.GroupBy,
             string.Empty,
-            result,
+            shapedRows,
             config.StyleConfig,
             config.DataModel);
+    }
+
+    private static string BuildPrefabPrompt(string? chartType, string? description)
+    {
+        var basePrompt = $"Create a {chartType} chart for this table.";
+        return string.IsNullOrWhiteSpace(description) ? basePrompt : $"{basePrompt} {description}";
     }
 
     private async Task<IReadOnlyList<string>> ResolveAccountColorsAsync(Guid userId, CancellationToken ct)

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using Application.Common;
 using Application.Common.Data;
 using Application.Caching;
 using Application.Common.Exceptions;
@@ -938,10 +939,15 @@ public class CompanyService : ICompanyService
 
         var userCount = await _db.Users.CountAsync(u => u.CompanyId == companyId, ct);
 
+        var now = DateTime.UtcNow;
+        var cutoff = now - SubscriptionTiming.RenewalGrace;
+
         var subscription = await _db.CompanySubscriptions
             .AsNoTracking()
             .Include(s => s.Plan)
-            .FirstOrDefaultAsync(s => s.CompanyId == companyId && s.Status == SubscriptionStatus.Active, ct);
+            .FirstOrDefaultAsync(s => s.CompanyId == companyId &&
+                ((s.Status == SubscriptionStatus.Active || s.Status == SubscriptionStatus.Trial) &&
+                 (s.EndDate == null || s.EndDate > cutoff)), ct);
 
         return new CompanyResponse(
             company.Id,
@@ -1028,10 +1034,11 @@ public class CompanyService : ICompanyService
     private async Task EnsureEmailDeliveryAllowedAsync(Guid companyId, CancellationToken ct)
     {
         var now = DateTime.UtcNow;
+        var cutoff = now - SubscriptionTiming.RenewalGrace;
         var hasActiveSubscription = await _db.CompanySubscriptions.AnyAsync(s =>
             s.CompanyId == companyId &&
-            ((s.Status == SubscriptionStatus.Trial && (s.EndDate == null || s.EndDate > now)) ||
-             (s.Status == SubscriptionStatus.Active && (s.EndDate == null || s.EndDate > now))), ct);
+            ((s.Status == SubscriptionStatus.Trial && (s.EndDate == null || s.EndDate > cutoff)) ||
+             (s.Status == SubscriptionStatus.Active && (s.EndDate == null || s.EndDate > cutoff))), ct);
         if (!hasActiveSubscription)
             throw new SubscriptionRequiredException(
                 "An active company subscription is required to send invitation emails.");

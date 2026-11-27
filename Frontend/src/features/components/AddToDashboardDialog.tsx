@@ -70,21 +70,24 @@ export default function AddToDashboardDialog({
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    setLoading(true);
-    setDashboards([]);
-    setSelectedId(null);
-    getDashboards()
-      .then((list) => {
+
+    void (async () => {
+      setLoading(true);
+      setDashboards([]);
+      setSelectedId(null);
+
+      try {
+        const list = await getDashboards();
         if (cancelled) return;
         setDashboards(list);
         if (list.length > 0) setSelectedId(list[0].id);
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) toast.error('Could not load dashboards.');
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    })();
+
     return () => {
       cancelled = true;
     };

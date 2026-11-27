@@ -90,14 +90,18 @@ export default function SettingsPage() {
   }
 
   useEffect(() => {
-    void loadSubscription();
+    void (async () => {
+      await loadSubscription();
+    })();
   }, []);
 
   usePolling({ onPoll: loadSubscription });
 
   useEffect(() => {
     if (user?.userType === 0) {
-      void loadInvites();
+      void (async () => {
+        await loadInvites();
+      })();
     }
   }, [user?.userType]);
 

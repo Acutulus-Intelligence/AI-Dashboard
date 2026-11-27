@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Mail, X, AlertCircle, UserPlus, Clock, Trash2, Shield, Building2, Crown, Plus, Save, Pencil } from 'lucide-react';
 import Button from '../components/Button';
 import {
@@ -89,7 +89,19 @@ export default function CompanyUsersSection() {
            targetRole.canManageRoles === myRole.canManageRoles;
   };
 
-  async function loadData() {
+  const loadPendingInvites = useCallback(async () => {
+    setPendingInvitesLoading(true);
+    try {
+      const list = await companyApi.getPendingInvites();
+      setPendingInvites(list);
+    } catch {
+      // ignore
+    } finally {
+      setPendingInvitesLoading(false);
+    }
+  }, []);
+
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError('');
     setNoCompany(false);
@@ -108,28 +120,20 @@ export default function CompanyUsersSection() {
     } catch (err: unknown) {
       if (err instanceof ApiError && err.code === 'no_company') {
         setNoCompany(true);
-        loadPendingInvites();
+        await loadPendingInvites();
       } else {
         setError(err instanceof Error ? err.message : 'Failed to load company data.');
       }
     } finally {
       setLoading(false);
     }
-  }
+  }, [loadPendingInvites]);
 
-  async function loadPendingInvites() {
-    setPendingInvitesLoading(true);
-    try {
-      const list = await companyApi.getPendingInvites();
-      setPendingInvites(list);
-    } catch {
-      // ignore
-    } finally {
-      setPendingInvitesLoading(false);
-    }
-  }
-
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    void (async () => {
+      await loadData();
+    })();
+  }, [loadData]);
 
   async function handleInvite(e: FormEvent) {
     e.preventDefault();

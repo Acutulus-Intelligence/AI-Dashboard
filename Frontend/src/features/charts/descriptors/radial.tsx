@@ -7,7 +7,7 @@ import { chartColorKey } from '../colorKey';
 import { param, type ChartDescriptor, type ParamSpec } from '../types';
 import ChartPlaceholder from './ChartPlaceholder';
 import StyledChartTooltip from './StyledChartTooltip';
-import { hasSeries, showGrid, showLabels, showTooltip } from './params';
+import { hasSeries, showGrid, showLabels, showTooltip, topN } from './params';
 
 const startAngle: ParamSpec = {
   kind: 'number',
@@ -46,18 +46,21 @@ export const radialChart: ChartDescriptor = {
   icon: Gauge,
   defaultSize: { w: 4, h: 4 },
   minSize: { w: 3, h: 3 },
+  colorAxis: 'category',
   variants: [
     { id: 'default', label: 'Rings', description: 'One ring per category.' },
     { id: 'labelled', label: 'With labels', description: 'Category names drawn on the rings.' },
     { id: 'stacked', label: 'Stacked', description: 'Categories share one ring.' },
   ],
-  params: [barSize, startAngle, endAngle, showGrid, showLabels, showTooltip],
-  render({ data, style }) {
+  params: [barSize, startAngle, endAngle, showGrid, showLabels, showTooltip, topN],
+  render({ data, style, layout }) {
     if (!hasSeries(data)) return <ChartPlaceholder icon={Gauge} label="Radial chart" />;
 
     const series = data.datasets[0];
     const stacked = style.variant === 'stacked';
-    const labelled = style.variant === 'labelled' || param(style, 'showLabels', false);
+    const compact = layout?.compact ?? false;
+    const labelled =
+      !compact && (style.variant === 'labelled' || param(style, 'showLabels', false));
 
     const keys = data.labels.map((label, i) => chartColorKey(i, label));
 
@@ -66,7 +69,7 @@ export const radialChart: ChartDescriptor = {
       config[keys[i]] = { label, color: style.colors[i % style.colors.length] };
     });
 
-    const stackTotal = series.values.reduce((sum, v) => sum + v, 0);
+    const stackTotal = series.values.reduce<number>((sum, v) => sum + (v ?? 0), 0);
 
     const rows = stacked
       ? [
@@ -85,6 +88,7 @@ export const radialChart: ChartDescriptor = {
     return (
       <ChartContainer config={config} className="h-full w-full aspect-auto">
         <RadialBarChart
+          accessibilityLayer
           data={rows}
           innerRadius={stacked ? '60%' : '25%'}
           outerRadius="95%"
@@ -94,7 +98,7 @@ export const radialChart: ChartDescriptor = {
           {param(style, 'showTooltip', true) && (
             <ChartHoverTooltip
               cursor={false}
-              content={<StyledChartTooltip style={style} nameKey={stacked ? undefined : 'key'} />}
+              content={<StyledChartTooltip style={style} nameKey={stacked ? undefined : 'key'} showShare={!stacked} shareTotal={stackTotal} />}
             />
           )}
           {param(style, 'showGrid', true) && (

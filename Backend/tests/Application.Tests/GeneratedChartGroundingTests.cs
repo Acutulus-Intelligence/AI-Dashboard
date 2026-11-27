@@ -1,6 +1,7 @@
 using Application.Interfaces;
 using Application.Services;
 using Domain.Charts;
+using Domain.Enums;
 using Domain.Models;
 using FluentAssertions;
 
@@ -33,7 +34,7 @@ public class GeneratedChartGroundingTests
             SqlQuery = "SELECT category, SUM(amount) AS amount FROM sales GROUP BY category",
         };
 
-        GeneratedChartGrounding.ValidateSqlChart(config, SalesSchema, new SelectOnlyValidator())
+        GeneratedChartGrounding.ValidateSqlChart(config, SalesSchema, new SelectOnlyValidator(), DbProvider.PostgreSql)
             .Should().BeNull();
     }
 
@@ -48,7 +49,7 @@ public class GeneratedChartGroundingTests
             SqlQuery = "SELECT customer_name, SUM(revenue) AS revenue FROM sales GROUP BY customer_name",
         };
 
-        var error = GeneratedChartGrounding.ValidateSqlChart(config, SalesSchema, new SelectOnlyValidator());
+        var error = GeneratedChartGrounding.ValidateSqlChart(config, SalesSchema, new SelectOnlyValidator(), DbProvider.PostgreSql);
 
         error.Should().NotBeNull();
         error.Should().Contain("customer_name");
@@ -65,7 +66,7 @@ public class GeneratedChartGroundingTests
             SqlQuery = "SELECT category, SUM(amount) AS amount FROM sales GROUP BY category",
         };
 
-        var error = GeneratedChartGrounding.ValidateSqlChart(config, SalesSchema, new SelectOnlyValidator());
+        var error = GeneratedChartGrounding.ValidateSqlChart(config, SalesSchema, new SelectOnlyValidator(), DbProvider.PostgreSql);
 
         error.Should().NotBeNull();
         error.Should().Contain("yAxis");
@@ -83,7 +84,7 @@ public class GeneratedChartGroundingTests
             SqlQuery = "SELECT category, SUM(amount) AS total FROM sales GROUP BY category",
         };
 
-        GeneratedChartGrounding.ValidateSqlChart(config, SalesSchema, new SelectOnlyValidator())
+        GeneratedChartGrounding.ValidateSqlChart(config, SalesSchema, new SelectOnlyValidator(), DbProvider.PostgreSql)
             .Should().BeNull();
     }
 
@@ -98,7 +99,7 @@ public class GeneratedChartGroundingTests
             SqlQuery = "SELECT category, SUM(amount) AS amount FROM sales GROUP BY category",
         };
 
-        GeneratedChartGrounding.GroundSqlChart(config, SalesSchema, new SelectOnlyValidator())
+        GeneratedChartGrounding.GroundSqlChart(config, SalesSchema, new SelectOnlyValidator(), DbProvider.PostgreSql)
             .Should().BeNull();
         config.XAxis.Should().Be("category");
     }
@@ -108,15 +109,15 @@ public class GeneratedChartGroundingTests
     {
         var config = new AiChartConfig
         {
-            ChartType = "heatmap",
+            ChartType = "sunburst",
             XAxis = "category",
             YAxis = ["amount"],
             SqlQuery = "SELECT category, amount FROM sales",
         };
 
-        var error = GeneratedChartGrounding.ValidateSqlChart(config, SalesSchema, new SelectOnlyValidator());
+        var error = GeneratedChartGrounding.ValidateSqlChart(config, SalesSchema, new SelectOnlyValidator(), DbProvider.PostgreSql);
 
-        error.Should().Contain("heatmap");
+        error.Should().Contain("sunburst");
         error.Should().Contain("map");
     }
 
@@ -132,7 +133,7 @@ public class GeneratedChartGroundingTests
             StyleConfig = new ChartStyleConfig { Variant = "choropleth" },
         };
 
-        GeneratedChartGrounding.GroundSqlChart(config, SalesSchema, new SelectOnlyValidator())
+        GeneratedChartGrounding.GroundSqlChart(config, SalesSchema, new SelectOnlyValidator(), DbProvider.PostgreSql)
             .Should().BeNull();
         config.ChartType.Should().Be("map");
         GeneratedChartGrounding.ValidateStyle(config, Allowlist).Should().BeNull();

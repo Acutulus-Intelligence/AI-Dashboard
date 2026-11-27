@@ -1,5 +1,6 @@
 using Application.Interfaces;
 using Domain.Charts;
+using Domain.Enums;
 using Domain.Models;
 
 namespace Application.Services;
@@ -14,8 +15,9 @@ public static class GeneratedChartGrounding
     public static string? ValidateSqlChart(
         AiChartConfig config,
         TableSchema schema,
-        ISqlValidator sqlValidator)
-        => GroundSqlChart(config, schema, sqlValidator);
+        ISqlValidator sqlValidator,
+        DbProvider dbProvider)
+        => GroundSqlChart(config, schema, sqlValidator, dbProvider);
 
     /// <summary>
     /// Grounds SQL and axes onto <paramref name="schema"/>, mutating
@@ -24,7 +26,8 @@ public static class GeneratedChartGrounding
     public static string? GroundSqlChart(
         AiChartConfig config,
         TableSchema schema,
-        ISqlValidator sqlValidator)
+        ISqlValidator sqlValidator,
+        DbProvider dbProvider)
     {
         var canonicalType = ChartCatalog.CanonicalId(config.ChartType);
         if (canonicalType is null)
@@ -38,7 +41,7 @@ public static class GeneratedChartGrounding
         if (string.IsNullOrWhiteSpace(config.SqlQuery))
             return "sqlQuery is missing.";
 
-        if (!sqlValidator.IsSelectOnly(config.SqlQuery, out var selectError))
+        if (!sqlValidator.IsSelectOnly(config.SqlQuery, dbProvider, out var selectError))
             return selectError ?? "SQL query is not a safe SELECT.";
 
         var columnNames = schema.Columns.Select(c => c.ColumnName).ToList();

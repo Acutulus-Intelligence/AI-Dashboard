@@ -13,6 +13,8 @@ namespace Infrastructure.Collections;
 /// </summary>
 public class InMemoryDataQueryExecutor : IDataQueryExecutor
 {
+    public bool LastResultTruncated { get; private set; }
+
     private readonly ExternalDbSettings _settings;
 
     public InMemoryDataQueryExecutor(IOptions<ExternalDbSettings> settings)
@@ -27,6 +29,8 @@ public class InMemoryDataQueryExecutor : IDataQueryExecutor
         DataQueryModel model,
         CancellationToken ct = default)
     {
+        LastResultTruncated = false;
+
         var typed = new List<Row>(rows.Count);
         foreach (var raw in rows)
         {
@@ -53,13 +57,16 @@ public class InMemoryDataQueryExecutor : IDataQueryExecutor
 
         var limited = model.Limit.HasValue ? output.Take(Math.Max(model.Limit.Value, 0)) : output;
         var results = limited.ToList();
+        if (results.Count > _settings.QueryMaxRows)
+        {
+            LastResultTruncated = true;
+            results = results.Take(_settings.QueryMaxRows).ToList();
+        }
 
         var totalBytes = 0L;
         foreach (var row in results)
         {
             ct.ThrowIfCancellationRequested();
-            if (results.Count > _settings.QueryMaxRows)
-                throw new InvalidOperationException($"Query exceeded the maximum row limit of {_settings.QueryMaxRows}.");
             foreach (var (_, value) in row)
             {
                 if (value is not null)
@@ -128,9 +135,13 @@ public class InMemoryDataQueryExecutor : IDataQueryExecutor
                 outValues[agg.Column] = Aggregate(agg.Function, values);
             }
 
+            if (groups.Count >= _settings.QueryMaxRows)
+            {
+                LastResultTruncated = true;
+                break;
+            }
+
             groups.Add(new Row(outValues));
-            if (groups.Count > _settings.QueryMaxRows)
-                throw new InvalidOperationException($"Query exceeded the maximum row limit of {_settings.QueryMaxRows}.");
         }
 
         return groups;

@@ -2,7 +2,7 @@ import type { DecimalMode, ResolvedStyle } from './types';
 
 type FormatStyle = Pick<
   ResolvedStyle,
-  'valuePrefix' | 'valueSuffix' | 'decimals' | 'decimalMode'
+  'valuePrefix' | 'valueSuffix' | 'decimals' | 'decimalMode' | 'notation'
 >;
 
 function applyDecimals(value: number, decimals: number, mode: DecimalMode): string {
@@ -31,13 +31,38 @@ export function formatStyledValue(value: unknown, style: FormatStyle): string {
         : value;
 
   const text =
-    typeof raw === 'number' && Number.isFinite(raw)
-      ? style.decimals != null
-        ? applyDecimals(raw, style.decimals, style.decimalMode ?? 'round')
-        : raw.toLocaleString()
-      : String(value ?? '');
+    typeof raw === 'number' && Number.isFinite(raw) ? formatNumber(raw, style) : String(value ?? '');
 
   return `${style.valuePrefix ?? ''}${text}${style.valueSuffix ?? ''}`;
+}
+
+/**
+ * Large values are abbreviated (42k, 1.2M) unless the user asked for fixed
+ * decimals, so axes and KPI cards stay readable at a glance.
+ */
+function formatNumber(value: number, style: FormatStyle): string {
+  if (style.decimals != null) {
+    return applyDecimals(value, style.decimals, style.decimalMode ?? 'round');
+  }
+
+  const notation = style.notation ?? 'auto';
+  if (notation === 'full') {
+    return value.toLocaleString(undefined, { maximumFractionDigits: 10 });
+  }
+
+  if (notation === 'compact' || Math.abs(value) >= 10_000) {
+    return value.toLocaleString(undefined, {
+      notation: 'compact',
+      maximumFractionDigits: 1,
+    });
+  }
+
+  return value.toLocaleString();
+}
+
+/** Estimated rendered width of a formatted value, for axis/margin sizing. */
+export function estimateTextWidth(text: string, fontSize = 11): number {
+  return Math.max(1, text.length) * fontSize * 0.62;
 }
 
 export function tickFormatter(style: FormatStyle) {

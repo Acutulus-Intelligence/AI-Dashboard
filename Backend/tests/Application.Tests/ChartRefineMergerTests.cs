@@ -1,5 +1,9 @@
+using Application.DTos.Request;
 using Application.Services;
+using Domain.Charts;
+using Domain.Models;
 using FluentAssertions;
+using System.Text.Json;
 
 namespace Application.Tests;
 
@@ -37,6 +41,30 @@ public class ChartRefineMergerTests
     public void RequestsStyleChange_ignores_data_only_prompts(string prompt)
     {
         ChartRefineMerger.RequestsStyleChange(prompt).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("make the bars blue")]
+    [InlineData("as a percentage")]
+    [InlineData("show the legend")]
+    [InlineData("round to 1 decimal")]
+    [InlineData("add data labels")]
+    [InlineData("switch to warm palette")]
+    [InlineData("color by category")]
+    [InlineData("colour each column")]
+    public void Style_only_prompts_are_detected(string prompt)
+    {
+        ChartRefineMerger.IsStyleOnlyPrompt(prompt).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("filter by region and make it blue")]
+    [InlineData("show last 30 days in red")]
+    [InlineData("group by month with warm colours")]
+    [InlineData("top 10 by amount")]
+    public void Prompts_with_data_changes_are_not_style_only(string prompt)
+    {
+        ChartRefineMerger.IsStyleOnlyPrompt(prompt).Should().BeFalse();
     }
 
     [Fact]
@@ -122,5 +150,181 @@ public class ChartRefineMergerTests
     public void SnapColorToAllowlist_rejects_far_hex()
     {
         ChartRefineMerger.SnapColorToAllowlist("#ff00aa", Allowlist).Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("show the legend")]
+    [InlineData("visa teckenförklaring")]
+    [InlineData("add value labels")]
+    [InlineData("visa etiketter")]
+    public void RequestsStyleChange_detects_legend_and_label_phrasing(string prompt)
+    {
+        ChartRefineMerger.RequestsStyleChange(prompt).Should().BeTrue();
+    }
+
+    [Fact]
+    public void TakeAiControlledStyleFields_keeps_only_legend_and_label_params()
+    {
+        var style = new ChartStyleConfig
+        {
+            Params = new Dictionary<string, JsonElement>
+            {
+                ["showLegend"] = JsonSerializer.SerializeToElement(true),
+                ["showLabels"] = JsonSerializer.SerializeToElement(false),
+                ["showGrid"] = JsonSerializer.SerializeToElement(true),
+                ["sparklineHeight"] = JsonSerializer.SerializeToElement(50),
+            },
+        };
+
+        var result = ChartRefineMerger.TakeAiControlledStyleFields(style, "bar");
+
+        result.Should().NotBeNull();
+        result!.Params.Should().NotBeNull();
+        result.Params!.Keys.Should().BeEquivalentTo(["showLegend", "showLabels"]);
+    }
+
+    [Fact]
+    public void Table_drops_ai_params()
+    {
+        var style = new ChartStyleConfig
+        {
+            Params = new Dictionary<string, JsonElement>
+            {
+                ["showLegend"] = JsonSerializer.SerializeToElement(true),
+            },
+        };
+
+        ChartRefineMerger.TakeAiControlledStyleFields(style, "table").Should().BeNull();
+    }
+
+    [Fact]
+    public void Refine_without_a_label_request_preserves_baseline_params()
+    {
+        var baseline = new ChartBaseline(
+            "Sales", "bar", "category", ["amount", "quantity"], "sum", "category",
+            "SELECT category, amount, quantity FROM sales",
+            new ChartStyleConfig
+            {
+                Params = new Dictionary<string, JsonElement>
+                {
+                    ["showLegend"] = JsonSerializer.SerializeToElement(false),
+                },
+            });
+        var ai = new AiChartConfig
+        {
+            ChartType = "bar",
+            Title = "Sales",
+            XAxis = "category",
+            YAxis = ["amount", "quantity"],
+            StyleConfig = new ChartStyleConfig
+            {
+                Params = new Dictionary<string, JsonElement>
+                {
+                    ["showLabels"] = JsonSerializer.SerializeToElement(true),
+                },
+            },
+        };
+
+        var result = ChartRefineMerger.Apply(baseline, ai, "order by amount", Allowlist);
+
+        result.StyleConfig!.Params.Should().ContainKey("showLegend");
+        result.StyleConfig.Params.Should().NotContainKey("showLabels");
+    }
+
+    [Fact]
+    public void Refine_with_a_label_request_merges_ai_params()
+    {
+        var baseline = new ChartBaseline(
+            "Sales", "bar", "category", ["amount", "quantity"], "sum", "category",
+            "SELECT category, amount, quantity FROM sales",
+            new ChartStyleConfig
+            {
+                Params = new Dictionary<string, JsonElement>
+                {
+                    ["showLegend"] = JsonSerializer.SerializeToElement(false),
+                },
+            });
+        var ai = new AiChartConfig
+        {
+            ChartType = "bar",
+            Title = "Sales",
+            XAxis = "category",
+            YAxis = ["amount", "quantity"],
+            StyleConfig = new ChartStyleConfig
+            {
+                Params = new Dictionary<string, JsonElement>
+                {
+                    ["showLabels"] = JsonSerializer.SerializeToElement(true),
+                },
+            },
+        };
+
+        var result = ChartRefineMerger.Apply(baseline, ai, "show value labels", Allowlist);
+
+        result.StyleConfig!.Params.Should().ContainKey("showLegend");
+        result.StyleConfig.Params.Should().ContainKey("showLabels");
+    }
+
+    [Fact]
+    public void Refine_preserves_the_baseline_data_model_when_the_ai_omits_it()
+    {
+        var dataModel = new DataQueryModel
+        {
+            Filters = [],
+            GroupBy = ["category"],
+            Aggregations = [new DataAggregation { Column = "amount", Function = "sum" }],
+            OrderBy = [],
+            Limit = 10,
+        };
+        var baseline = new ChartBaseline(
+            "Sales", "bar", "category", ["amount"], "sum", "category", "",
+            DataModel: dataModel);
+        var ai = new AiChartConfig
+        {
+            ChartType = "bar",
+            Title = "Sales",
+            XAxis = "category",
+            YAxis = ["amount"],
+        };
+
+        var result = ChartRefineMerger.Apply(baseline, ai, "make the title clearer", Allowlist);
+
+        result.DataModel.Should().BeSameAs(dataModel);
+    }
+
+    [Fact]
+    public void Refine_uses_the_ai_data_model_when_it_returns_one()
+    {
+        var baselineModel = new DataQueryModel
+        {
+            Filters = [],
+            GroupBy = ["category"],
+            Aggregations = [new DataAggregation { Column = "amount", Function = "sum" }],
+            OrderBy = [],
+            Limit = 10,
+        };
+        var aiModel = new DataQueryModel
+        {
+            Filters = [],
+            GroupBy = ["category"],
+            Aggregations = [new DataAggregation { Column = "amount", Function = "avg" }],
+            OrderBy = [],
+            Limit = 5,
+        };
+        var baseline = new ChartBaseline(
+            "Sales", "bar", "category", ["amount"], "sum", "category", "",
+            DataModel: baselineModel);
+        var ai = new AiChartConfig
+        {
+            ChartType = "bar",
+            Title = "Sales",
+            XAxis = "category",
+            YAxis = ["amount"],
+            DataModel = aiModel,
+        };
+
+        var result = ChartRefineMerger.Apply(baseline, ai, "use the average", Allowlist);
+
+        result.DataModel.Should().BeSameAs(aiModel);
     }
 }

@@ -65,7 +65,7 @@ function ChartContainer({
   }
 }) {
   const uniqueId = React.useId()
-  const chartId = `chart-${id ?? uniqueId.replace(/:/g, "")}`
+  const chartId = `chart-${toCssColorIdent(id ?? uniqueId.replace(/:/g, ""))}`
 
   return (
     <ChartContext.Provider value={{ config }}>
@@ -308,7 +308,7 @@ function ChartLegendContent({
   return (
     <div
       className={cn(
-        "flex items-center justify-center gap-4",
+        "flex max-h-24 flex-wrap items-center justify-center gap-x-4 gap-y-1 overflow-y-auto px-2 text-xs",
         verticalAlign === "top" ? "pb-3" : "pt-3",
         className
       )}
@@ -323,7 +323,7 @@ function ChartLegendContent({
             <div
               key={index}
               className={cn(
-                "flex items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3 [&>svg]:text-muted-foreground"
+                "flex min-w-0 max-w-40 items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3 [&>svg]:text-muted-foreground"
               )}
             >
               {itemConfig?.icon && !hideIcon ? (
@@ -336,7 +336,7 @@ function ChartLegendContent({
                   }}
                 />
               )}
-              {itemConfig?.label}
+              <span className="truncate">{itemConfig?.label}</span>
             </div>
           )
         })}

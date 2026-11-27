@@ -17,6 +17,7 @@ public class GraphGenerationService : IGraphGenerationService
     private readonly ISqlValidator _sqlValidator;
     private readonly IQueryExecutor _queryExecutor;
     private readonly IConnectionAccessService _access;
+    private readonly IAuditTrail _audit;
 
     private static readonly JsonSerializerOptions BaselineJsonOptions = new()
     {
@@ -30,7 +31,8 @@ public class GraphGenerationService : IGraphGenerationService
         IAiService aiService,
         ISqlValidator sqlValidator,
         IQueryExecutor queryExecutor,
-        IConnectionAccessService access)
+        IConnectionAccessService access,
+        IAuditTrail audit)
     {
         _db = db;
         _schemaInspector = schemaInspector;
@@ -38,6 +40,7 @@ public class GraphGenerationService : IGraphGenerationService
         _sqlValidator = sqlValidator;
         _queryExecutor = queryExecutor;
         _access = access;
+        _audit = audit;
     }
 
     public async Task<ChartConfigResponse> GenerateAsync(GenerateChartRequest request, Guid userId, CancellationToken ct = default)
@@ -48,15 +51,36 @@ public class GraphGenerationService : IGraphGenerationService
 
         var schemaJson = ChartGenerationSchema.ToJson(schema, allowedColors);
 
+        var description = request.Prompt?.Trim();
+
         var prompt = request.Mode switch
         {
-            "prompt" => request.Prompt ?? "Show me this data in a chart.",
-            "prefab" => $"Create a {request.PrefabChartType} chart for this table.",
-            "auto" => "Choose the best visualization for this data.",
+            "prompt" => string.IsNullOrWhiteSpace(description)
+                ? "Show me this data in a chart."
+                : description,
+            "prefab" => BuildPrefabPrompt(request.PrefabChartType, description),
+            "auto" => string.IsNullOrWhiteSpace(description)
+                ? "Choose the best visualization for this data."
+                : $"Choose the best visualization for this data. {description}",
             _ => "Show me this data in a chart."
         };
 
-        // Slim baseline for the prompt — colours included; params omitted.
+        if (request.Mode == "auto")
+        {
+            var recommendation = ChartRecommender.Recommend(
+                "table",
+                schema.Columns.Select(c => (c.ColumnName, c.DataType, c.IsNullable)));
+            var top = recommendation.Recommendations.FirstOrDefault(r => r.ChartType != "table");
+            if (top is not null)
+            {
+                prompt +=
+                    $"\nData profile suggestion: {top.ChartType} ({top.Confidence} confidence). " +
+                    $"Reasons: {string.Join(" ", top.Reasons)} " +
+                    "Prefer this unless the data clearly contradicts it.";
+            }
+        }
+
+        // Slim baseline for the prompt — colours plus legend/label params included.
         // SeriesColourSlots documents yAxis index → name for named colours.
         var currentChartJson = request.CurrentChart is null
             ? null
@@ -72,7 +96,9 @@ public class GraphGenerationService : IGraphGenerationService
                 request.CurrentChart.Aggregation,
                 request.CurrentChart.GroupBy,
                 request.CurrentChart.SqlQuery,
-                StyleConfig = ChartRefineMerger.SlimStyleForAi(request.CurrentChart.StyleConfig),
+                StyleConfig = ChartRefineMerger.SlimStyleForAi(
+                    request.CurrentChart.StyleConfig,
+                    request.CurrentChart.ChartType),
             }, BaselineJsonOptions);
 
         var (aiResult, retryNotes) = await AiGenerationRetry.RunAsync(
@@ -93,7 +119,7 @@ public class GraphGenerationService : IGraphGenerationService
                     return "Chart config is missing required fields (chartType, sqlQuery).";
                 }
 
-                if (TryAcceptSql(generated, schema, request.CurrentChart, notes: null, out var retryHint, out _))
+                if (TryAcceptSql(generated, schema, dbProvider, request.CurrentChart, notes: null, out var retryHint, out _))
                     return null;
 
                 return retryHint ?? "SQL failed schema grounding.";
@@ -110,7 +136,7 @@ public class GraphGenerationService : IGraphGenerationService
                 $"Raw: {Truncate(aiResult.RawJson, 400)}");
         }
 
-        if (!TryAcceptSql(config, schema, request.CurrentChart, notes, out var sqlError, out var accepted))
+        if (!TryAcceptSql(config, schema, dbProvider, request.CurrentChart, notes, out var sqlError, out var accepted))
         {
             throw new InvalidOperationException(
                 $"AI generated an invalid query: {sqlError}. " +
@@ -135,6 +161,28 @@ public class GraphGenerationService : IGraphGenerationService
             notes,
             ct);
 
+        // Axes are validated against the schema above; now reconcile them with
+        // the columns the query actually returned, then apply readability lint.
+        if (_queryExecutor.LastResultTruncated)
+            notes.Add("The query result was truncated at the configured row limit.");
+        ChartResultNormalizer.Normalize(result.Config, result.Rows, notes);
+        var allowTypeChange = request.CurrentChart is null
+            && request.Mode != "prefab"
+            && !ChartTypeIntent.PromptNamesChartType(request.Prompt);
+        ChartLint.Apply(result.Config, result.Rows, allowTypeChange, notes);
+        var shapedRows = ChartResultShaper.Shape(result.Config, result.Rows, notes);
+
+        _audit.Record(new AuditEntry(
+            AuditAction.ChartGenerated,
+            userId,
+            request.ConnectionId,
+            null,
+            null,
+            result.Config.ChartType,
+            result.Config.SqlQuery,
+            shapedRows.Count,
+            "success"));
+
         return new ChartConfigResponse(
             result.Config.ChartType,
             result.Config.Title,
@@ -143,7 +191,7 @@ public class GraphGenerationService : IGraphGenerationService
             result.Config.Aggregation,
             result.Config.GroupBy,
             result.Config.SqlQuery,
-            result.Rows,
+            shapedRows,
             result.Config.StyleConfig,
             AiDebug: BuildDebug(result.AiResult, result.Config, notes)
         );
@@ -169,7 +217,7 @@ public class GraphGenerationService : IGraphGenerationService
                 if (string.IsNullOrWhiteSpace(generated.ChartType) || string.IsNullOrWhiteSpace(generated.SqlQuery))
                     return "Chart config is missing required fields (chartType, sqlQuery).";
 
-                return TryAcceptSql(generated, schema, baseline: null, notes: null, out var retryHint, out _)
+                return TryAcceptSql(generated, schema, dbProvider, baseline: null, notes: null, out var retryHint, out _)
                     ? null
                     : retryHint ?? "SQL failed schema grounding.";
             },
@@ -178,7 +226,7 @@ public class GraphGenerationService : IGraphGenerationService
         var notes = new List<string>(retryNotes) { "Manual generate path." };
         var config = FinalizeGeneratedConfig(aiResult.Config, baseline: null, prompt, allowedColors, notes);
 
-        if (!TryAcceptSql(config, schema, baseline: null, notes, out var sqlError, out var accepted))
+        if (!TryAcceptSql(config, schema, dbProvider, baseline: null, notes, out var sqlError, out var accepted))
         {
             throw new InvalidOperationException(
                 $"AI generated an invalid query: {sqlError}. " +
@@ -203,6 +251,21 @@ public class GraphGenerationService : IGraphGenerationService
             notes,
             ct);
 
+        ChartResultNormalizer.Normalize(result.Config, result.Rows, notes);
+        ChartLint.Apply(result.Config, result.Rows, allowTypeChange: false, notes);
+        var shapedRows = ChartResultShaper.Shape(result.Config, result.Rows, notes);
+
+        _audit.Record(new AuditEntry(
+            AuditAction.ChartGenerated,
+            userId,
+            request.ConnectionId,
+            null,
+            null,
+            result.Config.ChartType,
+            result.Config.SqlQuery,
+            shapedRows.Count,
+            "success"));
+
         return new ChartConfigResponse(
             result.Config.ChartType,
             result.Config.Title,
@@ -211,7 +274,7 @@ public class GraphGenerationService : IGraphGenerationService
             result.Config.Aggregation,
             result.Config.GroupBy,
             result.Config.SqlQuery,
-            result.Rows,
+            shapedRows,
             result.Config.StyleConfig,
             AiDebug: BuildDebug(result.AiResult, result.Config, notes)
         );
@@ -245,6 +308,14 @@ public class GraphGenerationService : IGraphGenerationService
                 notes?.Add("AI omitted chartType and/or sqlQuery; filled from baseline.");
 
             config = ChartRefineMerger.Apply(baseline, config, prompt, allowedColors);
+            if (ChartRefineMerger.IsStyleOnlyPrompt(prompt))
+            {
+                // Deterministic guard: a colour/label/format request must never
+                // rewrite the query, even if the model returns new SQL.
+                ChartRefineMerger.KeepBaselineData(config, baseline);
+                notes?.Add("Style-only refinement: kept the baseline query and axes.");
+            }
+
             config.StyleConfig = ChartStyleSanitizer.Sanitize(config.StyleConfig, config.ChartType);
             notes?.Add(
                 ChartRefineMerger.RequestsStyleChange(prompt)
@@ -268,13 +339,14 @@ public class GraphGenerationService : IGraphGenerationService
     private bool TryAcceptSql(
         AiChartConfig config,
         TableSchema schema,
+        DbProvider dbProvider,
         ChartBaseline? baseline,
         List<string>? notes,
         out string? retryHint,
         out AiChartConfig accepted)
     {
         accepted = config;
-        retryHint = GeneratedChartGrounding.ValidateSqlChart(config, schema, _sqlValidator);
+        retryHint = GeneratedChartGrounding.ValidateSqlChart(config, schema, _sqlValidator, dbProvider);
         if (retryHint is null)
             return true;
 
@@ -294,7 +366,7 @@ public class GraphGenerationService : IGraphGenerationService
                 SqlQuery = baseline.SqlQuery,
             };
 
-            if (GeneratedChartGrounding.ValidateSqlChart(baselineConfig, schema, _sqlValidator) is null)
+            if (GeneratedChartGrounding.ValidateSqlChart(baselineConfig, schema, _sqlValidator, dbProvider) is null)
             {
                 notes?.Add(
                     $"AI SQL failed schema grounding ({retryHint}); kept baseline query fields. Rejected SQL: {Truncate(config.SqlQuery, 240)}");
@@ -338,6 +410,12 @@ public class GraphGenerationService : IGraphGenerationService
             finalConfig.StyleConfig,
             aiResult.FinishReason,
             notes);
+
+    private static string BuildPrefabPrompt(string? chartType, string? description)
+    {
+        var basePrompt = $"Create a {chartType} chart for this table.";
+        return string.IsNullOrWhiteSpace(description) ? basePrompt : $"{basePrompt} {description}";
+    }
 
     private static string Truncate(string? value, int max)
     {
@@ -389,7 +467,7 @@ public class GraphGenerationService : IGraphGenerationService
                 ct);
 
             config = FinalizeGeneratedConfig(repaired.Config, baseline, prompt, allowedColors, notes);
-            if (!TryAcceptSql(config, schema, baseline, notes, out var sqlError, out var accepted))
+            if (!TryAcceptSql(config, schema, dbProvider, baseline, notes, out var sqlError, out var accepted))
             {
                 throw new InvalidOperationException(
                     $"AI generated an invalid query after execution repair: {sqlError}. " +

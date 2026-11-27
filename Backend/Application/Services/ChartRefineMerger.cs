@@ -2,6 +2,7 @@ using Application.DTos.Request;
 using Domain.Charts;
 using Domain.Models;
 using System.Globalization;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace Application.Services;
@@ -37,6 +38,7 @@ public static partial class ChartRefineMerger
             Aggregation = !string.IsNullOrWhiteSpace(ai.Aggregation) ? ai.Aggregation : baseline.Aggregation,
             GroupBy = ai.GroupBy ?? baseline.GroupBy,
             SqlQuery = !string.IsNullOrWhiteSpace(ai.SqlQuery) ? ai.SqlQuery : baseline.SqlQuery,
+            DataModel = ai.DataModel ?? baseline.DataModel,
             StyleConfig = mergedStyle,
         };
     }
@@ -66,7 +68,10 @@ public static partial class ChartRefineMerger
             || p.Contains("valueprefix", StringComparison.Ordinal)
             || p.Contains("valuesuffix", StringComparison.Ordinal)
             || p.Contains("info text", StringComparison.Ordinal)
-            || p.Contains("info tooltip", StringComparison.Ordinal))
+            || p.Contains("info tooltip", StringComparison.Ordinal)
+            || p.Contains("value label", StringComparison.Ordinal)
+            || p.Contains("visa värden", StringComparison.Ordinal)
+            || p.Contains("visa siffror", StringComparison.Ordinal))
             return true;
 
         if (ColourWordRegex().IsMatch(p)
@@ -76,6 +81,40 @@ public static partial class ChartRefineMerger
             return true;
 
         return false;
+    }
+
+    /// <summary>
+    /// True when the prompt asks only for presentation and contains no data/query
+    /// words. Such refinements must not rewrite SQL/data model, even if the model
+    /// disobeys the prompt rules.
+    /// </summary>
+    public static bool IsStyleOnlyPrompt(string? prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt)) return false;
+
+        var normalized = prompt.Trim().ToLowerInvariant();
+        if (!RequestsStyleChange(normalized)) return false;
+
+        // "data labels" is presentation, not a data change.
+        var withoutLabelPhrases = normalized
+            .Replace("data labels", " ", StringComparison.Ordinal)
+            .Replace("data label", " ", StringComparison.Ordinal)
+            .Replace("dataetiketter", " ", StringComparison.Ordinal)
+            .Replace("dataetikett", " ", StringComparison.Ordinal);
+
+        return !DataWordRegex().IsMatch(withoutLabelPhrases);
+    }
+
+    /// <summary>Restores query/axes from the baseline for a style-only refine.</summary>
+    public static void KeepBaselineData(AiChartConfig config, ChartBaseline baseline)
+    {
+        config.ChartType = baseline.ChartType;
+        config.XAxis = baseline.XAxis;
+        config.YAxis = [.. baseline.YAxis];
+        config.Aggregation = baseline.Aggregation;
+        config.GroupBy = baseline.GroupBy;
+        config.SqlQuery = baseline.SqlQuery;
+        config.DataModel = baseline.DataModel;
     }
 
     /// <summary>
@@ -100,6 +139,7 @@ public static partial class ChartRefineMerger
             DecimalMode = NormalizeDecimalMode(ai.DecimalMode),
             Palette = NormalizePalette(ai.Palette),
             Colors = ClampColorsToAllowlist(ai.Colors, allowedColors),
+            Params = FilterAiParams(ai.Params, chartType),
         };
 
         if (result.DecimalMode is not null && result.Decimals is null)
@@ -116,10 +156,67 @@ public static partial class ChartRefineMerger
             && result.Decimals is null
             && result.DecimalMode is null
             && result.Palette is null
-            && result.Colors is null)
+            && result.Colors is null
+            && result.Params is null)
             return null;
 
         return result;
+    }
+
+    /// <summary>
+    /// Only legend/label visibility may come from the model. Every other param
+    /// key is owned by the UI and by the deterministic chart lint.
+    /// </summary>
+    private static readonly HashSet<string> AiParamKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "showLegend",
+        "showLabels",
+    };
+
+    public static Dictionary<string, JsonElement>? FilterAiParams(
+        Dictionary<string, JsonElement>? values,
+        string chartType)
+    {
+        if (values is null || values.Count == 0) return null;
+
+        var spec = ChartCatalog.Find(chartType);
+        if (spec is null) return null;
+
+        var result = new Dictionary<string, JsonElement>();
+        foreach (var (key, raw) in values)
+        {
+            if (!AiParamKeys.Contains(key)) continue;
+
+            var param = spec.Params.FirstOrDefault(p =>
+                p.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
+            if (param is null || param.Kind != ChartParamKind.Boolean) continue;
+            if (raw.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) continue;
+
+            result[param.Key] = raw;
+        }
+
+        return result.Count > 0 ? result : null;
+    }
+
+    private static Dictionary<string, JsonElement>? MergeParams(
+        Dictionary<string, JsonElement>? baseline,
+        Dictionary<string, JsonElement>? ai,
+        string chartType,
+        bool chartTypeChanged)
+    {
+        if (chartTypeChanged)
+            return FilterAiParams(ai, chartType);
+
+        if (ai is null || ai.Count == 0)
+            return baseline;
+
+        var merged = baseline is null
+            ? new Dictionary<string, JsonElement>()
+            : new Dictionary<string, JsonElement>(baseline);
+        foreach (var (key, value) in ai)
+            merged[key] = value;
+
+        return merged;
     }
 
     /// <summary>
@@ -134,6 +231,7 @@ public static partial class ChartRefineMerger
         {
             style.Palette = null;
             style.Colors = null;
+            style.ColorsByKey = null;
         }
 
         if (!spec.SupportsValueFormat)
@@ -142,6 +240,7 @@ public static partial class ChartRefineMerger
             style.ValueSuffix = null;
             style.Decimals = null;
             style.DecimalMode = null;
+            style.Notation = null;
         }
     }
 
@@ -160,8 +259,12 @@ public static partial class ChartRefineMerger
             Info = baseline.Info,
             Decimals = baseline.Decimals,
             DecimalMode = baseline.DecimalMode,
+            Notation = baseline.Notation,
             Palette = baseline.Palette,
             Colors = baseline.Colors is null ? null : [.. baseline.Colors],
+            ColorsByKey = baseline.ColorsByKey is null
+                ? null
+                : new Dictionary<string, string>(baseline.ColorsByKey),
             Params = chartTypeChanged ? null : baseline.Params,
         };
 
@@ -174,10 +277,11 @@ public static partial class ChartRefineMerger
     }
 
     /// <summary>
-    /// Baseline style sent to the model — includes colours so refine can preserve/change them;
-    /// omits params noise. Palette XOR colours.
+    /// Baseline style sent to the model — includes colours and the two
+    /// AI-writable params (legend/labels) so refine can preserve or change them.
+    /// Palette XOR colours.
     /// </summary>
-    public static ChartStyleConfig? SlimStyleForAi(ChartStyleConfig? style)
+    public static ChartStyleConfig? SlimStyleForAi(ChartStyleConfig? style, string chartType)
     {
         if (style is null) return null;
 
@@ -191,6 +295,7 @@ public static partial class ChartRefineMerger
             DecimalMode = style.DecimalMode,
             Palette = style.Palette,
             Colors = style.Colors is null ? null : [.. style.Colors],
+            Params = FilterAiParams(style.Params, chartType),
         };
 
         NormalizeColorExclusive(slim);
@@ -202,7 +307,8 @@ public static partial class ChartRefineMerger
             && slim.Decimals is null
             && slim.DecimalMode is null
             && slim.Palette is null
-            && slim.Colors is null)
+            && slim.Colors is null
+            && slim.Params is null)
             return null;
 
         return slim;
@@ -216,11 +322,15 @@ public static partial class ChartRefineMerger
     {
         if (!string.IsNullOrWhiteSpace(style.Palette))
         {
+            // Palette is the base; name-keyed overrides still win for individual
+            // categories/series. Positional overrides stay legacy-only.
             style.Colors = null;
             return;
         }
 
         if (style.Colors is { Count: > 0 } && HasNonEmptyColorSlot(style.Colors))
+            style.Palette = null;
+        else if (style.ColorsByKey is { Count: > 0 })
             style.Palette = null;
     }
 
@@ -422,6 +532,14 @@ public static partial class ChartRefineMerger
         ["6"] = (239, 68, 68),
         ["7"] = (20, 184, 166),
         ["8"] = (139, 92, 246),
+        ["9"] = (236, 72, 153),
+        ["10"] = (132, 204, 22),
+        ["11"] = (14, 165, 233),
+        ["12"] = (217, 119, 6),
+        ["13"] = (99, 102, 241),
+        ["14"] = (244, 63, 94),
+        ["15"] = (16, 185, 129),
+        ["16"] = (100, 116, 139),
     };
 
     private static readonly Dictionary<string, int> HueToChartIndex = new(StringComparer.OrdinalIgnoreCase)
@@ -434,6 +552,14 @@ public static partial class ChartRefineMerger
         ["red"] = 6, ["röd"] = 6, ["rod"] = 6,
         ["teal"] = 7, ["cyan"] = 7,
         ["violet"] = 8,
+        ["pink"] = 9, ["rosa"] = 9,
+        ["lime"] = 10,
+        ["sky"] = 11,
+        ["amber"] = 12,
+        ["indigo"] = 13,
+        ["rose"] = 14,
+        ["emerald"] = 15,
+        ["slate"] = 16,
     };
 
     private static ChartStyleConfig? MergeStyle(
@@ -451,24 +577,30 @@ public static partial class ChartRefineMerger
 
         string? palette;
         List<string>? colors;
+        Dictionary<string, string>? colorsByKey;
 
         if (aiSetPalette)
         {
             // Theme palette mode — drop any slice colours (including baseline).
             palette = aiFields!.Palette;
             colors = null;
+            colorsByKey = null;
         }
         else if (aiSetColors)
         {
             // Slice colour mode — drop palette.
             palette = null;
             colors = [.. aiFields!.Colors!];
+            colorsByKey = null;
         }
         else
         {
             // Neither from AI — keep baseline (already XOR if saved correctly).
             palette = baseline?.Palette;
             colors = baseline?.Colors is null ? null : [.. baseline.Colors];
+            colorsByKey = baseline?.ColorsByKey is null
+                ? null
+                : new Dictionary<string, string>(baseline.ColorsByKey);
         }
 
         var result = new ChartStyleConfig
@@ -481,11 +613,13 @@ public static partial class ChartRefineMerger
             Info = aiFields?.Info ?? baseline?.Info,
             Decimals = aiFields?.Decimals ?? baseline?.Decimals,
             DecimalMode = aiFields?.DecimalMode ?? baseline?.DecimalMode,
+            Notation = baseline?.Notation,
             Palette = palette,
             Colors = colors,
+            ColorsByKey = colorsByKey,
 
             // Params are per chart-type; drop them on type switch so UI defaults apply
-            Params = chartTypeChanged ? null : baseline?.Params,
+            Params = MergeParams(baseline?.Params, aiFields?.Params, chartType, chartTypeChanged),
         };
 
         if (result.DecimalMode is not null && result.Decimals is null)

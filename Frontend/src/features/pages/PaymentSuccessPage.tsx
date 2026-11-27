@@ -67,7 +67,7 @@ export default function PaymentSuccessPage() {
         window.clearInterval(interval);
       }
     };
-  }, [navigate, refreshSubscriptionStatus, isUpgrade, sessionId, retryTrigger]);
+  }, [navigate, refreshSubscriptionStatus, isUpgrade, sessionId, retryTrigger, logout]);
 
   function handleRetry() {
     pollingRef.current = true;

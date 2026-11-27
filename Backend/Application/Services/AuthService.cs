@@ -579,7 +579,9 @@ public class AuthService : IAuthService
         // Stop auto-renewal but keep the plan until the end of the paid period.
         var userSubscription = await _db.UserSubscriptions
             .FirstOrDefaultAsync(s => s.UserId == userId, ct);
-        if (userSubscription is not null && !userSubscription.CancelAtPeriodEnd)
+        if (userSubscription is not null
+            && (userSubscription.Status == SubscriptionStatus.Trial || userSubscription.Status == SubscriptionStatus.Active)
+            && !userSubscription.CancelAtPeriodEnd)
         {
             userSubscription.CancelAtPeriodEnd = true;
             if (userSubscription.StripeSubscriptionId is not null)

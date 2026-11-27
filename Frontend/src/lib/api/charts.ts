@@ -50,6 +50,7 @@ export interface UpdateChartRequest {
   groupBy: string | null;
   sqlQuery: string;
   styleConfig?: ChartStyleConfig | null;
+  dataModel?: DataQueryModel | null;
 }
 
 export interface ChartResponse {
@@ -76,6 +77,7 @@ export interface ChartDetailResponse {
   styleConfig?: ChartStyleConfig | null;
   dataModel?: DataQueryModel | null;
   folderId: string | null;
+  collectionId?: string | null;
 }
 
 export interface ChartConfigResponse {
@@ -90,6 +92,8 @@ export interface ChartConfigResponse {
   styleConfig?: ChartStyleConfig | null;
   dataModel?: DataQueryModel | null;
   dataUpdatedAt?: string | null;
+  warnings?: string[] | null;
+  truncated?: boolean;
 }
 
 export interface ExecuteChartOptions {
@@ -149,6 +153,16 @@ export function updateChart(id: string, data: UpdateChartRequest): Promise<Chart
   return apiFetch<ChartDetailResponse>(`/api/charts/${id}`, {
     method: 'PUT',
     body: JSON.stringify(data),
+  });
+}
+
+export function updateChartStyle(
+  id: string,
+  styleConfig: ChartStyleConfig | null,
+): Promise<ChartDetailResponse> {
+  return apiFetch<ChartDetailResponse>(`/api/charts/${id}/style`, {
+    method: 'PUT',
+    body: JSON.stringify({ styleConfig }),
   });
 }
 

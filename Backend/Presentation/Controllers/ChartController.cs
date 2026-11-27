@@ -56,6 +56,18 @@ public class ChartController : ControllerBase
         return Ok(chart);
     }
 
+    /// <summary>Updates presentation only; query and axes stay untouched.</summary>
+    [HttpPut("{id:guid}/style")]
+    public async Task<IActionResult> UpdateStyle(
+        Guid id,
+        [FromBody] UpdateChartStyleRequest request,
+        CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var chart = await _chartService.UpdateChartStyleAsync(id, userId, request, ct);
+        return Ok(chart);
+    }
+
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
@@ -82,6 +94,21 @@ public class ChartController : ControllerBase
     {
         var userId = GetUserId();
         var result = await _chartService.ExecuteChartAsync(id, userId, forceRefresh, ct);
+
+        if (result.DataUpdatedAt is { } updatedAt)
+        {
+            var etag = $"\"{updatedAt.UtcTicks}\"";
+            Response.Headers.ETag = etag;
+
+            var ifNoneMatch = Request.Headers.IfNoneMatch.ToString();
+            if (ifNoneMatch
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Contains(etag, StringComparer.Ordinal))
+            {
+                return StatusCode(StatusCodes.Status304NotModified);
+            }
+        }
+
         return Ok(result);
     }
 

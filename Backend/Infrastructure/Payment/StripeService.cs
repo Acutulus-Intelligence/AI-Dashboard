@@ -33,6 +33,27 @@ public class StripeService : IPaymentService
         return $"{url}{separator}session_id={{CHECKOUT_SESSION_ID}}";
     }
 
+    /// <summary>
+    /// Stripe moved current_period_end from the subscription onto its items. A subscription can
+    /// have several items, so the latest period end wins.
+    /// </summary>
+    private static DateTime? GetCurrentPeriodEnd(Subscription subscription)
+    {
+        var items = subscription.Items?.Data;
+        if (items is null || items.Count == 0)
+            return null;
+
+        var latest = items.Max(item => item.CurrentPeriodEnd);
+        return NormalizeUnixDate(latest);
+    }
+
+    /// <summary>
+    /// Missing Stripe timestamps deserialize to the Unix epoch. Treat those as "unknown" so a
+    /// missing period never overwrites a real local date with 1970.
+    /// </summary>
+    private static DateTime? NormalizeUnixDate(DateTime value)
+        => value <= DateTime.UnixEpoch.AddYears(1) ? null : value;
+
     public async Task<CheckoutResponse> CreateCheckoutSessionAsync(
         string customerId,
         Guid userId,
@@ -205,11 +226,14 @@ public class StripeService : IPaymentService
                     session.Metadata,
                     session.SubscriptionId,
                     session.CustomerId,
-                    null
+                    null,
+                    StripeEventId: stripeEvent.Id,
+                    EventCreatedAt: stripeEvent.Created
                 );
             }
 
             case "invoice.paid":
+            case "invoice.payment_failed":
             {
                 var invoice = stripeEvent.Data.Object as Invoice;
                 if (invoice is null)
@@ -217,29 +241,40 @@ public class StripeService : IPaymentService
 
                 var subscriptionId = invoice.Parent?.SubscriptionDetails?.SubscriptionId;
 
+                // Older webhook endpoint API versions deliver the subscription on the
+                // invoice root instead of invoice.parent. Re-fetch the invoice through the
+                // client (which pins the SDK API version) so the period is never silently lost.
+                if (subscriptionId is null && !string.IsNullOrEmpty(invoice.Id))
+                {
+                    try
+                    {
+                        var refreshed = await new InvoiceService(StripeClient)
+                            .GetAsync(invoice.Id, cancellationToken: default);
+                        subscriptionId = refreshed.Parent?.SubscriptionDetails?.SubscriptionId;
+                    }
+                    catch (StripeException)
+                    {
+                        // Leave the id empty; the subscription service logs the dropped event.
+                    }
+                }
+
                 return new PaymentWebhookEvent(
                     stripeEvent.Type,
                     new Dictionary<string, string>(),
                     subscriptionId,
-                    invoice.CustomerId
+                    invoice.CustomerId,
+                    CurrentPeriodEnd: NormalizeUnixDate(invoice.PeriodEnd),
+                    StripeEventId: stripeEvent.Id,
+                    EventCreatedAt: stripeEvent.Created,
+                    AmountPaid: invoice.AmountPaid,
+                    BillingReason: invoice.BillingReason
                 );
             }
 
             case "customer.subscription.created":
-            {
-                var subscription = stripeEvent.Data.Object as Subscription;
-                if (subscription is null)
-                    break;
-
-                return new PaymentWebhookEvent(
-                    stripeEvent.Type,
-                    subscription.Metadata,
-                    subscription.Id,
-                    subscription.CustomerId
-                );
-            }
-
             case "customer.subscription.updated":
+            case "customer.subscription.paused":
+            case "customer.subscription.resumed":
             {
                 var subscription = stripeEvent.Data.Object as Subscription;
                 if (subscription is null)
@@ -250,8 +285,12 @@ public class StripeService : IPaymentService
                     subscription.Metadata,
                     subscription.Id,
                     subscription.CustomerId,
-                    null,
-                    subscription.Status
+                    StripeStatus: subscription.Status,
+                    CurrentPeriodEnd: GetCurrentPeriodEnd(subscription),
+                    TrialEnd: subscription.TrialEnd,
+                    CancelAtPeriodEnd: subscription.CancelAtPeriodEnd,
+                    StripeEventId: stripeEvent.Id,
+                    EventCreatedAt: stripeEvent.Created
                 );
             }
 
@@ -265,23 +304,41 @@ public class StripeService : IPaymentService
                     stripeEvent.Type,
                     new Dictionary<string, string>(),
                     subscription.Id,
-                    null
+                    null,
+                    StripeEventId: stripeEvent.Id,
+                    EventCreatedAt: stripeEvent.Created
                 );
             }
         }
 
-        return new PaymentWebhookEvent(stripeEvent.Type, new Dictionary<string, string>(), null, null);
+        return new PaymentWebhookEvent(
+            stripeEvent.Type,
+            new Dictionary<string, string>(),
+            null,
+            null,
+            StripeEventId: stripeEvent.Id,
+            EventCreatedAt: stripeEvent.Created);
     }
 
-    public async Task CancelSubscriptionAtPeriodEndAsync(string stripeSubscriptionId, CancellationToken ct = default)
+    public async Task<bool> CancelSubscriptionAtPeriodEndAsync(string stripeSubscriptionId, CancellationToken ct = default)
     {
         var options = new SubscriptionUpdateOptions
         {
             CancelAtPeriodEnd = true
         };
 
-        var service = new SubscriptionService(StripeClient);
-        await service.UpdateAsync(stripeSubscriptionId, options, cancellationToken: ct);
+        try
+        {
+            var service = new SubscriptionService(StripeClient);
+            await service.UpdateAsync(stripeSubscriptionId, options, cancellationToken: ct);
+            return true;
+        }
+        catch (StripeException ex) when (IsMissingSubscription(ex))
+        {
+            // The period already ended and Stripe deleted the subscription before our webhook
+            // caught up. There is nothing left to schedule, so report that to the caller.
+            return false;
+        }
     }
 
     public async Task CancelSubscriptionImmediatelyAsync(string stripeSubscriptionId, CancellationToken ct = default)
@@ -312,8 +369,34 @@ public class StripeService : IPaymentService
             Prorate = true
         };
 
-        var service = new SubscriptionService(StripeClient);
-        await service.CancelAsync(stripeSubscriptionId, options, cancellationToken: ct);
+        try
+        {
+            var service = new SubscriptionService(StripeClient);
+            await service.CancelAsync(stripeSubscriptionId, options, cancellationToken: ct);
+        }
+        catch (StripeException ex) when (IsMissingSubscription(ex))
+        {
+            // Already gone on the Stripe side; the upgrade must not fail because of it.
+        }
+    }
+
+    public async Task<SubscriptionSnapshot?> GetSubscriptionSnapshotAsync(string stripeSubscriptionId, CancellationToken ct = default)
+    {
+        try
+        {
+            var service = new SubscriptionService(StripeClient);
+            var subscription = await service.GetAsync(stripeSubscriptionId, cancellationToken: ct);
+
+            return new SubscriptionSnapshot(
+                subscription.Status,
+                GetCurrentPeriodEnd(subscription),
+                subscription.TrialEnd,
+                subscription.CancelAtPeriodEnd);
+        }
+        catch (StripeException ex) when (IsMissingSubscription(ex))
+        {
+            return null;
+        }
     }
 
     public async Task ReactivateSubscriptionAsync(string stripeSubscriptionId, CancellationToken ct = default)
@@ -344,22 +427,30 @@ public class StripeService : IPaymentService
         string prorationBehavior = "create_prorations",
         CancellationToken ct = default)
     {
-        var service = new SubscriptionService(StripeClient);
-        var subscription = await service.GetAsync(stripeSubscriptionId, cancellationToken: ct);
-        var item = subscription.Items?.Data?.FirstOrDefault();
-        if (item is null)
-            return;
-
-        var options = new SubscriptionUpdateOptions
+        try
         {
-            ProrationBehavior = prorationBehavior,
-            Items = new List<SubscriptionItemOptions>
-            {
-                new() { Id = item.Id, Price = priceId }
-            }
-        };
+            var service = new SubscriptionService(StripeClient);
+            var subscription = await service.GetAsync(stripeSubscriptionId, cancellationToken: ct);
+            var item = subscription.Items?.Data?.FirstOrDefault();
+            if (item is null)
+                return;
 
-        await service.UpdateAsync(stripeSubscriptionId, options, cancellationToken: ct);
+            var options = new SubscriptionUpdateOptions
+            {
+                ProrationBehavior = prorationBehavior,
+                Items = new List<SubscriptionItemOptions>
+                {
+                    new() { Id = item.Id, Price = priceId }
+                }
+            };
+
+            await service.UpdateAsync(stripeSubscriptionId, options, cancellationToken: ct);
+        }
+        catch (StripeException ex) when (IsMissingSubscription(ex))
+        {
+            // A stale local row pointing at a deleted subscription must not break an admin
+            // plan-wide price change or plan move.
+        }
     }
 
     public async Task<string?> GetPaymentMethodFingerprintAsync(string paymentMethodId, CancellationToken ct = default)

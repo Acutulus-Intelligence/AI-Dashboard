@@ -2,6 +2,7 @@ using Application.DTos.Request;
 using Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Presentation.Middleware;
 
 namespace Presentation.Controllers;
@@ -13,13 +14,18 @@ namespace Presentation.Controllers;
 public class GraphController : ControllerBase
 {
     private readonly IGraphGenerationService _graphService;
+    private readonly IChartRecommendationService _recommendationService;
 
-    public GraphController(IGraphGenerationService graphService)
+    public GraphController(
+        IGraphGenerationService graphService,
+        IChartRecommendationService recommendationService)
     {
         _graphService = graphService;
+        _recommendationService = recommendationService;
     }
 
     [HttpPost("generate")]
+    [EnableRateLimiting("ai-generate")]
     public async Task<IActionResult> Generate([FromBody] GenerateChartRequest request, CancellationToken ct)
     {
         var userId = GetUserId();
@@ -27,7 +33,18 @@ public class GraphController : ControllerBase
         return Ok(response);
     }
 
+    [HttpPost("recommend")]
+    [EnableRateLimiting("recommend")]
+    public async Task<IActionResult> Recommend([FromBody] RecommendChartRequest request, CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var response = await _recommendationService.RecommendForTableAsync(
+            request.ConnectionId, request.TableName, userId, ct);
+        return Ok(response);
+    }
+
     [HttpPost("manual")]
+    [EnableRateLimiting("ai-generate")]
     public async Task<IActionResult> Manual([FromBody] GenerateChartRequest request, CancellationToken ct)
     {
         var userId = GetUserId();

@@ -144,6 +144,16 @@ public sealed class SubscriptionRoutesTests
                 "http://localhost/ok", "http://localhost/cancel"));
         upgrade.StatusCode.Should().Be(HttpStatusCode.OK);
 
+        // Abandoning the Stripe checkout must not strip the paid individual plan.
+        var (statusBeforeConfirm, _) = await _factory.GetUserSubscriptionStateAsync(userId);
+        statusBeforeConfirm.Should().Be(Domain.Enums.SubscriptionStatus.Active);
+        _factory.FakePayments.ProratedCancels.Should().NotContain(stripeSubId);
+
+        // Confirming the company checkout switches plans and credits the unused individual time.
+        var companySession = await upgrade.ReadJsonAsync<CheckoutResponse>();
+        (await client.PostAsJsonAsync("/api/subscriptions/confirm", new ConfirmCheckoutRequest(companySession.SessionId)))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
         // The individual sub is canceled with a proration credit (no throwaway), flag cleared
         var (status, cancelAtPeriodEnd) = await _factory.GetUserSubscriptionStateAsync(userId);
         status.Should().Be(Domain.Enums.SubscriptionStatus.Canceled);
@@ -744,8 +754,16 @@ public sealed class SubscriptionRoutesTests
         await _factory.SetUserSubscriptionActiveAsync(userId, cancelAtPeriodEnd: true);
         await _factory.SetUserSubscriptionEndDateAsync(userId, DateTime.UtcNow.AddDays(-1));
 
+        // The UI must not report an Active subscription whose paid period already ended.
+        (await client.GetAsync("/api/subscriptions/current")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+
         var hasActive = await (await client.GetAsync("/api/subscriptions/has-active")).ReadJsonAsync<HasActiveSubscriptionResponse>();
         hasActive.HasActiveSubscription.Should().BeFalse();
+
+        // ...and the stale row must not block a new checkout (the old deadlock).
+        var resubscribe = await client.PostAsJsonAsync("/api/subscriptions/create-checkout",
+            new SubscribeRequest(plan.Id, BillingPeriod.Monthly, "http://localhost/ok", "http://localhost/cancel"));
+        resubscribe.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]
@@ -859,6 +877,608 @@ public sealed class SubscriptionRoutesTests
 
         var hasActiveAfterEnd = await (await client.GetAsync("/api/subscriptions/has-active")).ReadJsonAsync<HasActiveSubscriptionResponse>();
         hasActiveAfterEnd.HasActiveSubscription.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Reconcile_marks_canceled_when_stripe_subscription_is_gone()
+    {
+        var (client, userId, _) = await CreateIndividualSubscriptionAsync("recon_gone");
+
+        await _factory.SetUserSubscriptionActiveAsync(userId, cancelAtPeriodEnd: false);
+        await _factory.SetUserSubscriptionEndDateAsync(userId, DateTime.UtcNow.AddDays(-2));
+
+        await _factory.ReconcileSubscriptionsAsync();
+
+        var (status, endDate, cancelAtPeriodEnd) = await _factory.GetUserSubscriptionDetailsAsync(userId);
+        status.Should().Be(Domain.Enums.SubscriptionStatus.Canceled);
+        endDate.Should().NotBeNull();
+        cancelAtPeriodEnd.Should().BeFalse();
+
+        var hasActive = await (await client.GetAsync("/api/subscriptions/has-active")).ReadJsonAsync<HasActiveSubscriptionResponse>();
+        hasActive.HasActiveSubscription.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Reconcile_extends_period_when_stripe_subscription_is_still_active()
+    {
+        var (client, userId, _) = await CreateIndividualSubscriptionAsync("recon_active");
+        var stripeSubId = (await _factory.GetSubscriptionStripeIdAsync(userId))!;
+
+        await _factory.SetUserSubscriptionActiveAsync(userId, cancelAtPeriodEnd: false);
+        await _factory.SetUserSubscriptionEndDateAsync(userId, DateTime.UtcNow.AddDays(-2));
+
+        var newPeriodEnd = DateTime.UtcNow.AddDays(21);
+        _factory.FakePayments.Snapshots[stripeSubId] = new SubscriptionSnapshot("active", newPeriodEnd, null, false);
+
+        var changed = await _factory.ReconcileSubscriptionsAsync();
+        changed.Should().BeGreaterThan(0);
+
+        var (status, endDate, _) = await _factory.GetUserSubscriptionDetailsAsync(userId);
+        status.Should().Be(Domain.Enums.SubscriptionStatus.Active);
+        endDate.Should().NotBeNull();
+        endDate!.Value.Should().BeCloseTo(newPeriodEnd, TimeSpan.FromSeconds(5));
+
+        var hasActive = await (await client.GetAsync("/api/subscriptions/has-active")).ReadJsonAsync<HasActiveSubscriptionResponse>();
+        hasActive.HasActiveSubscription.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Reconcile_marks_expired_when_row_has_no_stripe_subscription_id()
+    {
+        var (_, userId, _) = await CreateIndividualSubscriptionAsync("recon_nostripe");
+
+        await _factory.SetUserSubscriptionActiveAsync(userId, cancelAtPeriodEnd: false);
+        await _factory.SetUserSubscriptionEndDateAsync(userId, DateTime.UtcNow.AddDays(-2));
+        await _factory.ClearUserSubscriptionStripeIdAsync(userId);
+
+        await _factory.ReconcileSubscriptionsAsync();
+
+        var (status, _, cancelAtPeriodEnd) = await _factory.GetUserSubscriptionDetailsAsync(userId);
+        status.Should().Be(Domain.Enums.SubscriptionStatus.Expired);
+        cancelAtPeriodEnd.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Reconcile_repairs_null_end_date_from_stripe()
+    {
+        var (_, userId, _) = await CreateIndividualSubscriptionAsync("recon_nullend");
+        var stripeSubId = (await _factory.GetSubscriptionStripeIdAsync(userId))!;
+
+        await _factory.SetUserSubscriptionActiveAsync(userId, cancelAtPeriodEnd: false);
+        await _factory.SetUserSubscriptionEndDateAsync(userId, null);
+
+        var periodEnd = DateTime.UtcNow.AddDays(12);
+        _factory.FakePayments.Snapshots[stripeSubId] = new SubscriptionSnapshot("active", periodEnd, null, false);
+
+        await _factory.ReconcileSubscriptionsAsync();
+
+        var (status, endDate, _) = await _factory.GetUserSubscriptionDetailsAsync(userId);
+        status.Should().Be(Domain.Enums.SubscriptionStatus.Active);
+        endDate.Should().NotBeNull();
+        endDate!.Value.Should().BeCloseTo(periodEnd, TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Reconcile_leaves_null_end_date_without_stripe_id_untouched()
+    {
+        var (_, userId, _) = await CreateIndividualSubscriptionAsync("recon_legacy");
+
+        await _factory.SetUserSubscriptionActiveAsync(userId, cancelAtPeriodEnd: false);
+        await _factory.SetUserSubscriptionEndDateAsync(userId, null);
+        await _factory.ClearUserSubscriptionStripeIdAsync(userId);
+
+        await _factory.ReconcileSubscriptionsAsync();
+
+        var (status, endDate, _) = await _factory.GetUserSubscriptionDetailsAsync(userId);
+        status.Should().Be(Domain.Enums.SubscriptionStatus.Active);
+        endDate.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Reconcile_marks_expired_company_row_without_stripe_subscription_id()
+    {
+        var (client, companyId) = await CreateCompanyAsync("recon_co");
+        await _factory.SeedCompanySubscriptionAsync(companyId);
+        await _factory.SetCompanySubscriptionEndDateAsync(companyId, DateTime.UtcNow.AddDays(-2));
+        await _factory.ClearCompanySubscriptionStripeIdAsync(companyId);
+
+        await _factory.ReconcileSubscriptionsAsync();
+
+        var (status, _, cancelAtPeriodEnd) = await _factory.GetCompanySubscriptionDetailsAsync(companyId);
+        status.Should().Be(Domain.Enums.SubscriptionStatus.Expired);
+        cancelAtPeriodEnd.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Invoice_paid_without_subscription_id_is_ignored()
+    {
+        var (client, userId, _) = await CreateIndividualSubscriptionAsync("nosubid");
+        var before = await _factory.GetUserSubscriptionDetailsAsync(userId);
+
+        _factory.FakePayments.QueueInvoicePaidWithoutSubscription();
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/subscriptions/stripe-webhook")
+        {
+            Content = new StringContent("invoice-paid-no-sub:cus_test"),
+        };
+        request.Headers.TryAddWithoutValidation("Stripe-Signature", "valid-test-signature");
+
+        (await client.SendAsync(request)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var after = await _factory.GetUserSubscriptionDetailsAsync(userId);
+        after.Status.Should().Be(before.Status);
+        after.EndDate.Should().Be(before.EndDate);
+    }
+
+    [Fact]
+    public async Task Invoice_paid_never_moves_end_date_backwards()
+    {
+        var (client, userId, _) = await CreateIndividualSubscriptionAsync("backwards");
+        var stripeSubId = (await _factory.GetSubscriptionStripeIdAsync(userId))!;
+
+        var futureEnd = DateTime.UtcNow.AddDays(20);
+        await _factory.SetUserSubscriptionActiveAsync(userId, cancelAtPeriodEnd: false);
+        await _factory.SetUserSubscriptionEndDateAsync(userId, futureEnd);
+
+        // A late/duplicate invoice for an already finished period must not shorten the row.
+        _factory.FakePayments.QueueInvoicePaid(stripeSubId, DateTime.UtcNow.AddDays(-3));
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/subscriptions/stripe-webhook")
+        {
+            Content = new StringContent($"invoice-paid:{stripeSubId}"),
+        };
+        request.Headers.TryAddWithoutValidation("Stripe-Signature", "valid-test-signature");
+
+        (await client.SendAsync(request)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var (_, endDate, _) = await _factory.GetUserSubscriptionDetailsAsync(userId);
+        endDate.Should().NotBeNull();
+        endDate!.Value.Should().BeCloseTo(futureEnd, TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Subscription_updated_syncs_period_end_and_cancel_flag()
+    {
+        var (client, userId, _) = await CreateIndividualSubscriptionAsync("upd_active");
+        var stripeSubId = (await _factory.GetSubscriptionStripeIdAsync(userId))!;
+
+        var periodEnd = DateTime.UtcNow.AddDays(40);
+        _factory.FakePayments.QueueSubscriptionUpdated(
+            stripeSubId, "active", currentPeriodEnd: periodEnd, cancelAtPeriodEnd: true);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/subscriptions/stripe-webhook")
+        {
+            Content = new StringContent($"subscription-updated:{stripeSubId}"),
+        };
+        request.Headers.TryAddWithoutValidation("Stripe-Signature", "valid-test-signature");
+
+        (await client.SendAsync(request)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var (status, endDate, cancelAtPeriodEnd) = await _factory.GetUserSubscriptionDetailsAsync(userId);
+        status.Should().Be(Domain.Enums.SubscriptionStatus.Active);
+        endDate.Should().NotBeNull();
+        endDate!.Value.Should().BeCloseTo(periodEnd, TimeSpan.FromSeconds(5));
+        cancelAtPeriodEnd.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Subscription_updated_canceled_event_marks_row_canceled()
+    {
+        var (client, userId, _) = await CreateIndividualSubscriptionAsync("upd_canceled");
+        var stripeSubId = (await _factory.GetSubscriptionStripeIdAsync(userId))!;
+
+        _factory.FakePayments.QueueSubscriptionUpdated(stripeSubId, "canceled");
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/subscriptions/stripe-webhook")
+        {
+            Content = new StringContent($"subscription-updated:{stripeSubId}"),
+        };
+        request.Headers.TryAddWithoutValidation("Stripe-Signature", "valid-test-signature");
+
+        (await client.SendAsync(request)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var (status, _, cancelAtPeriodEnd) = await _factory.GetUserSubscriptionDetailsAsync(userId);
+        status.Should().Be(Domain.Enums.SubscriptionStatus.Canceled);
+        cancelAtPeriodEnd.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Cancel_marks_row_canceled_when_stripe_subscription_is_missing()
+    {
+        var (client, userId, _) = await CreateIndividualSubscriptionAsync("cancel_gone");
+        var stripeSubId = (await _factory.GetSubscriptionStripeIdAsync(userId))!;
+        _factory.FakePayments.MissingSubscriptions.Add(stripeSubId);
+
+        var cancel = await client.PostAsync("/api/subscriptions/cancel", null);
+        cancel.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var (status, _, cancelAtPeriodEnd) = await _factory.GetUserSubscriptionDetailsAsync(userId);
+        status.Should().Be(Domain.Enums.SubscriptionStatus.Canceled);
+        cancelAtPeriodEnd.Should().BeFalse();
+
+        var hasActive = await (await client.GetAsync("/api/subscriptions/has-active")).ReadJsonAsync<HasActiveSubscriptionResponse>();
+        hasActive.HasActiveSubscription.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Cancel_on_ended_period_stops_stripe_billing_immediately()
+    {
+        var (client, userId, _) = await CreateIndividualSubscriptionAsync("cancel_ended");
+        var stripeSubId = (await _factory.GetSubscriptionStripeIdAsync(userId))!;
+
+        await _factory.SetUserSubscriptionActiveAsync(userId, cancelAtPeriodEnd: false);
+        await _factory.SetUserSubscriptionEndDateAsync(userId, DateTime.UtcNow.AddDays(-1));
+
+        var cancel = await client.PostAsync("/api/subscriptions/cancel", null);
+        cancel.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        _factory.FakePayments.ImmediateCancels.Should().Contain(stripeSubId);
+
+        var (status, _, cancelAtPeriodEnd) = await _factory.GetUserSubscriptionDetailsAsync(userId);
+        status.Should().Be(Domain.Enums.SubscriptionStatus.Canceled);
+        cancelAtPeriodEnd.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Invoice_paid_uses_stripe_period_end_for_renewal()
+    {
+        var (client, userId, _) = await CreateIndividualSubscriptionAsync("renewal");
+        var stripeSubId = (await _factory.GetSubscriptionStripeIdAsync(userId))!;
+
+        await _factory.SetUserSubscriptionActiveAsync(userId, cancelAtPeriodEnd: false);
+        await _factory.SetUserSubscriptionEndDateAsync(userId, DateTime.UtcNow.AddDays(1));
+
+        var periodEnd = DateTime.UtcNow.AddDays(30);
+        _factory.FakePayments.QueueInvoicePaid(stripeSubId, periodEnd);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/subscriptions/stripe-webhook")
+        {
+            Content = new StringContent($"invoice-paid:{stripeSubId}"),
+        };
+        request.Headers.TryAddWithoutValidation("Stripe-Signature", "valid-test-signature");
+
+        (await client.SendAsync(request)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var (_, endDate, _) = await _factory.GetUserSubscriptionDetailsAsync(userId);
+        endDate.Should().NotBeNull();
+        endDate!.Value.Should().BeCloseTo(periodEnd, TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Stale_company_subscription_past_end_date_allows_new_checkout()
+    {
+        var (client, companyId) = await CreateCompanyAsync("staleco");
+        await _factory.SeedCompanySubscriptionAsync(companyId);
+        await _factory.SetCompanySubscriptionEndDateAsync(companyId, DateTime.UtcNow.AddDays(-1));
+
+        var plans = await (await client.GetAsync("/api/subscriptions/plans?userType=1")).ReadJsonAsync<List<SubscriptionPlanResponse>>();
+        var plan = plans.First(p => p.UserType == UserType.Company);
+
+        var checkout = await client.PostAsJsonAsync($"/api/subscriptions/company/{companyId}/create-checkout",
+            new SubscribeRequest(plan.Id, BillingPeriod.Monthly, "http://localhost/ok", "http://localhost/cancel"));
+
+        checkout.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Checkout_webhook_without_metadata_is_ignored_without_creating_a_row()
+    {
+        var client = CreateClient();
+        var email = $"nometa_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        var userId = await _factory.GetUserIdAsync(email);
+
+        _factory.FakePayments.QueueCheckoutWithoutMetadata();
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/subscriptions/stripe-webhook")
+        {
+            Content = new StringContent("checkout-no-metadata"),
+        };
+        request.Headers.TryAddWithoutValidation("Stripe-Signature", "valid-test-signature");
+
+        (await client.SendAsync(request)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await _factory.CountUserSubscriptionsAsync(userId)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Free_trial_start_invoice_does_not_convert_trial()
+    {
+        var (client, userId, _) = await CreateIndividualSubscriptionAsync("trial_invoice");
+
+        var stripeSubId = (await _factory.GetSubscriptionStripeIdAsync(userId))!;
+        var before = await _factory.GetUserSubscriptionTrialStateAsync(userId);
+        before.Status.Should().Be(Domain.Enums.SubscriptionStatus.Trial);
+
+        // Stripe creates a 0-amount invoice when the trial starts; it must not end the trial.
+        _factory.FakePayments.QueueInvoicePaid(
+            stripeSubId,
+            currentPeriodEnd: DateTime.UtcNow.AddDays(7),
+            amountPaid: 0,
+            billingReason: "subscription_create");
+
+        (await PostWebhookAsync(client, FakePaymentService.InvoicePaidBody(stripeSubId)))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var after = await _factory.GetUserSubscriptionTrialStateAsync(userId);
+        after.Status.Should().Be(Domain.Enums.SubscriptionStatus.Trial);
+        after.TrialEndDate.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Paid_invoice_converts_trial_to_active()
+    {
+        var (client, userId, _) = await CreateIndividualSubscriptionAsync("paid_invoice");
+
+        var stripeSubId = (await _factory.GetSubscriptionStripeIdAsync(userId))!;
+        var periodEnd = DateTime.UtcNow.AddDays(30);
+
+        _factory.FakePayments.QueueInvoicePaid(
+            stripeSubId,
+            currentPeriodEnd: periodEnd,
+            amountPaid: 1500,
+            billingReason: "subscription_cycle");
+
+        (await PostWebhookAsync(client, FakePaymentService.InvoicePaidBody(stripeSubId)))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var (status, trialEndDate) = await _factory.GetUserSubscriptionTrialStateAsync(userId);
+        status.Should().Be(Domain.Enums.SubscriptionStatus.Active);
+        trialEndDate.Should().BeNull();
+
+        var (_, endDate, _) = await _factory.GetUserSubscriptionDetailsAsync(userId);
+        endDate.Should().NotBeNull();
+        endDate!.Value.Should().BeCloseTo(periodEnd, TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Duplicate_stripe_event_is_processed_once()
+    {
+        var (client, userId, _) = await CreateIndividualSubscriptionAsync("dup_event");
+        var stripeSubId = (await _factory.GetSubscriptionStripeIdAsync(userId))!;
+
+        var firstPeriodEnd = DateTime.UtcNow.AddDays(10);
+        var secondPeriodEnd = DateTime.UtcNow.AddDays(40);
+        const string eventId = "evt_duplicate_test";
+
+        _factory.FakePayments.QueueEvent("dup-first", new PaymentWebhookEvent(
+            "invoice.paid",
+            new Dictionary<string, string>(),
+            stripeSubId,
+            "cus_test",
+            CurrentPeriodEnd: firstPeriodEnd,
+            StripeEventId: eventId,
+            EventCreatedAt: DateTime.UtcNow,
+            AmountPaid: 1000,
+            BillingReason: "subscription_cycle"));
+
+        (await PostWebhookAsync(client, "dup-first")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Same Stripe event id delivered under a different body: must be skipped.
+        _factory.FakePayments.QueueEvent("dup-second", new PaymentWebhookEvent(
+            "invoice.paid",
+            new Dictionary<string, string>(),
+            stripeSubId,
+            "cus_test",
+            CurrentPeriodEnd: secondPeriodEnd,
+            StripeEventId: eventId,
+            EventCreatedAt: DateTime.UtcNow.AddSeconds(1),
+            AmountPaid: 1000,
+            BillingReason: "subscription_cycle"));
+
+        (await PostWebhookAsync(client, "dup-second")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var (_, endDate, _) = await _factory.GetUserSubscriptionDetailsAsync(userId);
+        endDate.Should().NotBeNull();
+        endDate!.Value.Should().BeCloseTo(firstPeriodEnd, TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Older_stripe_event_does_not_override_newer_state()
+    {
+        var (client, userId, _) = await CreateIndividualSubscriptionAsync("event_order");
+        var stripeSubId = (await _factory.GetSubscriptionStripeIdAsync(userId))!;
+
+        var newerPeriodEnd = DateTime.UtcNow.AddDays(20);
+        var now = DateTime.UtcNow;
+
+        _factory.FakePayments.QueueEvent("order-newer", new PaymentWebhookEvent(
+            "customer.subscription.updated",
+            new Dictionary<string, string>(),
+            stripeSubId,
+            "cus_test",
+            StripeStatus: "active",
+            CurrentPeriodEnd: newerPeriodEnd,
+            StripeEventId: "evt_order_newer",
+            EventCreatedAt: now,
+            CancelAtPeriodEnd: false));
+
+        (await PostWebhookAsync(client, "order-newer")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Delivered afterwards but created earlier: must be ignored.
+        _factory.FakePayments.QueueEvent("order-older", new PaymentWebhookEvent(
+            "customer.subscription.updated",
+            new Dictionary<string, string>(),
+            stripeSubId,
+            "cus_test",
+            StripeStatus: "active",
+            CurrentPeriodEnd: DateTime.UtcNow.AddDays(60),
+            StripeEventId: "evt_order_older",
+            EventCreatedAt: now.AddMinutes(-30),
+            CancelAtPeriodEnd: true));
+
+        (await PostWebhookAsync(client, "order-older")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var (status, endDate, cancelAtPeriodEnd) = await _factory.GetUserSubscriptionDetailsAsync(userId);
+        status.Should().Be(Domain.Enums.SubscriptionStatus.Active);
+        endDate.Should().NotBeNull();
+        endDate!.Value.Should().BeCloseTo(newerPeriodEnd, TimeSpan.FromSeconds(5));
+        cancelAtPeriodEnd.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Subscription_updated_revives_expired_row()
+    {
+        var (client, userId, _) = await CreateIndividualSubscriptionAsync("revive");
+        var stripeSubId = (await _factory.GetSubscriptionStripeIdAsync(userId))!;
+
+        await _factory.SetUserSubscriptionStatusAsync(userId, Domain.Enums.SubscriptionStatus.Expired);
+        await _factory.SetUserSubscriptionEndDateAsync(userId, DateTime.UtcNow.AddDays(-1));
+
+        var periodEnd = DateTime.UtcNow.AddDays(30);
+        _factory.FakePayments.QueueEvent("revive-updated", new PaymentWebhookEvent(
+            "customer.subscription.updated",
+            new Dictionary<string, string>(),
+            stripeSubId,
+            "cus_test",
+            StripeStatus: "active",
+            CurrentPeriodEnd: periodEnd,
+            StripeEventId: "evt_revive",
+            EventCreatedAt: DateTime.UtcNow,
+            CancelAtPeriodEnd: false));
+
+        (await PostWebhookAsync(client, "revive-updated")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var (status, endDate, _) = await _factory.GetUserSubscriptionDetailsAsync(userId);
+        status.Should().Be(Domain.Enums.SubscriptionStatus.Active);
+        endDate.Should().NotBeNull();
+        endDate!.Value.Should().BeCloseTo(periodEnd, TimeSpan.FromSeconds(5));
+
+        var hasActive = await (await client.GetAsync("/api/subscriptions/has-active")).ReadJsonAsync<HasActiveSubscriptionResponse>();
+        hasActive.HasActiveSubscription.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Paused_subscription_event_revokes_access()
+    {
+        var (client, userId, _) = await CreateIndividualSubscriptionAsync("paused");
+        var stripeSubId = (await _factory.GetSubscriptionStripeIdAsync(userId))!;
+
+        _factory.FakePayments.QueueEvent("paused-updated", new PaymentWebhookEvent(
+            "customer.subscription.paused",
+            new Dictionary<string, string>(),
+            stripeSubId,
+            "cus_test",
+            StripeStatus: "paused",
+            CurrentPeriodEnd: DateTime.UtcNow.AddDays(5),
+            StripeEventId: "evt_paused",
+            EventCreatedAt: DateTime.UtcNow));
+
+        (await PostWebhookAsync(client, "paused-updated")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var (status, _, _) = await _factory.GetUserSubscriptionDetailsAsync(userId);
+        status.Should().Be(Domain.Enums.SubscriptionStatus.Expired);
+
+        var hasActive = await (await client.GetAsync("/api/subscriptions/has-active")).ReadJsonAsync<HasActiveSubscriptionResponse>();
+        hasActive.HasActiveSubscription.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Reconcile_revives_recently_expired_row_when_stripe_is_active()
+    {
+        var (_, userId, _) = await CreateIndividualSubscriptionAsync("recon_revive");
+        var stripeSubId = (await _factory.GetSubscriptionStripeIdAsync(userId))!;
+
+        await _factory.SetUserSubscriptionStatusAsync(userId, Domain.Enums.SubscriptionStatus.Expired);
+        await _factory.SetUserSubscriptionEndDateAsync(userId, DateTime.UtcNow.AddHours(-1));
+
+        var periodEnd = DateTime.UtcNow.AddDays(20);
+        _factory.FakePayments.Snapshots[stripeSubId] = new SubscriptionSnapshot("active", periodEnd, null, false);
+
+        await _factory.ReconcileSubscriptionsAsync();
+
+        var (status, endDate, _) = await _factory.GetUserSubscriptionDetailsAsync(userId);
+        status.Should().Be(Domain.Enums.SubscriptionStatus.Active);
+        endDate.Should().NotBeNull();
+        endDate!.Value.Should().BeCloseTo(periodEnd, TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Active_subscription_inside_grace_window_still_has_access()
+    {
+        var (client, userId, _) = await CreateIndividualSubscriptionAsync("grace");
+
+        await _factory.SetUserSubscriptionActiveAsync(userId, cancelAtPeriodEnd: false);
+
+        await _factory.SetUserSubscriptionEndDateAsync(userId, DateTime.UtcNow.AddMinutes(-5));
+        (await client.GetAsync("/api/subscriptions/current")).StatusCode.Should().Be(HttpStatusCode.OK);
+        var hasActive = await (await client.GetAsync("/api/subscriptions/has-active")).ReadJsonAsync<HasActiveSubscriptionResponse>();
+        hasActive.HasActiveSubscription.Should().BeTrue();
+
+        // Outside the grace window access is gone.
+        await _factory.SetUserSubscriptionEndDateAsync(userId, DateTime.UtcNow.AddMinutes(-30));
+        (await client.GetAsync("/api/subscriptions/current")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        hasActive = await (await client.GetAsync("/api/subscriptions/has-active")).ReadJsonAsync<HasActiveSubscriptionResponse>();
+        hasActive.HasActiveSubscription.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Company_subscription_updated_syncs_period_end()
+    {
+        var (client, companyId) = await CreateCompanyAsync("cosync");
+        await _factory.SeedCompanySubscriptionAsync(companyId);
+        var stripeSubId = (await _factory.GetCompanySubscriptionStripeIdAsync(companyId))!;
+
+        var periodEnd = DateTime.UtcNow.AddDays(45);
+        _factory.FakePayments.QueueEvent("cosync-updated", new PaymentWebhookEvent(
+            "customer.subscription.updated",
+            new Dictionary<string, string>(),
+            stripeSubId,
+            "cus_test",
+            StripeStatus: "active",
+            CurrentPeriodEnd: periodEnd,
+            StripeEventId: "evt_cosync",
+            EventCreatedAt: DateTime.UtcNow,
+            CancelAtPeriodEnd: true));
+
+        (await PostWebhookAsync(client, "cosync-updated")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var (status, endDate, cancelAtPeriodEnd) = await _factory.GetCompanySubscriptionDetailsAsync(companyId);
+        status.Should().Be(Domain.Enums.SubscriptionStatus.Active);
+        endDate.Should().NotBeNull();
+        endDate!.Value.Should().BeCloseTo(periodEnd, TimeSpan.FromSeconds(5));
+        cancelAtPeriodEnd.Should().BeTrue();
+    }
+
+    private static async Task<HttpResponseMessage> PostWebhookAsync(HttpClient client, string body)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/subscriptions/stripe-webhook")
+        {
+            Content = new StringContent(body),
+        };
+        request.Headers.TryAddWithoutValidation("Stripe-Signature", "valid-test-signature");
+        return await client.SendAsync(request);
+    }
+
+    private async Task<(HttpClient Client, Guid UserId, Guid PlanId)> CreateIndividualSubscriptionAsync(string emailPrefix)
+    {
+        var client = CreateClient();
+        var email = $"{emailPrefix}_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+        var userId = await _factory.GetUserIdAsync(email);
+
+        var plans = await (await client.GetAsync("/api/subscriptions/plans?userType=0")).ReadJsonAsync<List<SubscriptionPlanResponse>>();
+        var plan = plans.First(p => p.UserType == UserType.Individual);
+
+        var checkout = await client.PostAsJsonAsync("/api/subscriptions/create-checkout",
+            new SubscribeRequest(plan.Id, BillingPeriod.Monthly, "http://localhost/ok", "http://localhost/cancel"));
+        var session = await checkout.ReadJsonAsync<CheckoutResponse>();
+        (await client.PostAsJsonAsync("/api/subscriptions/confirm", new ConfirmCheckoutRequest(session.SessionId)))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        return (client, userId, plan.Id);
+    }
+
+    private async Task<(HttpClient Client, Guid CompanyId)> CreateCompanyAsync(string namePrefix)
+    {
+        var client = CreateClient();
+        var email = $"{namePrefix}_{Guid.NewGuid():N}@example.com";
+        await client.RegisterAndLoginAsync(email);
+
+        var companyResp = await client.PostAsJsonAsync("/api/companies", new CreateCompanyRequest($"{namePrefix}-{Guid.NewGuid():N}"));
+        companyResp.EnsureSuccessStatusCode();
+        var company = await companyResp.ReadJsonAsync<CompanyResponse>();
+
+        return (client, company.Id);
     }
 
     [Fact]

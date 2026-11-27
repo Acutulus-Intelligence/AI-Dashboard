@@ -11,11 +11,26 @@ public sealed class FakePaymentService : IPaymentService
     private readonly ConcurrentDictionary<string, PaymentWebhookEvent> _subscriptionEvents = new();
     private readonly ConcurrentDictionary<string, Guid> _subscriptionOwners = new();
 
+    private DateTime _eventClock = DateTime.UtcNow.AddHours(-1);
+
+    private DateTime NextEventAt() => _eventClock = _eventClock.AddSeconds(1);
+
+    private static string NewEventId() => $"evt_{Guid.NewGuid():N}";
+
     public List<int> RecordedTrialDays { get; } = [];
 
     public List<string> ProratedCancels { get; } = [];
 
     public List<string> ReactivateFailures { get; } = [];
+
+    /// <summary>Queues an arbitrary event body, for idempotency/ordering tests.</summary>
+    public void QueueEvent(string body, PaymentWebhookEvent evt) => _subscriptionEvents[body] = evt;
+
+    public static string InvoicePaidBody(string stripeSubscriptionId) => $"invoice-paid:{stripeSubscriptionId}";
+
+    public static string SubscriptionUpdatedBody(string stripeSubscriptionId) => $"subscription-updated:{stripeSubscriptionId}";
+
+    public static string SubscriptionDeletedBody(string stripeSubscriptionId) => $"subscription-deleted:{stripeSubscriptionId}";
 
     public Task<CheckoutResponse> CreateCheckoutSessionAsync(
         string customerId,
@@ -105,42 +120,114 @@ public sealed class FakePaymentService : IPaymentService
         throw new InvalidOperationException("Unknown webhook session body.");
     }
 
-    public void QueueInvoicePaid(string stripeSubscriptionId)
+    public void QueueInvoicePaid(
+        string stripeSubscriptionId,
+        DateTime? currentPeriodEnd = null,
+        long? amountPaid = null,
+        string? billingReason = null,
+        string? eventId = null,
+        DateTime? eventCreatedAt = null)
     {
-        var key = $"invoice-paid:{stripeSubscriptionId}";
-        _subscriptionEvents[key] = new PaymentWebhookEvent(
+        _subscriptionEvents[InvoicePaidBody(stripeSubscriptionId)] = new PaymentWebhookEvent(
             "invoice.paid",
             new Dictionary<string, string>(),
             stripeSubscriptionId,
-            "cus_test");
+            "cus_test",
+            CurrentPeriodEnd: currentPeriodEnd,
+            StripeEventId: eventId ?? NewEventId(),
+            EventCreatedAt: eventCreatedAt ?? NextEventAt(),
+            AmountPaid: amountPaid,
+            BillingReason: billingReason);
     }
 
-    public void QueueSubscriptionUpdated(string stripeSubscriptionId, string status)
+    /// <summary>
+    /// Simulates an invoice.paid event from an older webhook API version, where the payload has
+    /// no subscription id at all.
+    /// </summary>
+    public void QueueInvoicePaidWithoutSubscription(string customerId = "cus_test")
     {
-        var key = $"subscription-updated:{stripeSubscriptionId}";
+        var key = $"invoice-paid-no-sub:{customerId}";
         _subscriptionEvents[key] = new PaymentWebhookEvent(
+            "invoice.paid",
+            new Dictionary<string, string>(),
+            null,
+            customerId,
+            StripeEventId: NewEventId(),
+            EventCreatedAt: NextEventAt());
+    }
+
+    public void QueueSubscriptionUpdated(
+        string stripeSubscriptionId,
+        string status,
+        DateTime? currentPeriodEnd = null,
+        bool? cancelAtPeriodEnd = null,
+        DateTime? trialEnd = null,
+        string? eventId = null,
+        DateTime? eventCreatedAt = null)
+    {
+        _subscriptionEvents[SubscriptionUpdatedBody(stripeSubscriptionId)] = new PaymentWebhookEvent(
             "customer.subscription.updated",
             new Dictionary<string, string>(),
             stripeSubscriptionId,
             "cus_test",
             null,
-            status);
+            status,
+            currentPeriodEnd,
+            trialEnd,
+            cancelAtPeriodEnd,
+            eventId ?? NewEventId(),
+            eventCreatedAt ?? NextEventAt());
     }
 
-    public void QueueSubscriptionDeleted(string stripeSubscriptionId)
+    public void QueueSubscriptionDeleted(
+        string stripeSubscriptionId,
+        string? eventId = null,
+        DateTime? eventCreatedAt = null)
     {
-        var key = $"subscription-deleted:{stripeSubscriptionId}";
-        _subscriptionEvents[key] = new PaymentWebhookEvent(
+        _subscriptionEvents[SubscriptionDeletedBody(stripeSubscriptionId)] = new PaymentWebhookEvent(
             "customer.subscription.deleted",
             new Dictionary<string, string>(),
             stripeSubscriptionId,
-            null);
+            null,
+            StripeEventId: eventId ?? NewEventId(),
+            EventCreatedAt: eventCreatedAt ?? NextEventAt());
+    }
+
+    /// <summary>
+    /// A subscription created outside the app (Stripe Dashboard or API) carries no metadata.
+    /// </summary>
+    public void QueueCheckoutWithoutMetadata(string body = "checkout-no-metadata")
+    {
+        _subscriptionEvents[body] = new PaymentWebhookEvent(
+            "checkout.session.completed",
+            new Dictionary<string, string>(),
+            $"sub_external_{Guid.NewGuid():N}",
+            "cus_external",
+            StripeEventId: NewEventId(),
+            EventCreatedAt: NextEventAt());
     }
 
     public List<(string StripeSubscriptionId, string PriceId, string ProrationBehavior)> PriceSwitches { get; } = [];
 
-    public Task CancelSubscriptionAtPeriodEndAsync(string stripeSubscriptionId, CancellationToken ct = default)
-        => Task.CompletedTask;
+    public List<string> CancelAtPeriodEndRequests { get; } = [];
+
+    /// <summary>Stripe subscriptions that no longer exist (resource_missing).</summary>
+    public HashSet<string> MissingSubscriptions { get; } = [];
+
+    /// <summary>Authoritative Stripe state used by the reconciliation sweep.</summary>
+    public ConcurrentDictionary<string, SubscriptionSnapshot> Snapshots { get; } = new();
+
+    public Task<bool> CancelSubscriptionAtPeriodEndAsync(string stripeSubscriptionId, CancellationToken ct = default)
+    {
+        CancelAtPeriodEndRequests.Add(stripeSubscriptionId);
+        return Task.FromResult(!MissingSubscriptions.Contains(stripeSubscriptionId));
+    }
+
+    public Task<SubscriptionSnapshot?> GetSubscriptionSnapshotAsync(string stripeSubscriptionId, CancellationToken ct = default)
+    {
+        Snapshots.TryGetValue(stripeSubscriptionId, out var snapshot);
+        return Task.FromResult(snapshot);
+    }
 
     public List<string> ImmediateCancelFailures { get; } = [];
 

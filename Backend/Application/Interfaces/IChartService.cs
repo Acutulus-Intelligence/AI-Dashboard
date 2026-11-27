@@ -9,6 +9,7 @@ public interface IChartService
     Task<List<ChartResponse>> GetChartsAsync(Guid userId, CancellationToken ct = default);
     Task<ChartDetailResponse> GetChartAsync(Guid id, Guid userId, CancellationToken ct = default);
     Task<ChartDetailResponse> UpdateChartAsync(Guid id, Guid userId, UpdateChartRequest request, CancellationToken ct = default);
+    Task<ChartDetailResponse> UpdateChartStyleAsync(Guid id, Guid userId, UpdateChartStyleRequest request, CancellationToken ct = default);
     Task DeleteChartAsync(Guid id, Guid userId, CancellationToken ct = default);
     Task MoveChartAsync(Guid id, Guid userId, Guid? folderId, CancellationToken ct = default);
     Task<ChartConfigResponse> ExecuteChartAsync(Guid id, Guid userId, bool forceRefresh = false, CancellationToken ct = default);

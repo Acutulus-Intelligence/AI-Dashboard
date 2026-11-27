@@ -2,6 +2,7 @@ using Application.DTos.Request;
 using Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Presentation.Middleware;
 
 namespace Presentation.Controllers;
@@ -13,10 +14,14 @@ namespace Presentation.Controllers;
 public class CollectionController : ControllerBase
 {
     private readonly ICollectionService _collectionService;
+    private readonly IChartRecommendationService _recommendationService;
 
-    public CollectionController(ICollectionService collectionService)
+    public CollectionController(
+        ICollectionService collectionService,
+        IChartRecommendationService recommendationService)
     {
         _collectionService = collectionService;
+        _recommendationService = recommendationService;
     }
 
     [HttpPost]
@@ -88,11 +93,21 @@ public class CollectionController : ControllerBase
     }
 
     [HttpPost("{id:guid}/files/{fileId:guid}/generate")]
+    [EnableRateLimiting("ai-generate")]
     public async Task<IActionResult> Generate(
         Guid id, Guid fileId, [FromBody] GenerateCollectionChartRequest request, CancellationToken ct)
     {
         var userId = GetUserId();
         var response = await _collectionService.GenerateChartAsync(id, fileId, userId, request, ct);
+        return Ok(response);
+    }
+
+    [HttpPost("{id:guid}/files/{fileId:guid}/recommend")]
+    [EnableRateLimiting("recommend")]
+    public async Task<IActionResult> Recommend(Guid id, Guid fileId, CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var response = await _recommendationService.RecommendForDatasetAsync(id, fileId, userId, ct);
         return Ok(response);
     }
 

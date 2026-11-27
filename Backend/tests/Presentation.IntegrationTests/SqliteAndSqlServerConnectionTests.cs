@@ -144,7 +144,7 @@ public sealed class SqliteAndSqlServerConnectionTests
     }
 
     [Fact]
-    public async Task Config_returns_stored_connection_string_verbatim()
+    public async Task Config_returns_masked_connection_string_without_password()
     {
         var client = CreateClient();
         var email = $"cfg_{Guid.NewGuid():N}@example.com";
@@ -161,8 +161,15 @@ public sealed class SqliteAndSqlServerConnectionTests
 
         var configResp = await client.GetAsync($"/api/connections/{connectionId}/config");
         configResp.StatusCode.Should().Be(HttpStatusCode.OK);
-        using var configDoc = JsonDocument.Parse(await configResp.Content.ReadAsStringAsync());
-        configDoc.RootElement.GetProperty("connectionString").GetString().Should().Be(_factory.ExternalConnectionString);
+        var body = await configResp.Content.ReadAsStringAsync();
+        body.Should().NotContain(_factory.ExternalPassword);
+
+        using var configDoc = JsonDocument.Parse(body);
+        configDoc.RootElement.GetProperty("passwordSet").GetBoolean().Should().BeTrue();
+        configDoc.RootElement.GetProperty("host").GetString().Should().Be(_factory.ExternalHost);
+        configDoc.RootElement.GetProperty("username").GetString().Should().Be(_factory.ExternalUsername);
+        configDoc.RootElement.GetProperty("maskedConnectionString").GetString()
+            .Should().Contain("Password=***");
 
         await client.DeleteAsync($"/api/connections/{connectionId}");
     }

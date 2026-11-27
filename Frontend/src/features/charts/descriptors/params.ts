@@ -42,6 +42,17 @@ export const showLabels: ParamSpec = {
   default: false,
 };
 
+export const topN: ParamSpec = {
+  kind: 'number',
+  key: 'topN',
+  label: 'Top categories',
+  default: 0,
+  min: 0,
+  max: 100,
+  step: 1,
+  help: '0 shows every category; the rest are grouped into Other.',
+};
+
 export const strokeWidth: ParamSpec = {
   kind: 'number',
   key: 'strokeWidth',
@@ -82,6 +93,43 @@ export const cornerRadius: ParamSpec = {
   min: 0,
   max: 16,
   step: 1,
+};
+
+export const showBrush: ParamSpec = {
+  kind: 'boolean',
+  key: 'showBrush',
+  label: 'Zoom brush',
+  default: false,
+  help: 'Adds a range slider under the chart.',
+};
+
+export const showReference: ParamSpec = {
+  kind: 'boolean',
+  key: 'showReference',
+  label: 'Reference line',
+  default: false,
+};
+
+export const referenceValue: ParamSpec = {
+  kind: 'number',
+  key: 'referenceValue',
+  label: 'Reference value',
+  default: 0,
+  min: -1_000_000_000,
+  max: 1_000_000_000,
+  step: 1,
+};
+
+export const colorBy: ParamSpec = {
+  kind: 'select',
+  key: 'colorBy',
+  label: 'Color by',
+  default: 'series',
+  options: [
+    { value: 'series', label: 'Series' },
+    { value: 'category', label: 'Category' },
+  ],
+  help: 'Category gives each bar its own colour. Best when there is one series.',
 };
 
 export const CARTESIAN_MARGIN = { top: 12, right: 12, left: 4, bottom: 4 };

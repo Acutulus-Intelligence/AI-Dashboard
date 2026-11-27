@@ -41,7 +41,14 @@ public class SaveChartRequestValidator : AbstractValidator<SaveChartRequest>
             .WithMessage("A chart must reference either a connection or a dataset, not both or neither.");
 
         RuleFor(x => x)
-            .Must(x => x.SqlQuery is { Length: > 0 } || x.DataModel is not null)
-            .WithMessage("A chart must include either a SQL query (connection) or a data model (dataset).");
+            .Must(x => x.ConnectionId.HasValue
+                ? !string.IsNullOrWhiteSpace(x.SqlQuery)
+                : x.SqlQuery is { Length: > 0 } || x.DataModel is not null)
+            .WithMessage("A connection chart needs a SQL query; a dataset chart needs a data model or SQL.");
+
+        RuleFor(x => x.DataModel)
+            .Null()
+            .When(x => x.ConnectionId.HasValue)
+            .WithMessage("A data model is only supported for dataset charts.");
     }
 }

@@ -46,7 +46,9 @@ export default function SubscriptionPage() {
   }
 
   useEffect(() => {
-    void loadSubscription();
+    void (async () => {
+      await loadSubscription();
+    })();
   }, []);
 
   usePolling({ onPoll: loadSubscription });

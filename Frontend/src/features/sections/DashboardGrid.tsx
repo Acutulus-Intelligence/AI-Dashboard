@@ -5,6 +5,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Download, FileQuestion, FileSpreadsheet, FileText, GripHorizontal, Info, MoreHorizontal, Pencil, PlusCircle, RefreshCw, Trash2, X, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import ChartRenderer from '../charts/ChartRenderer';
+import ChartQuickStylePopover from '../components/ChartQuickStylePopover';
 import DashboardRefreshBar, { type RefreshChartOption } from '../components/DashboardRefreshBar';
 import { useAuth } from '../store/useAuth';
 import { useDashboardPolling, DASHBOARD_REFRESH_INTERVAL_MS, type DashboardRefreshOutcome } from '../../hooks/useDashboardPolling';
@@ -28,8 +29,8 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { getDashboard, saveWidgets, updateDashboardSettings, updateWidgetRefreshSetting, WIDGET_TYPE, TEXT_VARIANT, TEXT_ALIGN_H, TEXT_ALIGN_V, normalizeTextVariant, normalizeTextHorizontalAlign, normalizeTextVerticalAlign, dashboardSaveErrorMessage, type TextVariant, type TextHorizontalAlign, type TextVerticalAlign, type DashboardWidgetItem } from '../../lib/api/dashboards';
-import { executeChart } from '../../lib/api/charts';
-import { transformResult } from '../charts/transform';
+import { executeChart, updateChartStyle } from '../../lib/api/charts';
+import { filterChartData, transformResult } from '../charts/transform';
 import { exportChartAsPng } from '../charts/exportChartImage';
 import {
   exportChartDataAsCsv,
@@ -64,6 +65,7 @@ interface ChartWidget {
   title: string;
   data?: ChartData;
   styleConfig?: ChartStyleConfig;
+  warnings?: string[];
   autoRefreshEnabled: boolean | null;
   dataVersion: number;
 }
@@ -210,6 +212,7 @@ async function addWidgetWithData(
     title: result.title,
     data,
     styleConfig: result.styleConfig ?? undefined,
+    warnings: result.warnings ?? undefined,
     autoRefreshEnabled: null,
     dataVersion: 0,
   }]);
@@ -393,6 +396,7 @@ async function loadDashboardState({
         title: dw.chartTitle ?? previous?.title ?? 'Chart',
         data: previous?.data,
         styleConfig: previous?.styleConfig,
+        warnings: previous?.warnings,
         autoRefreshEnabled: dw.autoRefreshEnabled ?? null,
         dataVersion: previous?.dataVersion ?? 0,
       };
@@ -421,6 +425,7 @@ async function loadDashboardState({
   const results = new Map<string, {
     data: ChartData;
     styleConfig?: ChartStyleConfig;
+    warnings?: string[];
     title: string;
     chartId: string;
     updatedAt: number;
@@ -452,6 +457,7 @@ async function loadDashboardState({
         results.set(widget.id, {
           data: transformResult(result),
           styleConfig: result.styleConfig ?? undefined,
+          warnings: result.warnings ?? undefined,
           title: result.title,
           chartId: result.chartType,
           updatedAt: Number.isFinite(parsedUpdatedAt) ? parsedUpdatedAt : Date.now(),
@@ -542,6 +548,8 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
   const [widgets, setWidgets] = useState<Widget[]>([]);
   const [layout, setLayout] = useState<LayoutItem[]>([]);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const [crossFilter, setCrossFilter] = useState<{ column: string; value: string } | null>(null);
+  const isTextEditing = (id: string) => editMode && editingTextId === id;
   const [loadState, setLoadState] = useState<DashboardLoadState>('loading');
   const [loadErrorMessage, setLoadErrorMessage] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
@@ -677,6 +685,7 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
                     ...item,
                     data: transformResult(result),
                     styleConfig: result.styleConfig ?? undefined,
+                    warnings: result.warnings ?? undefined,
                     title: result.title,
                     chartId: result.chartType,
                     dataVersion: item.dataVersion + 1,
@@ -770,15 +779,23 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
     };
   }, []);
 
-  useEffect(() => {
-    if (!editMode) setEditingTextId(null);
-  }, [editMode]);
-
   const applyDashboardState = useCallback((state: LoadDashboardResult) => {
     setWidgets(state.widgets);
     setLayout(state.layout);
     setChartRuntime(state.runtime);
     lastPersistHashRef.current = persistPayloadHash(state.widgets, state.layout);
+
+    // Drop a cross-filter whose value no longer exists in any chart result.
+    setCrossFilter((previous) => {
+      if (!previous) return previous;
+      const stillExists = state.widgets.some((widget) =>
+        widget.kind === 'chart'
+        && widget.data?.queryResult?.some(
+          (row) => String(row[previous.column] ?? '') === previous.value,
+        ),
+      );
+      return stillExists ? previous : null;
+    });
 
     if (state.succeeded > 0) {
       const updatedAt = state.mode === 'initial'
@@ -857,6 +874,7 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
         if (cancelled) return;
         onLoaded?.(state.name);
         setAutoRefreshEnabled(state.autoRefreshEnabled);
+        setCrossFilter(null);
         applyDashboardState(state);
         setLoadState('ready');
       })
@@ -997,6 +1015,58 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
     setLayout((prev) => prev.filter((item) => item.i !== id));
   }, []);
 
+  const applyPaletteToAll = useCallback(
+    async (palette: string) => {
+      const charts = widgets.filter(
+        (widget): widget is ChartWidget =>
+          widget.kind === 'chart' && Boolean(widget.savedChartId),
+      );
+      if (!charts.length) return;
+      if (
+        !window.confirm(
+          'Apply this palette to all charts? Per-chart colour overrides will be cleared.',
+        )
+      ) {
+        return;
+      }
+
+      const results = await Promise.allSettled(
+        charts.map((widget) =>
+          updateChartStyle(widget.savedChartId, {
+            ...widget.styleConfig,
+            palette,
+            colors: undefined,
+            colorsByKey: undefined,
+          }).then((detail) => ({ id: widget.savedChartId, style: detail.styleConfig ?? null })),
+        ),
+      );
+
+      const updated = new Map<string, ChartStyleConfig | null>();
+      for (const result of results) {
+        if (result.status === 'fulfilled') updated.set(result.value.id, result.value.style);
+      }
+
+      setWidgets((prev) =>
+        prev.map((widget) => {
+          if (widget.kind !== 'chart' || !widget.savedChartId) return widget;
+          return updated.has(widget.savedChartId)
+            ? { ...widget, styleConfig: updated.get(widget.savedChartId) ?? undefined }
+            : widget;
+        }),
+      );
+
+      const failed = results.length - updated.size;
+      if (failed > 0) {
+        toast.warning(
+          `Palette applied to ${updated.size} chart${updated.size === 1 ? '' : 's'}; ${failed} failed.`,
+        );
+      } else {
+        toast.success(`Palette applied to all ${updated.size} charts.`);
+      }
+    },
+    [widgets],
+  );
+
   const handleDownloadChart = useCallback(async (widget: ChartWidget) => {
     try {
       await exportChartAsPng(chartNodeRefs.current.get(widget.id), widget.title);
@@ -1005,19 +1075,21 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
     }
   }, []);
 
-  const handleDownloadCsv = useCallback(async (widget: ChartWidget) => {
-    if (!widget.data) return;
+  const handleDownloadCsv = useCallback(async (widget: ChartWidget, data?: ChartData) => {
+    const source = data ?? widget.data;
+    if (!source) return;
     try {
-      await exportChartDataAsCsv(widget.data, widget.chartId, widget.title, widget.styleConfig);
+      await exportChartDataAsCsv(source, widget.chartId, widget.title, widget.styleConfig);
     } catch {
       toast.error('Could not save the chart data.');
     }
   }, []);
 
-  const handleDownloadExcel = useCallback(async (widget: ChartWidget) => {
-    if (!widget.data) return;
+  const handleDownloadExcel = useCallback(async (widget: ChartWidget, data?: ChartData) => {
+    const source = data ?? widget.data;
+    if (!source) return;
     try {
-      await exportChartDataAsExcel(widget.data, widget.chartId, widget.title, widget.styleConfig);
+      await exportChartDataAsExcel(source, widget.chartId, widget.title, widget.styleConfig);
     } catch {
       toast.error('Could not save the chart data.');
     }
@@ -1310,6 +1382,23 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
         `}</style>
       )}
 
+      {crossFilter && (
+        <div className="bg-muted/60 mb-2 flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs">
+          <span className="text-muted-foreground">Filter</span>
+          <span className="font-medium">{crossFilter.column}</span>
+          <span>=</span>
+          <span className="font-medium">{crossFilter.value}</span>
+          <button
+            type="button"
+            onClick={() => setCrossFilter(null)}
+            className="text-muted-foreground hover:text-foreground ml-auto inline-flex size-5 cursor-pointer items-center justify-center rounded-md"
+            aria-label="Clear filter"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      )}
+
       <GridLayout
         layout={layout}
         cols={COLS}
@@ -1354,7 +1443,7 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
                     horizontalAlign={widget.textHorizontalAlign}
                     verticalAlign={widget.textVerticalAlign}
                     editMode={editMode}
-                    isEditing={editingTextId === widget.id}
+                    isEditing={isTextEditing(widget.id)}
                     onStartEdit={() => setEditingTextId(widget.id)}
                     onStopEdit={() => setEditingTextId(null)}
                     onChange={(content) => handleTextChange(widget.id, content)}
@@ -1388,9 +1477,17 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
             );
           }
 
-          const widgetHasExportData = widget.data
-            ? chartHasExportData(widget.data, widget.chartId, widget.styleConfig)
+          const displayData =
+            crossFilter && widget.data
+              ? filterChartData(widget.data, crossFilter.column, crossFilter.value)
+              : widget.data;
+          const widgetHasExportData = displayData
+            ? chartHasExportData(displayData, widget.chartId, widget.styleConfig)
             : false;
+          const noFilterRows =
+            Boolean(crossFilter)
+            && Boolean(displayData)
+            && (displayData?.queryResult?.length ?? 0) === 0;
           const runtime = chartRuntime[widget.id];
           const chartIsRefreshing = runtime?.status === 'refreshing';
 
@@ -1451,6 +1548,29 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
                       </Tooltip>
                     )}
 
+                    {widget.warnings?.length ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            className="text-amber-600 hover:text-amber-500 nodrag inline-flex size-7 cursor-pointer items-center justify-center rounded-md"
+                            aria-label="Chart warnings"
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <AlertTriangle className="size-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="max-w-xs text-left">
+                          <ul className="list-disc pl-4">
+                            {widget.warnings.map((warning) => (
+                              <li key={warning}>{warning}</li>
+                            ))}
+                          </ul>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : null}
+
                     {widget.styleConfig?.info?.trim() && (
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -1468,6 +1588,25 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
                           {widget.styleConfig.info}
                         </TooltipContent>
                       </Tooltip>
+                    )}
+
+                    {widget.savedChartId && (
+                      <ChartQuickStylePopover
+                        chartId={widget.savedChartId}
+                        chartType={widget.chartId}
+                        data={displayData}
+                        styleConfig={widget.styleConfig}
+                        onSaved={(style) =>
+                          setWidgets((prev) =>
+                            prev.map((item) =>
+                              item.id === widget.id && item.kind === 'chart'
+                                ? { ...item, styleConfig: style ?? undefined }
+                                : item,
+                            ),
+                          )
+                        }
+                        onApplyPalette={applyPaletteToAll}
+                      />
                     )}
 
                     {(widget.chartId !== 'map' || widgetHasExportData) && (
@@ -1492,14 +1631,14 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
                           )}
                           <DropdownMenuItem
                             disabled={!widgetHasExportData}
-                            onSelect={() => void handleDownloadCsv(widget)}
+                            onSelect={() => void handleDownloadCsv(widget, displayData)}
                           >
                             <FileText />
                             Download CSV
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             disabled={!widgetHasExportData}
-                            onSelect={() => void handleDownloadExcel(widget)}
+                            onSelect={() => void handleDownloadExcel(widget, displayData)}
                           >
                             <FileSpreadsheet />
                             Download Excel
@@ -1550,12 +1689,31 @@ const DashboardGrid = forwardRef<DashboardGridHandle, DashboardGridProps>(functi
                       else chartNodeRefs.current.delete(widget.id);
                     }}
                   >
-                    <ChartRenderer
-                      key={`${widget.id}-${widget.dataVersion}`}
-                      chartId={widget.chartId}
-                      data={widget.data}
-                      styleConfig={widget.styleConfig}
-                    />
+                    {noFilterRows ? (
+                      <div className="text-muted-foreground flex h-full items-center justify-center px-4 text-center text-sm">
+                        No rows match the active filter.
+                      </div>
+                    ) : (
+                      <ChartRenderer
+                        key={`${widget.id}-${widget.dataVersion}`}
+                        chartId={widget.chartId}
+                        data={displayData}
+                        styleConfig={widget.styleConfig}
+                        onCategoryClick={
+                          editMode || !widget.data?.xAxis
+                            ? undefined
+                            : (category) => {
+                                const column = widget.data?.xAxis;
+                                if (!column) return;
+                                setCrossFilter((prev) =>
+                                  prev?.column === column && prev.value === category
+                                    ? null
+                                    : { column, value: category },
+                                );
+                              }
+                        }
+                      />
+                    )}
                   </div>
                 </CardContent>
               </Card>

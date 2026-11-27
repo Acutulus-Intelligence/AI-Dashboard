@@ -72,7 +72,9 @@ export default function AdminPage() {
   }
 
   useEffect(() => {
-    void loadData();
+    void (async () => {
+      await loadData();
+    })();
   }, []);
 
   usePolling({ onPoll: loadData });

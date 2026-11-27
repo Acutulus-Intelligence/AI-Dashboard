@@ -44,28 +44,28 @@ export default function TransferDashboardDialog({
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setMembers([]);
-    setSelectedId(null);
-    setPassword('');
-    setRequiresSharing(null);
 
-    companyApi
-      .getMyCompany()
-      .then((company) => companyApi.getCompanyUsers(company.id))
-      .then((users) => {
+    void (async () => {
+      setLoading(true);
+      setError(null);
+      setMembers([]);
+      setSelectedId(null);
+      setPassword('');
+      setRequiresSharing(null);
+
+      try {
+        const company = await companyApi.getMyCompany();
+        const users = await companyApi.getCompanyUsers(company.id);
         if (cancelled) return;
         setMembers(users.filter((u) => u.id !== user?.userId));
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) {
           setError('Transfers are available between members of the same company only.');
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;

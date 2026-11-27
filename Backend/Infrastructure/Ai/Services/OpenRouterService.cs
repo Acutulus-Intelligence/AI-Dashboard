@@ -101,19 +101,40 @@ public class OpenRouterService : IAiService
         string schemaJson,
         string prompt,
         string? prefabChartType = null,
+        string? currentChartJson = null,
         IReadOnlyList<string>? allowedColors = null,
         string? repairHint = null,
         CancellationToken ct = default)
     {
+        var isRefine = !string.IsNullOrWhiteSpace(currentChartJson);
         var systemPrompt = AiChartPromptBuilder.BuildCollectionSystemPrompt(
-            schemaJson, prefabChartType, allowedColors);
-        var config = (await SendChatAsync(systemPrompt, AiChartPromptBuilder.AppendRepairHint(prompt, repairHint), ct)).Config;
+            schemaJson, prefabChartType, allowedColors, currentChartJson);
+        var userContent = isRefine
+            ? AiChartPromptBuilder.BuildCollectionRefineUserPrompt(prompt, currentChartJson!)
+            : prompt;
+        userContent = AiChartPromptBuilder.AppendRepairHint(userContent, repairHint);
 
-        if (string.IsNullOrEmpty(config.ChartType) || config.DataModel is null)
+        var config = (await SendChatAsync(systemPrompt, userContent, ct)).Config;
+
+        // A style-only refine may omit chartType and dataModel; the merge fills
+        // them from the baseline. A first generation must provide both.
+        if (!isRefine && (string.IsNullOrEmpty(config.ChartType) || config.DataModel is null))
             throw new InvalidOperationException("AI response is missing required fields (chartType, dataModel).");
 
+        if (!string.IsNullOrEmpty(config.ChartType) && !ChartCatalog.IsKnownType(config.ChartType))
+        {
+            throw new InvalidOperationException(
+                $"AI returned unsupported chart type '{config.ChartType}'. " +
+                $"Supported types: {string.Join(", ", ChartCatalog.TypeIds)}.");
+        }
+
+        if (!string.IsNullOrEmpty(config.ChartType))
+        {
+            config.StyleConfig = ChartStyleSanitizer.Sanitize(config.StyleConfig, config.ChartType);
+        }
+
         config.SqlQuery = string.Empty;
-        return FinalizeConfig(config);
+        return config;
     }
 
     /// <summary>
@@ -212,25 +233,6 @@ public class OpenRouterService : IAiService
         }
 
         return new AiChatOutcome(config, json, finishReason);
-    }
-
-    private AiChartConfig FinalizeConfig(AiChartConfig config)
-    {
-        if (!ChartCatalog.IsKnownType(config.ChartType))
-            throw new InvalidOperationException(
-                $"AI returned unsupported chart type '{config.ChartType}'. " +
-                $"Supported types: {string.Join(", ", ChartCatalog.TypeIds)}.");
-
-        // Models routinely invent variants and parameters, so keep only what the
-        // catalog actually describes rather than trusting the response.
-        config.StyleConfig = ChartStyleSanitizer.Sanitize(config.StyleConfig, config.ChartType);
-
-        _logger.LogInformation(
-            "AI chart config generated: chartType={ChartType}, sqlLength={SqlLength}",
-            config.ChartType,
-            config.SqlQuery?.Length ?? 0);
-
-        return config;
     }
 
     /// <summary>

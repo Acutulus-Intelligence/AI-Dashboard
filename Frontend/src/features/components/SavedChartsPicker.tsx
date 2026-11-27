@@ -28,11 +28,23 @@ export default function SavedChartsPicker({ open, onClose, onSelect }: SavedChar
 
   useEffect(() => {
     if (!open) return;
-    setLoading(true);
-    getCharts()
-      .then(setCharts)
-      .catch(() => setCharts([]))
-      .finally(() => setLoading(false));
+    let cancelled = false;
+
+    void (async () => {
+      setLoading(true);
+      try {
+        const list = await getCharts();
+        if (!cancelled) setCharts(list);
+      } catch {
+        if (!cancelled) setCharts([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
   return (

@@ -19,6 +19,14 @@ public sealed class ChartStyleConfig
     [JsonPropertyName("colors")]
     public List<string>? Colors { get; set; }
 
+    /// <summary>
+    /// Colour overrides keyed by series or category name. Preferred over the
+    /// positional <see cref="Colors"/> list so a colour follows its category even
+    /// when rows are sorted or grouped differently.
+    /// </summary>
+    [JsonPropertyName("colorsByKey")]
+    public Dictionary<string, string>? ColorsByKey { get; set; }
+
     [JsonPropertyName("params")]
     public Dictionary<string, JsonElement>? Params { get; set; }
 
@@ -53,4 +61,15 @@ public sealed class ChartStyleConfig
     /// </summary>
     [JsonPropertyName("decimalMode")]
     public string? DecimalMode { get; set; }
+
+    /// <summary>
+    /// How large numbers are abbreviated: <c>auto</c> (default), <c>full</c>, or
+    /// <c>compact</c>. Null keeps the historical auto behaviour.
+    /// </summary>
+    [JsonPropertyName("notation")]
+    public string? Notation { get; set; }
+
+    /// <summary>Style schema version, so future migrations can read old configs safely.</summary>
+    [JsonPropertyName("schemaVersion")]
+    public int? SchemaVersion { get; set; }
 }
