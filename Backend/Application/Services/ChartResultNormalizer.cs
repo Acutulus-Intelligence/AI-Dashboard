@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using Domain.Charts;
 using Domain.Models;
 
@@ -138,7 +139,15 @@ public static class ChartResultNormalizer
     }
 
     private static bool HasValue(IReadOnlyList<Dictionary<string, object?>> rows, string key) =>
-        rows.Take(SampleSize).Any(r => r.TryGetValue(key, out var value) && value is not null);
+        rows.Take(SampleSize).Any(r => r.TryGetValue(key, out var value) && !IsNullValue(value));
+
+    /// <summary>
+    /// A missing value. Rows that round-trip through the chart result cache are
+    /// deserialized by System.Text.Json, which represents SQL NULL as a
+    /// JsonElement with ValueKind.Null instead of a CLR null.
+    /// </summary>
+    public static bool IsNullValue(object? value) =>
+        value is null || value is JsonElement { ValueKind: JsonValueKind.Null or JsonValueKind.Undefined };
 
     public static bool IsNumericColumn(IReadOnlyList<Dictionary<string, object?>> rows, string key)
     {
@@ -147,7 +156,7 @@ public static class ChartResultNormalizer
 
         foreach (var row in rows.Take(SampleSize))
         {
-            if (!row.TryGetValue(key, out var value) || value is null)
+            if (!row.TryGetValue(key, out var value) || IsNullValue(value))
                 continue;
 
             sampled++;
@@ -184,6 +193,30 @@ public static class ChartResultNormalizer
                 or float or double or decimal:
                 number = Convert.ToDouble(value, CultureInfo.InvariantCulture);
                 return !double.IsNaN(number) && !double.IsInfinity(number);
+
+            // Cached chart rows come back from System.Text.Json as JsonElement
+            // values, not CLR primitives. Treat them like their native types so
+            // a cached numeric measure is not dropped as non-numeric.
+            case JsonElement { ValueKind: JsonValueKind.Number } element:
+                if (element.TryGetDecimal(out var decimalNumber))
+                {
+                    number = (double)decimalNumber;
+                    return true;
+                }
+
+                if (element.TryGetDouble(out var doubleNumber)
+                    && !double.IsNaN(doubleNumber)
+                    && !double.IsInfinity(doubleNumber))
+                {
+                    number = doubleNumber;
+                    return true;
+                }
+
+                number = 0;
+                return false;
+
+            case JsonElement { ValueKind: JsonValueKind.String } element:
+                return TryGetNumber(element.GetString(), out number);
 
             case string text when !string.IsNullOrWhiteSpace(text)
                 && decimal.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed):

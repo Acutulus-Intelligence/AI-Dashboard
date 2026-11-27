@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Application.Services;
 using Domain.Models;
 using FluentAssertions;
@@ -24,6 +25,12 @@ public class ChartResultNormalizerTests
             row[key] = value;
         return row;
     }
+
+    /// <summary>
+    /// Mirrors a chart result that has round-tripped through the JSON cache:
+    /// every cell value is deserialized as a JsonElement.
+    /// </summary>
+    private static JsonElement Json(string raw) => JsonDocument.Parse(raw).RootElement.Clone();
 
     [Fact]
     public void Axes_are_mapped_to_the_result_columns_case_insensitively()
@@ -208,5 +215,48 @@ public class ChartResultNormalizerTests
         ChartResultNormalizer.Normalize(config, rows);
 
         config.XAxis.Should().Be("label");
+    }
+
+    [Fact]
+    public void Json_element_numbers_from_the_cache_count_as_numeric()
+    {
+        // Redis-cached chart rows deserialize every value as JsonElement.
+        var config = Config(xAxis: "stage", yAxis: ["users"]);
+        var notes = new List<string>();
+        var rows = new List<Dictionary<string, object?>>
+        {
+            Row(("stage", Json("\"Visitors\"")), ("users", Json("10000"))),
+            Row(("stage", Json("\"Paid\"")), ("users", Json("620"))),
+        };
+
+        ChartResultNormalizer.Normalize(config, rows, notes).Should().BeTrue();
+
+        config.ChartType.Should().Be("bar");
+        config.YAxis.Should().Equal("users");
+        notes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Json_element_string_numbers_count_as_numeric()
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            Row(("amount", Json("\"12.5\""))),
+        };
+
+        ChartResultNormalizer.IsNumericColumn(rows, "amount").Should().BeTrue();
+    }
+
+    [Fact]
+    public void Json_element_null_values_are_ignored_when_sampling()
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            Row(("amount", Json("10"))),
+            Row(("amount", Json("null"))),
+            Row(("amount", Json("null"))),
+        };
+
+        ChartResultNormalizer.IsNumericColumn(rows, "amount").Should().BeTrue();
     }
 }
